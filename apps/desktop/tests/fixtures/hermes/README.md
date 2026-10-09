@@ -11,6 +11,13 @@ mêmes clés de premier niveau, mêmes sous-clés pour `hermes`, `openrpc`, `gre
 Sa forme est comparée à celle que sert l'image de test par le bout en bout local de la
 station (voir « Forme vérifiée sur l'image » plus bas).
 
+Étape P8b (seconde relecture, constat desktop-8) : la clé `accueil` (vrai) est celle que pose
+le greffon de l'étape P7 (`meta.py`, commit `00bc069`, le même que `/v1/accueil`, la relance,
+« qui répond » et la clôture) ; sans elle, la station ne lit ni n'offre rien de ces routes.
+La clé `flux` (étape P7 aussi) n'y figure pas : les tests qui ouvrent le flux d'invalidation
+l'ajoutent eux-mêmes. Le bout en bout du § « Forme vérifiée sur l'image » date de P8 : il n'a
+pas été rejoué avec la clé `accueil`.
+
 ## Documents des pages de pilotage
 
 Les fichiers suivants sont une conversion MÉCANIQUE en JSON des réponses que les tests de
@@ -21,7 +28,8 @@ l'interface web utilisent déjà (même dépôt, aucune valeur retouchée par la
 | `projets-vide.json` | `apps/interface/tests/fixtures-projets.ts`, `LISTE_VIDE` | `GET /v1/projets` |
 | `projets.json` | `fixtures-projets.ts`, `LISTE` | `GET /v1/projets` |
 | `projet-detail.json` | `fixtures-projets.ts`, `DETAIL` | `GET /v1/projets/{id}` |
-| `questions.json` | `fixtures-projets.ts`, `QUESTIONS` | `GET /v1/questions` |
+| `questions.json` | `fixtures-projets.ts`, `QUESTIONS` (forme de l'étape P7 : `chez`, `relancable`, `revues`, `discussions`, `compteurs`) | `GET /v1/questions` |
+| `arretee-relancable.json` | `fixtures-projets.ts`, `ARRETEE_RELANCABLE` | entrée `bloquees` de `GET /v1/questions` (étape P7) |
 | `poste-vide.json`, `poste-releve.json` | `fixtures-projets.ts`, `POSTE_VIDE`, `POSTE_RELEVE` | `GET /v1/poste` (forme de l'étape P4 : `poste` et `catalogue` seulement) |
 | `catalogue-profils.json` | `fixtures-projets.ts`, `CATALOGUE_PROFILS` | `GET /v1/catalogue` |
 | `lancement.json` | `fixtures-projets.ts`, `LANCEMENT` | `POST /v1/projets` |

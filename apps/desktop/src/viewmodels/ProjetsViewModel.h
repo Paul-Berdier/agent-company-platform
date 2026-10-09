@@ -5,6 +5,13 @@
 // changement du tableau déclenche alors une relecture (EventStreamService, VeilleKanban).
 // Résumé d'une carte en entier : `GET /v1/projets/{id}/cartes/{carte}`.
 //
+// Gestes de l'étape P7 dans le détail, comme la page web (DetailProjet.tsx) : « Changer qui
+// répond » (`POST /v1/projets/{id}/reponses`, projet sur dépôt pas encore fini ; vaut pour les
+// questions SUIVANTES) et « Clore le projet » (`POST /v1/projets/{id}/clore {"confirmation": true}`,
+// projet actif ou en pause, après la confirmation de la page qui dit ses quatre effets). Le
+// résultat vient de la réponse du greffon (questions qui gardent leur traitement ; état atteint,
+// cartes archivées, questions annulées, branches restées sur l'exécutant).
+//
 // Nouveau projet : mêmes champs, mêmes listes et mêmes contrôles que la page web
 // (apps/interface/src/projets/NouveauProjet.tsx), lus des mêmes routes (`/v1/catalogue`,
 // `/v1/poste`) ; aucun profil, dépôt, exécutant, modèle ou effort qui ne vienne du serveur.
@@ -103,6 +110,10 @@ public:
     Q_INVOKABLE void fermerCarteLue();
     Q_INVOKABLE void mettreEnPause();
     Q_INVOKABLE void reprendre();
+    /*! « Changer qui répond » : `hermes_d_abord` ou `proprietaire`, pour les questions suivantes. */
+    Q_INVOKABLE void changerReponses(const QString &reponses);
+    /*! « Clore le projet », après la confirmation de la page. */
+    Q_INVOKABLE void clore();
     /*! Ouvre le kanban de Hermes (`/kanban`) dans le navigateur du système. */
     Q_INVOKABLE bool ouvrirKanban();
 
@@ -116,14 +127,29 @@ public:
 
     // --- Fonctions pures (tests) ------------------------------------------------------------
     [[nodiscard]] static QJsonObject construireLigneProjet(const QJsonObject &projet);
-    [[nodiscard]] static QVariantMap construireDetail(const QJsonObject &projet);
+    /*!
+        Détail d'un projet. `etapeP7` (EventStreamService::etapeP7) : « Qui répond » et « Clore le
+        projet » ne sont offerts que sur l'annonce de /v1/meta ; sinon `gestesP7` dit pourquoi
+        (seconde relecture de P8b, constat desktop-8).
+    */
+    [[nodiscard]] static QVariantMap construireDetail(const QJsonObject &projet, const QString &etapeP7);
     [[nodiscard]] static QJsonArray construireCartes(const QJsonArray &cartes);
     [[nodiscard]] static QJsonArray construireJournal(const QJsonArray &journal);
+    /*! Message d'un réglage « qui répond » enregistré, d'après la réponse du greffon. */
+    [[nodiscard]] static QString messageReglageReponses(const QJsonObject &resultat);
+    /*! Message d'une clôture, d'après la réponse du greffon. */
+    [[nodiscard]] static QString messageCloture(const QJsonObject &resultat);
     [[nodiscard]] static QStringList voiesRelevees(const QJsonObject &cataloguePoste);
     /*! Dépôts autorisés lus dans les relevés ; nul si le poste n'a publié AUCUN relevé. */
     [[nodiscard]] static std::optional<QStringList> depotsConnus(const QJsonObject &cataloguePoste);
     [[nodiscard]] static QStringList effortsAdmis(const QJsonObject &voie, const QString &modele,
                                                   const QStringList &interdits);
+    /*!
+        Étape P7 : voies fermées pour `depot` d'après le greffon (`executant.depots[].voies_fermees`
+        de `/v1/poste`, raison française) ; aucun dépôt choisi ou dépôt inconnu de la vue : aucune
+        fermeture dite ici (le greffon refuse de toute façon un choix fermé).
+    */
+    [[nodiscard]] static QJsonObject voiesFermeesPourDepot(const QJsonObject &vuePoste, const QString &depot);
 
 signals:
     void vueChange();
@@ -133,6 +159,10 @@ signals:
     void lectureChange();
     void veilleChange();
     void formulaireChange();
+    /*! Le réglage « qui répond » est enregistré par le greffon : le formulaire se ferme. */
+    void reglageReponsesEnregistre();
+    /*! Le greffon a clos le projet : la confirmation se ferme. */
+    void clotureFaite();
 
 protected:
     void surActivite(bool actif) override;
@@ -170,6 +200,7 @@ private:
     QString m_tableauOuvert;
     QString m_etatProjet;
     bool m_detailLu = false;
+    QJsonObject m_dernierProjet; //!< projet lu, pour refaire le détail quand l'étape P7 change
     QVariantMap m_detail;
     QVariantMap m_carteLue;
     quint64 m_generationDetail = 0;

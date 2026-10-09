@@ -10,6 +10,7 @@
 #include "api/ClientGreffonPoste.h"
 #include "app/BuildConfig.h"
 #include "events/EventStreamService.h"
+#include "events/FluxInvalidation.h"
 #include "services/CompatibiliteHermes.h"
 #include "support/FauxHermes.h"
 #include "viewmodels/QuestionsViewModel.h"
@@ -91,8 +92,10 @@ private slots:
     void alertesComptees();
     void executantDetecteSansSupposition();
     void fluxDuGreffonDitCeQueLeServeurAnnonce();
+    void etapeP7DetecteeSansSuppositionEtAppliqueeAuClient();
     void lectureContreLeFauxHermes();
     void greffonAbsentSur404();
+    void injoignableGardeLeDernierVerdictLu();
 };
 
 void TestCompatibiliteHermes::referenceConforme()
@@ -305,20 +308,69 @@ void TestCompatibiliteHermes::fluxDuGreffonDitCeQueLeServeurAnnonce()
         {QStringLiteral("chemin"), QStringLiteral("/api/plugins/acp-poste/v1/flux")}, {QStringLiteral("version"), 1},
         {QStringLiteral("sujets"), QJsonArray{QStringLiteral("projets"), QStringLiteral("questions")}},
         {QStringLiteral("battement_s"), 15}, {QStringLiteral("duree_max_s"), 600}});
-    QCOMPARE(CompatibiliteHermes::evaluer(meta).etatFlux, QStringLiteral("annonce"));
+    const auto annonce = CompatibiliteHermes::evaluer(meta);
+    QCOMPARE(annonce.etatFlux, QStringLiteral("annonce"));
+    QCOMPARE(annonce.annonceFlux.value(QStringLiteral("chemin")).toString(), QStringLiteral("/api/plugins/acp-poste/v1/flux"));
+    // Étape P8b : l'annonce de chemin et de version attendus ouvre le flux ; toute autre le dit, jamais deviné.
+    QCOMPARE(FluxInvalidation::raisonAnnonce(annonce.etatFlux, annonce.annonceFlux), QString());
     meta.insert(QStringLiteral("flux"), QStringLiteral("oui"));
-    QCOMPARE(CompatibiliteHermes::evaluer(meta).etatFlux, QStringLiteral("illisible"));
+    const auto illisible = CompatibiliteHermes::evaluer(meta);
+    QCOMPARE(illisible.etatFlux, QStringLiteral("illisible"));
+    QVERIFY(illisible.annonceFlux.isEmpty());
     QCOMPARE(CompatibiliteHermes::Evaluation{}.etatFlux, QStringLiteral("inconnu"));
-    // Ce que le diagnostic en dit : jamais « n'annonce aucun flux » devant une annonce, ni une étape à venir.
-    QVERIFY(EventStreamService::etatFluxGreffon(QStringLiteral("annonce"))
-                .startsWith(QStringLiteral("Annoncé par le serveur ; non utilisé par cette station")));
-    QVERIFY(EventStreamService::etatFluxGreffon(QStringLiteral("absent"))
-                .startsWith(QStringLiteral("Non disponible sur ce serveur")));
-    QVERIFY(EventStreamService::etatFluxGreffon(QStringLiteral("inconnu")).startsWith(QStringLiteral("Inconnu")));
+    QCOMPARE(FluxInvalidation::raisonAnnonce(QStringLiteral("absent"), {}),
+             QStringLiteral("le greffon acp-poste n'annonce aucun flux d'invalidation (/v1/meta)"));
+    QCOMPARE(FluxInvalidation::raisonAnnonce(QStringLiteral("inconnu"), {}), QStringLiteral("/v1/meta n'a pas encore été lu"));
     for (const QString &etat : {QStringLiteral("annonce"), QStringLiteral("absent"), QStringLiteral("illisible"),
                                 QStringLiteral("inconnu")}) {
-        QVERIFY(!EventStreamService::etatFluxGreffon(etat).contains(QStringLiteral("étape P7")));
+        QVERIFY(!FluxInvalidation::raisonAnnonce(etat, {}).contains(QStringLiteral("étape P7")));
     }
+}
+
+// Seconde relecture de P8b (constat desktop-8) : la clé `accueil` de /v1/meta, posée par le greffon de P7 dans le même
+// commit (00bc069) que /v1/accueil, la relance, « qui répond » et la clôture, n'était jamais lue. Elle se lit sans
+// supposition, et le verdict APPLIQUÉ la pose sur le client du greffon (comme le blocage).
+void TestCompatibiliteHermes::etapeP7DetecteeSansSuppositionEtAppliqueeAuClient()
+{
+    QCOMPARE(CompatibiliteHermes::evaluer(metaDeReference()).etatEtapeP7, QStringLiteral("annonce")); // forme de P7
+    QJsonObject meta = metaDeReference();
+    meta.remove(QStringLiteral("accueil")); // greffon de P5 ou P6 : même contrat acp-poste/1, verdict « Compatible »
+    const auto p6 = CompatibiliteHermes::evaluer(meta);
+    QCOMPARE(p6.etatEtapeP7, QStringLiteral("absent"));
+    QCOMPARE(p6.etat, CompatibilityStatus::Compatible);
+    meta.insert(QStringLiteral("accueil"), false);
+    QCOMPARE(CompatibiliteHermes::evaluer(meta).etatEtapeP7, QStringLiteral("absent"));
+    for (const QJsonValue &illisible : {QJsonValue(QStringLiteral("oui")), QJsonValue(1), QJsonValue(QJsonValue::Null),
+                                        QJsonValue(QJsonObject{})}) {
+        meta.insert(QStringLiteral("accueil"), illisible);
+        QCOMPARE(CompatibiliteHermes::evaluer(meta).etatEtapeP7, QStringLiteral("illisible"));
+    }
+    QCOMPARE(CompatibiliteHermes::Evaluation{}.etatEtapeP7, QStringLiteral("inconnu"));
+
+    // Le verdict rendu s'applique au client du greffon ; l'oubli revient à « inconnu ».
+    FauxHermes serveur;
+    serveur.installerAuthentification();
+    serveur.jetonsAccesValides.insert(QByteArrayLiteral("jeton-a"));
+    QJsonObject servi = metaDeReference();
+    serveur.route("GET", kP + QStringLiteral("/meta"), [&servi](const RequeteRecue &) { return ReponseFaux::json(200, servi); });
+    ApiClient client;
+    client.setAllowInsecureLoopback(true);
+    QVERIFY(!client.setBaseUrl(serveur.url()).isError());
+    client.setBearerProvider([] { return QByteArrayLiteral("jeton-a"); });
+    ClientGreffonPoste greffon(&client);
+    CompatibiliteHermes compatibilite(&greffon);
+    QCOMPARE(greffon.etapeP7(), QStringLiteral("inconnu"));
+    compatibilite.verifier();
+    QTRY_COMPARE(compatibilite.etat(), CompatibilityStatus::Compatible);
+    QCOMPARE(compatibilite.etatEtapeP7(), QStringLiteral("annonce"));
+    QCOMPARE(greffon.etapeP7(), QStringLiteral("annonce"));
+    servi.remove(QStringLiteral("accueil")); // Hermes redéployé avec un greffon antérieur à P7
+    compatibilite.verifier();
+    QTRY_COMPARE(greffon.etapeP7(), QStringLiteral("absent"));
+    QCOMPARE(compatibilite.etat(), CompatibilityStatus::Compatible);
+    QVERIFY(!greffon.bloque());
+    compatibilite.oublier();
+    QCOMPARE(greffon.etapeP7(), QStringLiteral("inconnu"));
 }
 
 void TestCompatibiliteHermes::lectureContreLeFauxHermes()
@@ -363,6 +415,70 @@ void TestCompatibiliteHermes::greffonAbsentSur404()
     QVERIFY(!compatibilite.greffonDisponible());
     QVERIFY(compatibilite.discussionDisponible());
     QVERIFY(compatibilite.explication().contains(QStringLiteral("Greffon acp-poste absent")));
+}
+
+// Relecture de P8b (constat desktop-3) : une revérification en échec réseau publiait une évaluation VIDE (flux
+// « inconnu », versions « Inconnu ») ; le flux d'invalidation se fermait et la station disait « /v1/meta n'a pas encore
+// été lu » alors qu'il l'avait été. Injoignable : le dernier verdict LU reste, avec ce qu'il a lu, daté de sa lecture.
+void TestCompatibiliteHermes::injoignableGardeLeDernierVerdictLu()
+{
+    FauxHermes serveur;
+    serveur.installerAuthentification();
+    serveur.jetonsAccesValides.insert(QByteArrayLiteral("jeton-a"));
+    QJsonObject meta = metaDeReference();
+    meta.insert(QStringLiteral("flux"), QJsonObject{
+        {QStringLiteral("chemin"), QStringLiteral("/api/plugins/acp-poste/v1/flux")}, {QStringLiteral("version"), 1},
+        {QStringLiteral("sujets"), QJsonArray::fromStringList(FluxInvalidation::sujets())},
+        {QStringLiteral("battement_s"), 15}, {QStringLiteral("duree_max_s"), 600}});
+    bool panne = false;
+    serveur.route("GET", kP + QStringLiteral("/meta"), [&meta, &panne](const RequeteRecue &) {
+        if (!panne) {
+            return ReponseFaux::json(200, meta);
+        }
+        ReponseFaux indisponible = ReponseFaux::json(503, QJsonObject{{QStringLiteral("detail"), QStringLiteral("indisponible")}});
+        indisponible.entetes.append({QByteArrayLiteral("Retry-After"), QByteArrayLiteral("0")});
+        return indisponible;
+    });
+    ApiClient client;
+    client.setAllowInsecureLoopback(true);
+    QVERIFY(!client.setBaseUrl(serveur.url()).isError());
+    client.setBearerProvider([] { return QByteArrayLiteral("jeton-a"); });
+    ClientGreffonPoste greffon(&client);
+    CompatibiliteHermes compatibilite(&greffon);
+
+    compatibilite.verifier();
+    QTRY_COMPARE(compatibilite.etat(), CompatibilityStatus::Compatible);
+    const QString lu = compatibilite.lecture();
+    QVERIFY(lu.startsWith(QStringLiteral("Lu à")));
+
+    panne = true;
+    compatibilite.verifier();
+    QTRY_COMPARE_WITH_TIMEOUT(compatibilite.etat(), CompatibilityStatus::Injoignable, 10000);
+    QCOMPARE(compatibilite.libelle(), QStringLiteral("Non vérifiable"));
+    QVERIFY(compatibilite.explication().startsWith(QStringLiteral("Compatibilité non vérifiée : ")));
+    QVERIFY(!compatibilite.erreurLecture().isEmpty());
+    // Ce que la dernière lecture a dit reste : annonce du flux, versions, disponibilité, date de lecture.
+    QCOMPARE(compatibilite.etatFlux(), QStringLiteral("annonce"));
+    QCOMPARE(compatibilite.annonceFlux().value(QStringLiteral("chemin")).toString(),
+             QStringLiteral("/api/plugins/acp-poste/v1/flux"));
+    QCOMPARE(compatibilite.versionHermes(), QString::fromLatin1(ACP_HERMES_VERSION));
+    QCOMPARE(compatibilite.contratRecu(), QString::fromLatin1(ACP_CONTRAT_ACP_POSTE));
+    QVERIFY(compatibilite.greffonDisponible());
+    QVERIFY(compatibilite.discussionDisponible());
+    QCOMPARE(compatibilite.lecture(), lu);
+    QVERIFY(!greffon.bloque());
+
+    // Un verdict qui bloque reste appliqué de même : greffon toujours bloqué, toujours dit indisponible.
+    panne = false;
+    meta.insert(QStringLiteral("contrat"), QStringLiteral("acp-poste/2"));
+    compatibilite.verifier();
+    QTRY_COMPARE(compatibilite.etat(), CompatibilityStatus::Incompatible);
+    panne = true;
+    compatibilite.verifier();
+    QTRY_COMPARE_WITH_TIMEOUT(compatibilite.etat(), CompatibilityStatus::Injoignable, 10000);
+    QVERIFY(greffon.bloque());
+    QVERIFY(!compatibilite.greffonDisponible());
+    QCOMPARE(compatibilite.contratRecu(), QStringLiteral("acp-poste/2"));
 }
 
 QTEST_GUILESS_MAIN(TestCompatibiliteHermes)

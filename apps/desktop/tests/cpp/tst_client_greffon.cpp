@@ -1,5 +1,6 @@
 // Client REST du greffon acp-poste : chemins, verbes et corps EXACTS, en porteur, sans
-// Origin ; identifiants illisibles et champs inconnus refusés avant tout envoi.
+// Origin ; identifiants illisibles et champs inconnus refusés avant tout envoi. Routes de P6 et
+// P7 (revues, relance, qui répond, clôture, accueil agrégé, flux d'invalidation) comprises.
 
 #include "api/ApiClient.h"
 #include "api/ClientGreffonPoste.h"
@@ -8,6 +9,7 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QNetworkReply>
 #include <QTest>
 
 #include <algorithm>
@@ -66,6 +68,10 @@ private slots:
     void lancementSeulAvecCleDIdempotence();
     void identifiantsIllisiblesRefusesSansEnvoi();
     void champsInconnusEtRaisonTropLongueRefuses();
+    void quiRepondSeulementAvecUneValeurDuGreffon();
+    void fluxOuvertEnPorteurAvecLaRevision();
+    void greffonBloqueRefuseLesRoutesDeP7();
+    void routesDeP7RefuseesQuandLeVerdictLesDitAbsentes();
 };
 
 void TestClientGreffon::lecturesSurLesBonsChemins()
@@ -80,11 +86,12 @@ void TestClientGreffon::lecturesSurLesBonsChemins()
     Banc::attendre(banc.greffon.poste());
     Banc::attendre(banc.greffon.routage());
     Banc::attendre(banc.greffon.quotas());
+    Banc::attendre(banc.greffon.accueil());
     const QStringList attendus = {
         kP + QStringLiteral("/v1/meta"), kP + QStringLiteral("/v1/catalogue"), kP + QStringLiteral("/v1/projets"),
         kP + QStringLiteral("/v1/projets/prj_42"), kP + QStringLiteral("/v1/projets/prj_42/cartes/t_9f2c"),
         kP + QStringLiteral("/v1/questions"), kP + QStringLiteral("/v1/poste"),
-        kP + QStringLiteral("/v1/routage"), kP + QStringLiteral("/v1/quotas"),
+        kP + QStringLiteral("/v1/routage"), kP + QStringLiteral("/v1/quotas"), kP + QStringLiteral("/v1/accueil"),
     };
     QCOMPARE(banc.serveur.requetes.size(), attendus.size());
     for (qsizetype index = 0; index < attendus.size(); ++index) {
@@ -146,6 +153,27 @@ void TestClientGreffon::ecrituresAvecLesCorpsExacts()
          QJsonObject{{QStringLiteral("releve_id"), 3}}},
         {suivre(banc.greffon.desactiverSurcharge(QStringLiteral("s_5"))),
          kP + QStringLiteral("/v1/routage/surcharges/s_5/desactiver"), {}},
+        // Étape P7 (dashboard/plugin_api.py) : relance, qui répond, clôture.
+        {suivre(banc.greffon.relancerCarte(QStringLiteral("acp-prj-42"), QStringLiteral("t_4"), QStringLiteral("Reprends le test"))),
+         kP + QStringLiteral("/v1/cartes/acp-prj-42/t_4/relancer"),
+         QJsonObject{{QStringLiteral("consigne"), QStringLiteral("Reprends le test")}}},
+        {suivre(banc.greffon.relancerCarte(QStringLiteral("acp-prj-42"), QStringLiteral("t_5"), QStringLiteral("  "))),
+         kP + QStringLiteral("/v1/cartes/acp-prj-42/t_5/relancer"), {}},
+        {suivre(banc.greffon.changerReponses(QStringLiteral("prj_43"), QStringLiteral("proprietaire"))),
+         kP + QStringLiteral("/v1/projets/prj_43/reponses"),
+         QJsonObject{{QStringLiteral("reponses"), QStringLiteral("proprietaire")}}},
+        {suivre(banc.greffon.changerReponses(QStringLiteral("prj_44"), QStringLiteral("hermes_d_abord"))),
+         kP + QStringLiteral("/v1/projets/prj_44/reponses"),
+         QJsonObject{{QStringLiteral("reponses"), QStringLiteral("hermes_d_abord")}}},
+        {suivre(banc.greffon.clore(QStringLiteral("prj_45"))), kP + QStringLiteral("/v1/projets/prj_45/clore"),
+         QJsonObject{{QStringLiteral("confirmation"), true}}},
+        {suivre(banc.greffon.notificationDeTest()), kP + QStringLiteral("/v1/notifications/test"), {}},
+        // Étape P6 : revues des fichiers de pilotage.
+        {suivre(banc.greffon.accepterRevue(QStringLiteral("acp-prj-42"), QStringLiteral("t_6"))),
+         kP + QStringLiteral("/v1/revues/acp-prj-42/t_6/accepter"), {}},
+        {suivre(banc.greffon.refuserRevue(QStringLiteral("acp-prj-42"), QStringLiteral("t_7"), QStringLiteral("Retire la règle"))),
+         kP + QStringLiteral("/v1/revues/acp-prj-42/t_7/refuser"),
+         QJsonObject{{QStringLiteral("motif"), QStringLiteral("Retire la règle")}}},
     };
     QTRY_VERIFY_WITH_TIMEOUT(std::all_of(cas.cbegin(), cas.cend(), [](const Cas &un) { return *un.fini; }), 10000);
     // Les appels partent en parallèle : chaque cas doit trouver SA requête, une seule fois.
@@ -198,6 +226,18 @@ void TestClientGreffon::identifiantsIllisiblesRefusesSansEnvoi()
     QCOMPARE(Banc::attendre(banc.greffon.projet(QStringLiteral("x/../y"))).kind(), ApiFailure::ClientRefusal);
     QCOMPARE(Banc::attendre(banc.greffon.conclureTriage(QStringLiteral("t"), QStringLiteral("c#1"))).kind(),
              ApiFailure::ClientRefusal);
+    // Routes de P6 et P7 : même contrôle de chaque segment de chemin.
+    QCOMPARE(Banc::attendre(banc.greffon.relancerCarte(QStringLiteral("../t"), QStringLiteral("c"), QString())).kind(),
+             ApiFailure::ClientRefusal);
+    QCOMPARE(Banc::attendre(banc.greffon.relancerCarte(QStringLiteral("t"), QStringLiteral("c/1"), QString())).kind(),
+             ApiFailure::ClientRefusal);
+    QCOMPARE(Banc::attendre(banc.greffon.accepterRevue(QStringLiteral("t"), QStringLiteral("c?x"))).kind(),
+             ApiFailure::ClientRefusal);
+    QCOMPARE(Banc::attendre(banc.greffon.refuserRevue(QStringLiteral("t t"), QStringLiteral("c"), QStringLiteral("m"))).kind(),
+             ApiFailure::ClientRefusal);
+    QCOMPARE(Banc::attendre(banc.greffon.clore(QStringLiteral("p/../q"))).kind(), ApiFailure::ClientRefusal);
+    QCOMPARE(Banc::attendre(banc.greffon.changerReponses(QStringLiteral("p q"), QStringLiteral("proprietaire"))).kind(),
+             ApiFailure::ClientRefusal);
     QVERIFY(banc.serveur.requetes.isEmpty());
     QVERIFY(ClientGreffonPoste::identifiantValide(QStringLiteral("t_9f2c-a.b:c")));
 }
@@ -213,6 +253,114 @@ void TestClientGreffon::champsInconnusEtRaisonTropLongueRefuses()
     const ApiError raison = Banc::attendre(banc.greffon.pauseGenerale(true, QString(201, QLatin1Char('x'))));
     QCOMPARE(raison.kind(), ApiFailure::ClientRefusal);
     QVERIFY(banc.serveur.requetes.isEmpty());
+}
+
+void TestClientGreffon::quiRepondSeulementAvecUneValeurDuGreffon()
+{
+    Banc banc;
+    for (const QString &valeur : {QStringLiteral("moi"), QStringLiteral("hermes"), QString(), QStringLiteral("Proprietaire")}) {
+        const ApiError erreur = Banc::attendre(banc.greffon.changerReponses(QStringLiteral("prj_42"), valeur));
+        QCOMPARE(erreur.kind(), ApiFailure::ClientRefusal);
+        QVERIFY(erreur.detail().contains(QStringLiteral("Qui répond")));
+    }
+    QVERIFY(banc.serveur.requetes.isEmpty());
+}
+
+void TestClientGreffon::fluxOuvertEnPorteurAvecLaRevision()
+{
+    Banc banc;
+    // Révision du greffon (« <époque>.<numéro> ») renvoyée telle quelle ; toute autre valeur n'est jamais envoyée.
+    const QList<QPair<QString, QByteArray>> cas = {
+        {QStringLiteral("1727791200.41"), QByteArrayLiteral("1727791200.41")},
+        {QString(), QByteArray()},
+        {QStringLiteral("1727791200.41\r\nX-Injecte: oui"), QByteArray()},
+        {QStringLiteral("abc"), QByteArray()},
+    };
+    for (const auto &[dernier, attendu] : cas) {
+        ApiError refus;
+        std::unique_ptr<QNetworkReply> reponse(banc.greffon.ouvrirFlux(dernier, &refus));
+        QVERIFY(reponse);
+        QTRY_VERIFY(reponse->isFinished());
+        const RequeteRecue requete = banc.serveur.requetes.constLast();
+        QCOMPARE(requete.methode, QByteArrayLiteral("GET"));
+        QCOMPARE(requete.chemin, kP + QStringLiteral("/v1/flux"));
+        QCOMPARE(requete.entete("accept"), QByteArrayLiteral("text/event-stream"));
+        QCOMPARE(requete.entete("authorization"), QByteArrayLiteral("Bearer jeton-a"));
+        QCOMPARE(requete.entete("last-event-id"), attendu);
+        QVERIFY(!requete.aEntete("x-injecte"));
+        QVERIFY(!requete.aEntete("origin"));
+        QVERIFY(!requete.aEntete("cookie"));
+    }
+    QCOMPARE(banc.serveur.compter("GET", kP + QStringLiteral("/v1/flux")), cas.size());
+}
+
+void TestClientGreffon::greffonBloqueRefuseLesRoutesDeP7()
+{
+    Banc banc;
+    banc.greffon.bloquer(QStringLiteral("Contrat du greffon incompatible : acp-poste/2, attendu acp-poste/1"));
+    QCOMPARE(Banc::attendre(banc.greffon.accueil()).kind(), ApiFailure::Incompatible);
+    QCOMPARE(Banc::attendre(banc.greffon.relancerCarte(QStringLiteral("t"), QStringLiteral("c"), QString())).kind(),
+             ApiFailure::Incompatible);
+    QCOMPARE(Banc::attendre(banc.greffon.clore(QStringLiteral("p"))).kind(), ApiFailure::Incompatible);
+    QCOMPARE(Banc::attendre(banc.greffon.changerReponses(QStringLiteral("p"), QStringLiteral("proprietaire"))).kind(),
+             ApiFailure::Incompatible);
+    QCOMPARE(Banc::attendre(banc.greffon.accepterRevue(QStringLiteral("t"), QStringLiteral("c"))).kind(),
+             ApiFailure::Incompatible);
+    QCOMPARE(Banc::attendre(banc.greffon.refuserRevue(QStringLiteral("t"), QStringLiteral("c"), QStringLiteral("m"))).kind(),
+             ApiFailure::Incompatible);
+    ApiError refus;
+    QVERIFY(banc.greffon.ouvrirFlux(QString(), &refus) == nullptr);
+    QCOMPARE(refus.kind(), ApiFailure::Incompatible);
+    QVERIFY(refus.detail().contains(QStringLiteral("acp-poste/2")));
+    QVERIFY(banc.serveur.requetes.isEmpty());
+}
+
+// Seconde relecture de P8b (constat desktop-8) : les quatre routes nées avec la clé `accueil` de /v1/meta (00bc069)
+// sont refusées par la station, sans rien émettre, quand le verdict appliqué dit l'étape P7 absente ou son annonce
+// illisible ; le blocage du greffon prime ; avant tout verdict (« inconnu »), comme le reste du greffon, rien n'est
+// refusé ici ; les routes antérieures (questions, revues de P6, pause) ne sont jamais concernées.
+void TestClientGreffon::routesDeP7RefuseesQuandLeVerdictLesDitAbsentes()
+{
+    Banc banc;
+    const QString absent = QStringLiteral("Non disponible sur ce serveur : le greffon acp-poste n'annonce pas l'étape P7 (clé "
+                                          "« accueil » absente de /v1/meta).");
+    QCOMPARE(ClientGreffonPoste::libelleEtapeP7(QStringLiteral("annonce")), QString());
+    QCOMPARE(ClientGreffonPoste::libelleEtapeP7(QStringLiteral("absent")), absent);
+    QCOMPARE(ClientGreffonPoste::libelleEtapeP7(QStringLiteral("inconnu")), QStringLiteral("Inconnu : /v1/meta n'a pas encore été lu."));
+    QCOMPARE(banc.greffon.etapeP7(), QStringLiteral("inconnu"));
+
+    for (const QString &etat : {QStringLiteral("absent"), QStringLiteral("illisible")}) {
+        banc.greffon.setEtapeP7(etat);
+        const QList<ApiError> refus = {
+            Banc::attendre(banc.greffon.accueil()),
+            Banc::attendre(banc.greffon.relancerCarte(QStringLiteral("t"), QStringLiteral("c"), QStringLiteral("consigne"))),
+            Banc::attendre(banc.greffon.clore(QStringLiteral("p"))),
+            Banc::attendre(banc.greffon.changerReponses(QStringLiteral("p"), QStringLiteral("proprietaire"))),
+        };
+        for (const ApiError &erreur : refus) {
+            QCOMPARE(erreur.kind(), ApiFailure::ClientRefusal);
+            QCOMPARE(erreur.detail(), ClientGreffonPoste::libelleEtapeP7(etat) + QStringLiteral(" Rien n'a été envoyé."));
+        }
+    }
+    QVERIFY(banc.serveur.requetes.isEmpty());
+    // Une route antérieure à P7 part toujours (revue de P6, questions de P4).
+    QVERIFY(Banc::attendre(banc.greffon.questions()).kind() != ApiFailure::ClientRefusal);
+    Banc::attendre(banc.greffon.accepterRevue(QStringLiteral("t"), QStringLiteral("c")));
+    QCOMPARE(banc.serveur.requetes.size(), 2);
+
+    // Le blocage prime sur l'absence de l'étape : c'est lui qui est dit.
+    banc.greffon.bloquer(QStringLiteral("Greffon acp-poste absent de ce Hermes."));
+    QCOMPARE(Banc::attendre(banc.greffon.clore(QStringLiteral("p"))).kind(), ApiFailure::Incompatible);
+    banc.greffon.debloquer();
+
+    // Annoncée, ou pas encore de verdict : les routes partent.
+    for (const QString &etat : {QStringLiteral("annonce"), QStringLiteral("inconnu")}) {
+        banc.greffon.setEtapeP7(etat);
+        const int avant = static_cast<int>(banc.serveur.requetes.size());
+        Banc::attendre(banc.greffon.accueil());
+        Banc::attendre(banc.greffon.clore(QStringLiteral("p")));
+        QCOMPARE(static_cast<int>(banc.serveur.requetes.size()), avant + 2);
+    }
 }
 
 QTEST_GUILESS_MAIN(TestClientGreffon)

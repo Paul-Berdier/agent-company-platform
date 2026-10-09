@@ -36,8 +36,8 @@ la demande, sans identifiant ACP).
 | Assemblage | `src/app/Application.*`, `GardeInstance.*` | composition des services, singletons QML (`Acp.Runtime`), commandes, instance unique (code de sortie 3) |
 | Connexion | `src/auth/` : `PairePkce`, `EcouteurBouclage`, `NativeAuthFlow`, `JetonsHermes`, `SessionHermes` | flux RFC 8252, jetons, rotation, déconnexion, états de session |
 | Transport REST | `src/api/` : `ApiClient`, `ApiError`, `ClientGreffonPoste`, `IdempotencyKey` | porteur, réémission après rafraîchissement, trois formes d'erreur, routes du greffon |
-| JSON-RPC | `src/gateway/` : `JsonRpcChannel`, `GatewayClient`, `DemandesAgent` | canal sans réseau testable seul, passerelle `/api/ws`, demandes `approval`/`clarify` |
-| Temps réel | `src/events/` : `EventStreamService`, `Sondage`, `VeilleKanban`, `Backoff`, `SseParser` | sondages, invalidation par le kanban, état des sources ; `SseParser` est gardé pour le flux de l'étape P7 |
+| JSON-RPC | `src/gateway/` : `JsonRpcChannel`, `GatewayClient`, `DemandesAgent`, `DiscussionsEnAttente` | canal sans réseau testable seul, passerelle `/api/ws`, demandes `approval`/`clarify`, discussions en attente (`session.active_list`) |
+| Temps réel | `src/events/` : `EventStreamService`, `Sondage`, `FluxInvalidation`, `VeilleKanban`, `Backoff`, `SseParser` | sondages, flux d'invalidation du greffon (`GET /v1/flux`), invalidation par le kanban, état des sources |
 | Services | `src/services/` : `CompatibiliteHermes`, `HealthService`, `TelechargementFlux`, `UpdateService` | `/v1/meta`, santé du lien, lecture en flux, mises à jour |
 | Stockage | `src/storage/` : `WindowsCredentialVault`, `JetonsCoffre`, `SettingsStore`, `ChiffrementSauvegarde` | coffre Windows, préférences sans secret et leur contrôle, sauvegarde `ACPB1` |
 | Métier | `src/viewmodels/`, `src/models/JsonListModel.*` | une `PageViewModel` par page, libellés français (`Libelles`) |
@@ -93,7 +93,11 @@ d'information** (`openrpc.info_version`) différente de celle épinglée coupe l
 Discussion ; une **empreinte** différente ne donne qu'un avertissement, la Discussion
 restant ouverte. Hermes testé (`hermes/contrat/HERMES_VERSION`, 0.21.5) : une autre version
 avertit. Alertes publiées telles quelles ; l'exécutant de l'étape P6 seulement s'il est
-annoncé.
+annoncé. L'étape P7 se détecte de même, par la clé `accueil` (née dans le même commit du
+greffon que `/v1/accueil`, la relance, « qui répond » et la clôture) : sans elle, l'Accueil
+agrégé et le sondage léger ne lisent rien, « Qui répond » et « Clore » ne sont pas offerts,
+la page et le badge disent « Non disponible sur ce serveur », et le client du greffon refuse
+ces quatre routes sans rien émettre (décision P8b-2, D159 du [plan](refonte/plan.md) § 1 ; [`refonte/desktop.md`](refonte/desktop.md)).
 
 ## JSON-RPC et temps réel
 
@@ -106,21 +110,33 @@ toute requête serveur sans gestionnaire (`secret`, `sudo`, méthode inconnue), 
 aux demandes `approval` et `clarify` avec le même identifiant et seulement par les choix
 offerts, bat toutes les 15 s (échéance 45 s), n'en rejoue aucune requête.
 
-`EventStreamService` : sondage des pages affichées toutes les 15 s, seulement fenêtre
-non réduite et session ouverte ; sondage léger de 60 s pour la barre d'état ;
+`EventStreamService` : sondage des pages affichées, seulement fenêtre non réduite et
+session ouverte ; sondage léger de `GET /v1/accueil` pour la barre d'état et le badge
+(60 s, seulement sur l'annonce de l'étape P7) ;
 `VeilleKanban` suit le tableau du projet ouvert (`since=latest_event_id`, regroupement
-d'1 s) et déclenche une relecture du détail ; le flux SSE du greffon est affiché « Non
-disponible sur ce serveur (étape P7) » et rien n'est ouvert.
+d'1 s) et déclenche une relecture du détail. `FluxInvalidation` (étape P8b) ouvre le flux
+d'invalidation du greffon (`GET /v1/flux`) quand `/v1/meta` l'annonce : chaque page
+(`Sondage::suivre`) se relit au signal de SES sujets (les mêmes que la page web), regroupé
+sur 300 ms, et ne garde en temps réel qu'une relecture de sûreté (2 min) ; hors temps réel,
+son sondage habituel : 15 s pour les pages, 60 s pour la page Quotas, pour le détail d'un
+projet tant que la veille du kanban est prête et pour le sondage léger du badge et de la
+barre d'état. Chien de garde de 40 s, reprise avec `Last-Event-ID`, repli
+en sondage après trois échecs en 2 min, nouvel essai toutes les 5 min ; la perte de session
+oublie ce repli. Le flux suit le verdict APPLIQUÉ de `/v1/meta` : un verdict qui bloque le
+greffon le ferme, même déjà ouvert, et se dit avec sa raison (« Aucun flux (greffon
+bloqué) » : ses pages ne lisent rien), quelle que soit l'annonce ; un `/v1/meta` injoignable
+garde le dernier verdict lu, et le flux. Chaque page affiche sa cadence réelle (propriété
+`cadence` de son ViewModel), jamais une cadence écrite en dur.
 
 ## Pages
 
 | Route | Page | Ce qu'elle fait |
 |---|---|---|
-| `home` | Accueil | état de Hermes, projets, questions, poste, quotas (pire voie contre le seuil), pause générale avec confirmation, sessions récentes |
-| `projects` | Projets | liste, détail (cartes dans l'ordre du graphe, journal, carte entière), pause et reprise, nouveau projet (mêmes règles que la page web, clé d'idempotence gardée après un refus), kanban dans le navigateur |
-| `questions` | Questions | répondre (1 à 4 000 caractères), gestes de triage construits depuis `actions`, cartes bloquées en lecture seule, revues de P6 en lecture seule si la clé `revues` existe, demandes de l'agent des discussions ouvertes |
-| `chat` | Discussion | sessions, transcription, tour en flux, outils sans arguments ni sortie bruts, demandes `approval`/`clarify` |
-| `station` | Poste | enrôlement (code affiché une fois), empreinte, révocation, relevé, inventaire, alertes, exécutant P6 s'il est annoncé |
+| `home` | Accueil | Accueil agrégé `GET /v1/accueil`, lu seulement sur l'annonce de l'étape P7 (sinon « Non disponible sur ce serveur ») : à traiter par vous (discussions en attente comprises quand elles sont lues), projets en cours, exécutant, quotas par voie, notifications (test), bilan quotidien (tâche cron native, création), pause générale avec confirmation ; sessions récentes ; carte Hermes |
+| `projects` | Projets | liste, détail (cartes dans l'ordre du graphe, journal, carte entière), pause et reprise, qui répond, clôture, nouveau projet (mêmes règles que la page web, exécutant fermé pour le dépôt grisé, clé d'idempotence gardée après un refus), kanban dans le navigateur |
+| `questions` | Questions | file à cinq sections : questions (répondre, 1 à 4 000 caractères), décisions construites depuis `actions`, revues (accepter, refuser avec motif), cartes arrêtées (relancer avec consigne), discussions en attente (ouvrir) ; demandes de l'agent des discussions ouvertes |
+| `chat` | Discussion | sessions (« En attente d'une réponse » marqué d'après `session.active_list`, comme le navigateur ; état illisible dit), transcription, tour en flux, outils sans arguments ni sortie bruts, demandes `approval`/`clarify` |
+| `station` | Poste | enrôlement (code affiché une fois), empreinte, révocation, relevé, inventaire, dépôts (visibilité mesurée, voies par dépôt), alertes, exécutant P6 s'il est annoncé |
 | `quotas` | Quotas | voies, compteurs, fenêtres ; jauge seulement sur une part restante servie |
 | `routing` | Routage | table par classe, brouillon, validation, relevé de secours, surcharges ; édition complète dans le navigateur |
 | `diagnostics` | Diagnostics | versions, lien, session, compatibilité, passerelle et compteurs, temps réel, coffre, contrôle des préférences ; rapport copiable expurgé |
@@ -147,9 +163,11 @@ dit que le fichier chiffré est lié au profil Windows.
 
 ## Tests et preuves
 
-- **34 suites** déclarées à CTest (Qt Test et Qt Quick Test), totaux Qt relevés : 0
-  échec, 0 ignoré. Le banc `tests/cpp/support/FauxHermes` sert HTTP et WebSocket sur le
-  même port de bouclage (flux natif, rotation, passerelle, kanban, routes du greffon).
+- **36 suites** déclarées à CTest (Qt Test et Qt Quick Test), totaux Qt relevés en local :
+  0 échec, 0 ignoré (la Desktop CI ne relève que le compte de CTest, qui range un `QSKIP`
+  parmi les réussites). Le banc `tests/cpp/support/FauxHermes` sert HTTP et WebSocket sur le
+  même port de bouclage (flux natif, rotation, passerelle, kanban, routes du greffon, flux
+  d'invalidation en `text/event-stream`).
 - **Desktop CI** sur `windows-2022` : compilation Release (`/W4 /WX`), suites, empaquetage
   à blanc ; installeur **non signé** (aucun certificat), et dit tel quel.
 - **Bout en bout local** (`scripts/e2e-desktop-windows.ps1`, jamais en CI) contre la pile
@@ -157,7 +175,8 @@ dit que le fichier chiffré est lié au profil Windows.
   passkey virtuelle, rotation, discussion JSON-RPC, projet lancé et **question répondue
   depuis la station**, veille du kanban, sauvegarde, reprise de session au redémarrage,
   déconnexion, hygiène, et forme des documents de référence comparée à l'image. Détail et
-  chiffres : [`docs/desktop-build.md`](desktop-build.md), § 12.
+  chiffres : [`docs/desktop-build.md`](desktop-build.md), § 12. Relevé de P8 (2 octobre
+  2026), non rejoué sur P8b.
 
 ## Limites connues
 
@@ -165,6 +184,10 @@ dit que le fichier chiffré est lié au profil Windows.
 - Le jeton de rafraîchissement rejoué après la déconnexion obtient **503** (Authelia
   rend 500 pour un jeton révoqué) : indiscernable d'une panne, d'où la règle « 503 garde
   le jeton ».
-- Le flux SSE du greffon, l'agrégat des demandes de toutes les sessions et les gestes
-  des revues dépendent des étapes P6 et P7 : affichés « Non disponible sur ce serveur ».
+- Les gestes et lectures de P7 (flux, relance, clôture, revues, discussions en attente,
+  bilan quotidien) ne sont prouvés que contre le faux Hermes et les fixtures partagées :
+  le bout en bout local n'a pas été rejoué contre une image de P7.
 - Installation sur un Windows propre et signature : non faites.
+- Face à un greffon antérieur à P7, la station ne reprend pas l'Accueil de P8 (projets et
+  quotas lus séparément) : elle le dit « Non disponible sur ce serveur » et renvoie aux
+  pages ; prouvé contre le faux Hermes seulement.

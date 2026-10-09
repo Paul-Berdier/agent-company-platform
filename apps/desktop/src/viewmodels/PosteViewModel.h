@@ -27,6 +27,7 @@
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QStringList>
+#include <QVariantList>
 #include <QVariantMap>
 
 #include <functional>
@@ -46,6 +47,7 @@ class PosteViewModel : public PageViewModel
     Q_PROPERTY(QVariantMap etat READ etat NOTIFY posteChange)
     Q_PROPERTY(QVariantMap machine READ machine NOTIFY posteChange)
     Q_PROPERTY(QVariantMap inventaire READ inventaire NOTIFY posteChange)
+    Q_PROPERTY(QVariantList depots READ depots NOTIFY posteChange)
     Q_PROPERTY(QStringList alertes READ alertes NOTIFY posteChange)
     Q_PROPERTY(JsonListModel *ordres READ ordres CONSTANT)
     Q_PROPERTY(bool peutEnroler READ peutEnroler NOTIFY posteChange)
@@ -78,6 +80,7 @@ public:
     [[nodiscard]] const QVariantMap &etat() const { return m_etat; }
     [[nodiscard]] const QVariantMap &machine() const { return m_machine; }
     [[nodiscard]] const QVariantMap &inventaire() const { return m_inventaire; }
+    [[nodiscard]] const QVariantList &depots() const { return m_depots; }
     [[nodiscard]] const QStringList &alertes() const { return m_alertes; }
     [[nodiscard]] JsonListModel *ordres() const { return m_ordres; }
     [[nodiscard]] bool peutEnroler() const;
@@ -107,6 +110,13 @@ public:
     [[nodiscard]] static QVariantMap construireEtat(const QJsonObject &vue);
     [[nodiscard]] static QVariantMap construireMachine(const QJsonObject &vue);
     [[nodiscard]] static QVariantMap construireInventaire(const QJsonObject &vue);
+    /*!
+        Étape P7 (partie E) : chaque dépôt, sa visibilité MESURÉE par l'exécutant (jamais devinée :
+        « Jamais mesurée » sinon), la lecture, la date de la mesure et les voies ouvertes ou fermées
+        pour lui avec la raison du greffon (`executant.depots`) ; à défaut, la mesure publiée dans
+        l'inventaire, voies « Inconnu » (le greffon seul les calcule).
+    */
+    [[nodiscard]] static QVariantList construireDepots(const QJsonObject &vue);
     [[nodiscard]] static QJsonArray construireOrdres(const QJsonObject &vue);
     /*! `etat` : CompatibiliteHermes::etatExecutant() (« annonce », « aucun », « absent »…). */
     [[nodiscard]] static QVariantMap construireExecutant(const QString &etat, const QJsonObject &executant);
@@ -142,6 +152,7 @@ private:
     QVariantMap m_etat;
     QVariantMap m_machine;
     QVariantMap m_inventaire;
+    QVariantList m_depots;
     QStringList m_alertes;
     QString m_code;
     QString m_commande;

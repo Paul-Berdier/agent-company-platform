@@ -399,8 +399,8 @@ def _info_openrpc(chemin: Path) -> Dict[str, Any]:
 
 def bloc_flux() -> Dict[str, Any]:
     """Annonce du flux d'invalidation ``GET /v1/flux`` (étape P7, cahier P7 § 5.2, correction K8) : chemin, version,
-    sujets, battement et durée d'un flux tels que la base les règle. Un client le détecte ici (le navigateur l'emploie ;
-    la station Qt de P8 le DIT dans son diagnostic sans l'ouvrir : docs/refonte/desktop.md). Base ou
+    sujets, battement et durée d'un flux tels que la base les règle. Un client le détecte ici (le navigateur et, depuis
+    l'étape P8b, la station Qt l'ouvrent sur cette annonce : docs/refonte/desktop.md). Base ou
     noyau illisibles : battement et durée ``None`` (jamais une valeur supposée), le flux reste annoncé."""
     try:
         flux = sous_module_noyau("flux")
@@ -542,10 +542,10 @@ def construire_meta(sources: SourcesMeta = SourcesMeta(), reseau: Optional[Mappi
         # Étape P5 (ajout, contrat acp-poste/1 inchangé) : jeton machine, chemins à jeton, postes, inventaire.
         "machine": machine,
         # Étape P7 (ajout, contrat acp-poste/1 inchangé) : la route agrégée GET /v1/accueil existe (cahier P7 § 5.2,
-        # § 8.2) ; un client la détecte ici avant de la lire (la station Qt de P8 ne la lit pas encore : desktop.md).
+        # § 8.2) ; un client la détecte ici avant de la lire (la station Qt la lit depuis l'étape P8b : desktop.md).
         "accueil": True,
         # Étape P7 (ajout, contrat acp-poste/1 inchangé) : flux d'invalidation (cahier P7 § 5.2, correction K8 : le nom
-        # « flux » est celui que la station Qt de P8 lit pour son diagnostic, sans ouvrir le flux).
+        # « flux » est celui que lit la station Qt, qui ouvre le flux sur cette annonce depuis l'étape P8b).
         "flux": bloc_flux(),
         "alertes": alertes,
     }

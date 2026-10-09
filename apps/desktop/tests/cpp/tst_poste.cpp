@@ -6,7 +6,9 @@
 //    perte de session et à l'expiration ; jamais recopié dans un autre texte ;
 //  - corps exacts de la confirmation et de la révocation ; refus du greffon tels quels ;
 //  - relevé : message du greffon tel quel ;
-//  - exécutant Railway (P6) : lu seulement si le serveur le publie.
+//  - exécutant Railway (P6) : lu seulement si le serveur le publie ;
+//  - étape P7 (partie E) : carte « Dépôts » d'après la fixture PARTAGÉE fixtures_poste/depots.json
+//    (visibilité MESURÉE, voies fermées pour chaque dépôt, raison du greffon) ; jamais devinée.
 
 #include "api/ApiClient.h"
 #include "api/ClientGreffonPoste.h"
@@ -16,6 +18,7 @@
 #include "support/Fixtures.h"
 #include "viewmodels/PosteViewModel.h"
 
+#include <QDateTime>
 #include <QJsonArray>
 #include <QMetaProperty>
 #include <QSignalSpy>
@@ -123,6 +126,7 @@ private slots:
     void revocationCorpsExactEtBornes();
     void releveMessageDuGreffon();
     void executantSeulementSiPublie();
+    void depotsMesuresParLExecutant();
 };
 
 void TestPoste::bandeauSelonLEtat()
@@ -497,6 +501,86 @@ void TestPoste::executantSeulementSiPublie()
     Banc banc;
     QCOMPARE(banc.poste.executant().value(QStringLiteral("present")).toBool(), false);
     QVERIFY(banc.poste.executant().value(QStringLiteral("message")).toString().contains(QStringLiteral("n'a pas été lue")));
+}
+
+void TestPoste::depotsMesuresParLExecutant()
+{
+    // Forme RÉELLE de `executant.depots` (routage.depots_du_poste), fixture partagée avec le greffon et le web.
+    const QJsonArray mesures = fixturePartagee(QStringLiteral("fixtures_poste/depots.json")).array();
+    QCOMPARE(mesures.size(), 2);
+    QJsonObject vue = fixture(QStringLiteral("poste-en-ligne.json"));
+    vue.insert(QStringLiteral("executant"), QJsonObject{{QStringLiteral("connu"), true}, {QStringLiteral("depots"), mesures}});
+    const QVariantList depots = PosteViewModel::construireDepots(vue);
+    QCOMPARE(depots.size(), 2);
+    const auto date = [](const char *iso) {
+        return QDateTime::fromString(QString::fromLatin1(iso), Qt::ISODate).toLocalTime().toString(QStringLiteral("dd/MM/yyyy HH:mm"));
+    };
+    const QVariantMap demo = depots.at(0).toMap();
+    QCOMPARE(demo.value(QStringLiteral("alias")).toString(), QStringLiteral("demo"));
+    QCOMPARE(demo.value(QStringLiteral("visibilite")).toString(), QStringLiteral("Public"));
+    QCOMPARE(demo.value(QStringLiteral("visibiliteCle")).toString(), QStringLiteral("pending"));
+    QCOMPARE(demo.value(QStringLiteral("lecture")).toString(), QStringLiteral("Réussie"));
+    QCOMPARE(demo.value(QStringLiteral("verifieLe")).toString(), date("2026-10-02T15:40:42Z"));
+    // Raison du greffon telle quelle ; Claude ouverte (D84).
+    const QString raison = mesures.at(0).toObject().value(QStringLiteral("voies_fermees")).toObject()
+                               .value(QStringLiteral("poste-codex")).toString();
+    QVERIFY(raison.contains(QStringLiteral("non prouvé privé")));
+    QCOMPARE(demo.value(QStringLiteral("voies")).toString(),
+             QStringLiteral("Poste (Codex) : Fermée — %1\nPoste (Claude) : Ouverte").arg(raison));
+    const QVariantMap jetable = depots.at(1).toMap();
+    QCOMPARE(jetable.value(QStringLiteral("alias")).toString(), QStringLiteral("jetable"));
+    QCOMPARE(jetable.value(QStringLiteral("visibilite")).toString(), QStringLiteral("Privé"));
+    QCOMPARE(jetable.value(QStringLiteral("visibiliteCle")).toString(), QStringLiteral("succeeded"));
+    QCOMPARE(jetable.value(QStringLiteral("voies")).toString(), QStringLiteral("Poste (Codex) : Ouverte\nPoste (Claude) : Ouverte"));
+
+    // Jamais mesurée (null partout) : dit tel quel, jamais « Privé » deviné ; codes inconnus montrés bruts.
+    const QVariantList autres = PosteViewModel::construireDepots(QJsonObject{{QStringLiteral("executant"), QJsonObject{
+        {QStringLiteral("depots"), QJsonArray{
+            QJsonObject{{QStringLiteral("alias"), QStringLiteral("neuf")}, {QStringLiteral("visibilite"), QJsonValue::Null},
+                        {QStringLiteral("lecture"), QJsonValue::Null}, {QStringLiteral("verifie_le"), QJsonValue::Null},
+                        {QStringLiteral("voies_fermees"), QJsonObject{{QStringLiteral("poste-codex"), QStringLiteral("non mesuré")}}}},
+            QJsonObject{{QStringLiteral("alias"), QStringLiteral("bizarre")}, {QStringLiteral("visibilite"), QStringLiteral("pigeon")},
+                        {QStringLiteral("lecture"), QStringLiteral("refusee")},
+                        {QStringLiteral("voies_fermees"), QJsonObject{{QStringLiteral("poste-codex"), 3}}}},
+            QJsonObject{{QStringLiteral("alias"), QStringLiteral("inconnu")}, {QStringLiteral("visibilite"), QStringLiteral("inconnue")},
+                        {QStringLiteral("lecture"), QStringLiteral("inconnue")}},
+        }}}}});
+    QCOMPARE(autres.size(), 3);
+    const QVariantMap neuf = autres.at(0).toMap();
+    QCOMPARE(neuf.value(QStringLiteral("visibilite")).toString(), QStringLiteral("Jamais mesurée par l'exécutant (Codex fermé)"));
+    QCOMPARE(neuf.value(QStringLiteral("visibiliteCle")).toString(), QStringLiteral("degraded"));
+    QCOMPARE(neuf.value(QStringLiteral("lecture")).toString(), QStringLiteral("Inconnu"));
+    QCOMPARE(neuf.value(QStringLiteral("verifieLe")).toString(), QStringLiteral("Inconnu"));
+    QCOMPARE(neuf.value(QStringLiteral("voies")).toString(), QStringLiteral("Poste (Codex) : Fermée — non mesuré\nPoste (Claude) : Ouverte"));
+    const QVariantMap bizarre = autres.at(1).toMap();
+    QCOMPARE(bizarre.value(QStringLiteral("visibilite")).toString(), QStringLiteral("pigeon"));
+    QCOMPARE(bizarre.value(QStringLiteral("visibiliteCle")).toString(), QStringLiteral("unknown"));
+    QCOMPARE(bizarre.value(QStringLiteral("lecture")).toString(), QStringLiteral("Refusée"));
+    // Raison illisible : la voie reste dite fermée, la raison « Inconnu ».
+    QCOMPARE(bizarre.value(QStringLiteral("voies")).toString(), QStringLiteral("Poste (Codex) : Fermée — Inconnu\nPoste (Claude) : Ouverte"));
+    const QVariantMap inconnu = autres.at(2).toMap();
+    QCOMPARE(inconnu.value(QStringLiteral("visibilite")).toString(), QStringLiteral("Inconnue (Codex fermé)"));
+    QCOMPARE(inconnu.value(QStringLiteral("lecture")).toString(), QStringLiteral("Inconnue"));
+    // Sans `voies_fermees` : « Inconnu », jamais déduites par la station.
+    QCOMPARE(inconnu.value(QStringLiteral("voies")).toString(), QStringLiteral("Inconnu"));
+
+    // Exécutant sans `depots` (avant P7, ou `connu: false`) : la liste publiée dans l'inventaire, jamais mesurée,
+    // voies « Inconnu ».
+    const QVariantList repli = PosteViewModel::construireDepots(fixture(QStringLiteral("poste-en-ligne.json")));
+    QCOMPARE(repli.size(), 1);
+    QCOMPARE(repli.at(0).toMap().value(QStringLiteral("alias")).toString(), QStringLiteral("jetable"));
+    QCOMPARE(repli.at(0).toMap().value(QStringLiteral("visibilite")).toString(), QStringLiteral("Jamais mesurée par l'exécutant (Codex fermé)"));
+    QCOMPARE(repli.at(0).toMap().value(QStringLiteral("voies")).toString(), QStringLiteral("Inconnu"));
+    QVERIFY(PosteViewModel::construireDepots(fixture(QStringLiteral("poste-non-configure.json"))).isEmpty());
+
+    // Page lue : la propriété exposée à QML suit la réponse du greffon.
+    Banc banc;
+    banc.ouvrirLaPage(QStringLiteral("poste-en-ligne.json"));
+    QCOMPARE(banc.poste.depots().size(), 1);
+    banc.vue = vue;
+    banc.relire();
+    QCOMPARE(banc.poste.depots().size(), 2);
+    QCOMPARE(banc.poste.property("depots").toList().at(0).toMap().value(QStringLiteral("alias")).toString(), QStringLiteral("demo"));
 }
 
 QTEST_MAIN(TestPoste)

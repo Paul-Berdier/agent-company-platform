@@ -1,6 +1,7 @@
 #include "viewmodels/DiscussionViewModel.h"
 
 #include "events/EventStreamService.h"
+#include "gateway/DiscussionsEnAttente.h"
 #include "gateway/GatewayClient.h"
 #include "gateway/JsonRpcChannel.h"
 #include "models/JsonListModel.h"
@@ -58,6 +59,8 @@ DiscussionViewModel::DiscussionViewModel(GatewayClient *passerelle, EventStreamS
             actualiserSessions();
         }
     });
+    // État d'attente partagé avec le badge, l'Accueil et la file Questions : la liste suit chacune de ses lectures.
+    connect(flux->discussions(), &DiscussionsEnAttente::change, this, &DiscussionViewModel::appliquerAttente);
 }
 
 DiscussionViewModel::~DiscussionViewModel() = default;
@@ -84,6 +87,7 @@ void DiscussionViewModel::surOubli()
 {
     quitter();
     m_sessions->clear();
+    m_lignes = {};
     m_sessionsLues = false;
     m_erreurSessions.clear();
     emit sessionsChange();
@@ -119,16 +123,54 @@ void DiscussionViewModel::actualiserSessions()
                 lignes.append(ligne);
             }
         }
-        m_sessions->setItems(lignes);
+        m_lignes = lignes;
         m_sessionsLues = true;
         m_erreurSessions.clear();
-        emit sessionsChange();
+        appliquerAttente();
+        // Comme la liste du navigateur (Liste.tsx) : l'état d'attente se relit avec elle.
+        flux()->discussions()->lire();
     });
     connect(appel, &AppelRpc::echoue, this, [this](const ErreurRpc &erreur) {
         m_erreurSessions = erreur.locale ? erreur.message
                                          : QStringLiteral("Hermes a refusé la liste des sessions : %1 (code %2)").arg(erreur.message).arg(erreur.code);
         emit sessionsChange();
     });
+}
+
+QJsonArray DiscussionViewModel::marquerEnAttente(const QJsonArray &lignes, const QJsonArray &enAttente, bool connues)
+{
+    QStringList cles;
+    if (connues) {
+        for (const QJsonValue &session : enAttente) {
+            cles.append(session.toObject().value(QStringLiteral("cle")).toString());
+        }
+    }
+    QJsonArray marquees;
+    for (const QJsonValue &element : lignes) {
+        QJsonObject ligne = element.toObject();
+        ligne.insert(QStringLiteral("enAttente"), cles.contains(ligne.value(QStringLiteral("id")).toString()));
+        marquees.append(ligne);
+    }
+    return marquees;
+}
+
+void DiscussionViewModel::appliquerAttente()
+{
+    const DiscussionsEnAttente *attente = flux()->discussions();
+    m_sessions->setItems(marquerEnAttente(m_lignes, attente->sessions(), attente->connues()));
+    emit sessionsChange();
+}
+
+QString DiscussionViewModel::attenteInconnue() const
+{
+    const DiscussionsEnAttente *attente = flux()->discussions();
+    // Comme la page web (T.discussion.attenteInconnue, relecture finale de P7, constat produit-4) : dit seulement après une
+    // lecture ratée, jamais pendant la première ; sans état lu, l'absence de marque ne prouve rien.
+    if (!m_sessionsLues || attente->connues() || !attente->tentee()) {
+        return {};
+    }
+    return QStringLiteral("Discussions en attente : état inconnu (le tableau de bord n'a pas pu être interrogé) ; l'absence de "
+                          "la marque « En attente d'une réponse » ne veut rien dire.");
 }
 
 QJsonObject DiscussionViewModel::construireSession(const QJsonObject &ligne)

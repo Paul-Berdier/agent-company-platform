@@ -4,6 +4,7 @@
 #include "api/ClientGreffonPoste.h"
 #include "api/IdempotencyKey.h"
 #include "events/EventStreamService.h"
+#include "events/FluxInvalidation.h"
 #include "events/Sondage.h"
 #include "events/VeilleKanban.h"
 #include "models/JsonListModel.h"
@@ -88,6 +89,12 @@ ProjetsViewModel::ProjetsViewModel(ApiClient *client, ClientGreffonPoste *greffo
 {
     // Liste relue par identifiant : la liste garde son défilement et ses délégués.
     m_projets->setCle({QStringLiteral("id")});
+    // Étape P7 : mêmes sujets que la page web (Projets.tsx pour la liste, DetailProjet.tsx pour le détail).
+    m_liste->suivre(flux->invalidation(), {QStringLiteral("projets"), QStringLiteral("questions"), QStringLiteral("poste"),
+                                           QStringLiteral("notifications"), QStringLiteral("pause")});
+    suivreCadence(m_liste); // la phrase de la page est celle de la liste
+    m_detailSondage->suivre(flux->invalidation(),
+                            {QStringLiteral("projets"), QStringLiteral("questions"), QStringLiteral("pause")});
     m_pause = AccueilViewModel::construireCartePause({});
     viderDetail();
     majFormulaire();
@@ -109,6 +116,11 @@ ProjetsViewModel::ProjetsViewModel(ApiClient *client, ClientGreffonPoste *greffo
         if (m_vue == QLatin1String("detail") && tableau == m_tableauOuvert) {
             m_detailSondage->lireMaintenant();
         }
+    });
+    // Les gestes de l'étape P7 suivent l'annonce de /v1/meta, sans attendre la relecture du détail.
+    connect(flux, &EventStreamService::etapeP7Change, this, [this] {
+        m_detail = construireDetail(m_detailLu ? m_dernierProjet : QJsonObject(), this->flux()->etapeP7());
+        emit detailChange();
     });
 }
 
@@ -328,7 +340,8 @@ void ProjetsViewModel::viderDetail()
     m_detailLu = false;
     m_tableauOuvert.clear();
     m_etatProjet.clear();
-    m_detail = construireDetail({});
+    m_dernierProjet = {};
+    m_detail = construireDetail({}, flux()->etapeP7());
     m_cartes->clear();
     m_questionsDuProjet->clear();
     m_tours->clear();
@@ -344,7 +357,8 @@ void ProjetsViewModel::lireDetail(const QJsonObject &reponse)
     if (projet.value(QStringLiteral("id")).toString() != m_projetOuvert) {
         return; // réponse d'un projet quitté entre-temps
     }
-    m_detail = construireDetail(projet);
+    m_dernierProjet = projet;
+    m_detail = construireDetail(projet, flux()->etapeP7());
     m_cartes->setItems(construireCartes(projet.value(QStringLiteral("cartes")).toArray()));
     QJsonArray questions;
     for (const QJsonValue &element : projet.value(QStringLiteral("questions_ouvertes")).toArray()) {
@@ -381,7 +395,7 @@ void ProjetsViewModel::lireDetail(const QJsonObject &reponse)
     }
 }
 
-QVariantMap ProjetsViewModel::construireDetail(const QJsonObject &projet)
+QVariantMap ProjetsViewModel::construireDetail(const QJsonObject &projet, const QString &etapeP7)
 {
     const QJsonValue etat = projet.value(QStringLiteral("etat"));
     const libelles::Libelle libelle = libelles::etatProjet(etat, projet.value(QStringLiteral("etat_derive")));
@@ -393,6 +407,23 @@ QVariantMap ProjetsViewModel::construireDetail(const QJsonObject &projet)
     const QString origine = libelles::origine(projet.value(QStringLiteral("origine")));
     const QJsonValue termine = projet.value(QStringLiteral("termine_le"));
     const QJsonValue exploration = projet.value(QStringLiteral("exploration"));
+    const QString etatCode = etat.toString();
+    const QString reponses = projet.value(QStringLiteral("reponses")).toString();
+    const bool avecDepot = libelles::estTexte(projet.value(QStringLiteral("depot")));
+    const bool adressable = ClientGreffonPoste::identifiantValide(projet.value(QStringLiteral("id")).toString());
+    const bool reponsesPossible = adressable && avecDepot
+        && (etatCode == QLatin1String("creation") || etatCode == QLatin1String("actif") || etatCode == QLatin1String("en_pause"));
+    const bool cloturePossible = adressable && (etatCode == QLatin1String("actif") || etatCode == QLatin1String("en_pause"));
+    // Seconde relecture de P8b (constat desktop-8) : ces deux routes sont nées avec la clé `accueil` de /v1/meta ;
+    // sans son annonce, aucun bouton n'est offert, et le détail dit pourquoi.
+    const bool etapeAnnoncee = etapeP7 == QLatin1String("annonce");
+    QStringList gestesRetenus;
+    if (!etapeAnnoncee && reponsesPossible) {
+        gestesRetenus.append(QStringLiteral("« Qui répond »"));
+    }
+    if (!etapeAnnoncee && cloturePossible) {
+        gestesRetenus.append(QStringLiteral("« Clore le projet »"));
+    }
     return QVariantMap{
         {QStringLiteral("id"), libelles::texte(projet.value(QStringLiteral("id")))},
         {QStringLiteral("titre"), libelles::texte(projet.value(QStringLiteral("titre")))},
@@ -403,8 +434,19 @@ QVariantMap ProjetsViewModel::construireDetail(const QJsonObject &projet)
         {QStringLiteral("profil"), libelleOuBrut(libelles::profil(projet.value(QStringLiteral("profil"))),
                                                  projet.value(QStringLiteral("profil")))},
         {QStringLiteral("depot"), depot(projet.value(QStringLiteral("depot")))},
-        {QStringLiteral("reponses"), libelleOuBrut(libelles::reponses(projet.value(QStringLiteral("reponses"))),
-                                                   projet.value(QStringLiteral("reponses")))},
+        // « Qui répond » se lit « Vous » dans le détail (« Moi » reste le choix du formulaire, relecture finale de
+        // P7) ; sans dépôt, il est sans objet (aucune question ne naît d'un projet sans dépôt, D42).
+        {QStringLiteral("reponses"), !avecDepot ? QStringLiteral("Sans objet (projet sans dépôt)")
+                                     : reponses == QLatin1String("proprietaire") ? QStringLiteral("Vous")
+                                     : reponses == QLatin1String("hermes_d_abord") ? QStringLiteral("Hermes d'abord")
+                                                                                   : libelles::texte(projet.value(QStringLiteral("reponses")))},
+        {QStringLiteral("reponsesCode"), reponses == QLatin1String("proprietaire") ? reponses : QStringLiteral("hermes_d_abord")},
+        {QStringLiteral("peutChangerReponses"), etapeAnnoncee && reponsesPossible},
+        {QStringLiteral("peutClore"), etapeAnnoncee && cloturePossible},
+        {QStringLiteral("gestesP7"), gestesRetenus.isEmpty()
+                                         ? QString()
+                                         : QStringLiteral("%1 : %2").arg(gestesRetenus.join(QStringLiteral(" et ")),
+                                                                         ClientGreffonPoste::libelleEtapeP7(etapeP7))},
         {QStringLiteral("origine"), origine.isEmpty() ? libelles::texte(projet.value(QStringLiteral("origine")))
                                                       : QStringLiteral("Lancé depuis %1").arg(origine)},
         {QStringLiteral("tour"), sur(projet.value(QStringLiteral("tour")), plafonds.value(QStringLiteral("tours")))},
@@ -582,6 +624,87 @@ void ProjetsViewModel::reprendre()
     });
 }
 
+QString ProjetsViewModel::messageReglageReponses(const QJsonObject &resultat)
+{
+    return QStringLiteral("Réglage enregistré pour les questions suivantes. Questions ouvertes qui gardent leur traitement : %1")
+        .arg(libelles::nombre(resultat.value(QStringLiteral("questions_ouvertes_inchangees"))));
+}
+
+QString ProjetsViewModel::messageCloture(const QJsonObject &resultat)
+{
+    // Même lecture que la page web (Cloture de DetailProjet.tsx), d'après la réponse seulement.
+    const QString etat = resultat.value(QStringLiteral("etat")).toString();
+    QString message = etat == QLatin1String("termine")
+        ? QStringLiteral("Projet clos : terminé.")
+        : etat == QLatin1String("abandonne")
+            ? QStringLiteral("Projet clos : abandonné (la synthèse du tour en cours n'était pas faite).")
+            : QStringLiteral("Projet clos : état %1.").arg(libelles::texte(resultat.value(QStringLiteral("etat"))));
+    const QJsonValue archivees = resultat.value(QStringLiteral("cartes_archivees"));
+    message += QStringLiteral(" Cartes archivées : %1 · Questions annulées : %2.")
+                   .arg(archivees.isArray() ? QString::number(archivees.toArray().size()) : libelles::kInconnu,
+                        libelles::nombre(resultat.value(QStringLiteral("questions_annulees"))));
+    const QStringList nonArchivees = chaines(resultat.value(QStringLiteral("cartes_non_archivees")));
+    if (!nonArchivees.isEmpty()) {
+        message += QStringLiteral(" Cartes que Hermes n'a pas archivées : %1.").arg(nonArchivees.join(QStringLiteral(", ")));
+    }
+    const QStringList branches = chaines(resultat.value(QStringLiteral("branches_rapportees")));
+    if (!branches.isEmpty()) {
+        message += QStringLiteral(" Branches restées sur l'exécutant (purgées après 7 jours) : %1.").arg(branches.join(QStringLiteral(", ")));
+    }
+    return message;
+}
+
+void ProjetsViewModel::changerReponses(const QString &reponses)
+{
+    if (gesteEnCours() || m_projetOuvert.isEmpty()) {
+        return;
+    }
+    if (!m_detail.value(QStringLiteral("peutChangerReponses")).toBool()) {
+        const QString raison = m_detail.value(QStringLiteral("gestesP7")).toString();
+        echouerGeste(raison.contains(QStringLiteral("« Qui répond »"))
+                         ? raison
+                         : QStringLiteral("« Qui répond » ne se change que pour un projet sur dépôt, pas encore fini."));
+        return;
+    }
+    debuterGeste();
+    ApiCall *appel = m_greffon->changerReponses(m_projetOuvert, reponses);
+    connect(appel, &ApiCall::succeeded, this, [this](const ApiResponse &reponse) {
+        apresGesteProjet(messageReglageReponses(reponse.json.object()));
+        emit reglageReponsesEnregistre();
+    });
+    connect(appel, &ApiCall::failed, this, [this](const ApiError &erreur) {
+        // Refus du greffon (409 projet fini, sans dépôt ; 400 valeur) ou de la station : tel quel.
+        echouerGeste(erreur);
+        m_detailSondage->lireMaintenant();
+    });
+}
+
+void ProjetsViewModel::clore()
+{
+    if (gesteEnCours() || m_projetOuvert.isEmpty()) {
+        return;
+    }
+    if (!m_detail.value(QStringLiteral("peutClore")).toBool()) {
+        const QString raison = m_detail.value(QStringLiteral("gestesP7")).toString();
+        echouerGeste(raison.contains(QStringLiteral("« Clore le projet »"))
+                         ? raison
+                         : QStringLiteral("Seul un projet actif ou en pause se clôt."));
+        return;
+    }
+    debuterGeste();
+    ApiCall *appel = m_greffon->clore(m_projetOuvert);
+    connect(appel, &ApiCall::succeeded, this, [this](const ApiResponse &reponse) {
+        apresGesteProjet(messageCloture(reponse.json.object()));
+        m_liste->lireMaintenant();
+        emit clotureFaite();
+    });
+    connect(appel, &ApiCall::failed, this, [this](const ApiError &erreur) {
+        // 409 `projet_fini` (l'émetteur l'a terminé au même instant) ou autre refus : tel quel, puis relu.
+        echouerGeste(erreur);
+        m_detailSondage->lireMaintenant();
+    });
+}
+
 bool ProjetsViewModel::ouvrirKanban()
 {
     // Sous le préfixe éventuel du serveur, comme l'API (ApiClient::resolve).
@@ -657,6 +780,20 @@ QStringList ProjetsViewModel::voiesRelevees(const QJsonObject &cataloguePoste)
     return resultat;
 }
 
+QJsonObject ProjetsViewModel::voiesFermeesPourDepot(const QJsonObject &vuePoste, const QString &depot)
+{
+    if (depot.isEmpty()) {
+        return {};
+    }
+    for (const QJsonValue &element : vuePoste.value(QStringLiteral("executant")).toObject().value(QStringLiteral("depots")).toArray()) {
+        const QJsonObject mesure = element.toObject();
+        if (mesure.value(QStringLiteral("alias")).toString() == depot) {
+            return mesure.value(QStringLiteral("voies_fermees")).toObject();
+        }
+    }
+    return {};
+}
+
 std::optional<QStringList> ProjetsViewModel::depotsConnus(const QJsonObject &cataloguePoste)
 {
     const QJsonObject voies = cataloguePoste.value(QStringLiteral("voies")).toObject();
@@ -728,7 +865,20 @@ void ProjetsViewModel::majFormulaire()
     if (m_voie.isEmpty() || !voies.contains(m_voie)) {
         m_voie = voies.value(0);
     }
-    const QJsonObject releveVoie = cataloguePoste.value(QStringLiteral("voies")).toObject().value(m_voie).toObject();
+    // Étape P7 : un exécutant fermé pour le dépôt choisi n'est jamais retenu ; le premier ouvert le remplace (le choix
+    // du propriétaire est gardé et revient avec un dépôt où il est ouvert).
+    const QJsonObject fermees = voiesFermeesPourDepot(m_poste, m_depot);
+    QString voieChoisie = m_voie;
+    if (voieChoisie.isEmpty() || fermees.contains(voieChoisie)) {
+        voieChoisie.clear();
+        for (const QString &voie : voies) {
+            if (!fermees.contains(voie)) {
+                voieChoisie = voie;
+                break;
+            }
+        }
+    }
+    const QJsonObject releveVoie = cataloguePoste.value(QStringLiteral("voies")).toObject().value(voieChoisie).toObject();
     QStringList modeles;
     bool modeleParDefaut = false;
     for (const QJsonValue &element : releveVoie.value(QStringLiteral("modeles")).toArray()) {
@@ -742,12 +892,19 @@ void ProjetsViewModel::majFormulaire()
         m_modele.clear();
     }
     const bool avecExploration = !m_depot.isEmpty() && !voies.isEmpty();
-    const bool modeleExige = avecExploration && !m_voie.isEmpty() && m_modele.isEmpty() && !modeleParDefaut;
+    const bool modeleExige = avecExploration && !voieChoisie.isEmpty() && m_modele.isEmpty() && !modeleParDefaut;
     QVariantList listeVoies;
+    QStringList voiesFermees;
     for (const QString &voie : voies) {
-        const QString libelle = libelles::voie(voie);
+        const QString libelle = libelles::voie(voie).isEmpty() ? voie : libelles::voie(voie);
+        const bool fermee = fermees.contains(voie);
         listeVoies.append(QVariantMap{{QStringLiteral("valeur"), voie},
-                                      {QStringLiteral("libelle"), libelle.isEmpty() ? voie : libelle}});
+                                      {QStringLiteral("libelle"), fermee ? QStringLiteral("%1 — fermé pour ce dépôt").arg(libelle) : libelle},
+                                      {QStringLiteral("fermee"), fermee}});
+        if (fermee) {
+            voiesFermees.append(QStringLiteral("%1 : Fermé pour ce dépôt (grisé dans la liste) — %2")
+                                    .arg(libelle, libelles::texte(fermees.value(voie))));
+        }
     }
     const bool posteIllisible = m_posteLu && !m_erreurPoste.isEmpty();
     m_formulaire = QVariantMap{
@@ -766,7 +923,9 @@ void ProjetsViewModel::majFormulaire()
         {QStringLiteral("releveFactice"), cataloguePoste.value(QStringLiteral("releve_factice")) == QJsonValue(true)},
         {QStringLiteral("avecExploration"), avecExploration},
         {QStringLiteral("voies"), listeVoies},
-        {QStringLiteral("voie"), m_voie},
+        {QStringLiteral("voie"), voieChoisie},
+        {QStringLiteral("voiesFermees"), voiesFermees},
+        {QStringLiteral("aucuneVoieOuverte"), avecExploration && voieChoisie.isEmpty()},
         {QStringLiteral("modeles"), modeles},
         {QStringLiteral("modeleParDefaut"), modeleParDefaut},
         {QStringLiteral("libelleModeleVide"), modeleParDefaut
@@ -789,6 +948,13 @@ void ProjetsViewModel::choisirDepot(const QString &depot)
 
 void ProjetsViewModel::choisirVoie(const QString &voie)
 {
+    const QJsonObject fermees = voiesFermeesPourDepot(m_poste, m_depot);
+    if (fermees.contains(voie)) {
+        // Jamais retenu : le greffon le refuserait (`voie_fermee`), sans faux succès.
+        echouerGeste(QStringLiteral("Cet exécutant est fermé pour ce dépôt : %1").arg(libelles::texte(fermees.value(voie))));
+        majFormulaire();
+        return;
+    }
     m_voie = voie;
     m_modele.clear();
     majFormulaire();
@@ -826,8 +992,9 @@ void ProjetsViewModel::lancer(const QString &titre, const QString &objectif, con
         {QStringLiteral("depot"), m_depot.isEmpty() ? QJsonValue(QJsonValue::Null) : QJsonValue(m_depot)},
         {QStringLiteral("reponses"), reponses},
     };
-    if (m_formulaire.value(QStringLiteral("avecExploration")).toBool() && !m_voie.isEmpty()) {
-        QJsonObject exploration{{QStringLiteral("voie"), m_voie}};
+    const QString voieChoisie = m_formulaire.value(QStringLiteral("voie")).toString();
+    if (m_formulaire.value(QStringLiteral("avecExploration")).toBool() && !voieChoisie.isEmpty()) {
+        QJsonObject exploration{{QStringLiteral("voie"), voieChoisie}};
         if (!m_modele.isEmpty()) {
             exploration.insert(QStringLiteral("modele"), m_modele);
         }

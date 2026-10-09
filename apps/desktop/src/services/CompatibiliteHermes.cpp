@@ -83,8 +83,18 @@ CompatibiliteHermes::Evaluation CompatibiliteHermes::evaluer(const QJsonObject &
         resultat.etatFlux = QStringLiteral("absent");
     } else if (flux.isObject() && flux.toObject().value(QStringLiteral("chemin")).isString()) {
         resultat.etatFlux = QStringLiteral("annonce");
+        resultat.annonceFlux = flux.toObject();
     } else {
         resultat.etatFlux = QStringLiteral("illisible");
+    }
+    // Étape P7 : `accueil` vrai l'annonce ; absente (ou fausse), le greffon ne la sert pas (voir l'en-tête).
+    const QJsonValue accueil = meta.value(QStringLiteral("accueil"));
+    if (accueil == QJsonValue(true)) {
+        resultat.etatEtapeP7 = QStringLiteral("annonce");
+    } else if (accueil.isUndefined() || accueil == QJsonValue(false)) {
+        resultat.etatEtapeP7 = QStringLiteral("absent");
+    } else {
+        resultat.etatEtapeP7 = QStringLiteral("illisible");
     }
 
     // Contrat du greffon : une autre majeure bloque toutes les pages du greffon.
@@ -167,18 +177,23 @@ void CompatibiliteHermes::verifier()
         if (generation != m_generation || erreur.kind() == ApiFailure::Cancelled) {
             return;
         }
-        Evaluation echec;
         if (erreur.httpStatus() == 404) {
-            echec.etat = CompatibilityStatus::GreffonAbsent;
-            echec.discussionDisponible = true;
-            echec.explication = QStringLiteral("Greffon acp-poste absent de ce Hermes : seules la "
-                                               "Discussion et les Diagnostics restent disponibles.");
-        } else {
-            echec.etat = CompatibilityStatus::Injoignable;
-            echec.explication = QStringLiteral("Compatibilité non vérifiée : %1").arg(erreur.message());
-            m_erreurLecture = erreur.message();
+            Evaluation absent;
+            absent.etat = CompatibilityStatus::GreffonAbsent;
+            absent.discussionDisponible = true;
+            absent.explication = QStringLiteral("Greffon acp-poste absent de ce Hermes : seules la "
+                                                "Discussion et les Diagnostics restent disponibles.");
+            publier(absent);
+            return;
         }
-        publier(echec);
+        // Injoignable : le dernier verdict LU reste, avec ce qu'il a lu (annonce du flux, versions,
+        // disponibilités), daté de sa lecture ; seuls l'état et l'explication le disent (relecture
+        // de P8b, constat desktop-3 : une évaluation vide fermait le flux d'invalidation).
+        Evaluation injoignable = m_evaluation;
+        injoignable.etat = CompatibilityStatus::Injoignable;
+        injoignable.explication = QStringLiteral("Compatibilité non vérifiée : %1").arg(erreur.message());
+        m_erreurLecture = erreur.message();
+        publier(injoignable);
     });
 }
 
@@ -227,6 +242,9 @@ QString CompatibiliteHermes::lecture() const
 void CompatibiliteHermes::publier(Evaluation evaluation)
 {
     m_evaluation = std::move(evaluation);
+    // Étape P7 : posée sur le client du greffon à chaque verdict (une revérification en cours ou un /v1/meta
+    // injoignable recopient le verdict précédent, et donc son annonce).
+    m_greffon->setEtapeP7(m_evaluation.etatEtapeP7);
     // Échec fermé : le verdict rendu s'applique au client du greffon, pas seulement à l'écran.
     switch (m_evaluation.etat) {
     case CompatibilityStatus::Incompatible:

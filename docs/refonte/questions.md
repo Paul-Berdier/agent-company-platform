@@ -283,9 +283,10 @@ au bureau fait repartir la carte (`reprise: true`, la réponse dans la carte ser
 montre le nouvel état sans rechargement ni sondage (signal du flux). Une discussion commencée au téléphone sur la page
 Discussion et restée sur une question se reprend au bureau par **Ouvrir la discussion**, la question rejouée.
 
-**La station Qt (P8)** lit les mêmes routes de lecture (`GET /v1/questions`, `/v1/projets`…) ; elle n'ouvre pas encore
-le flux ni les gestes ajoutés par P7 (Relancer, Qui répond, Clore) : [desktop.md](desktop.md). **Non prouvé** : la
-station face à un greffon P7 au-delà de la compatibilité de lecture déjà testée en P8.
+**La station Qt (P8, alignée sur P7 par l'étape P8b)** lit les mêmes routes (`GET /v1/questions`, `/v1/accueil`,
+`/v1/projets`…), ouvre le même flux d'invalidation et offre les mêmes gestes (Relancer, Qui répond, Clore, revues,
+discussions en attente) : [desktop.md](desktop.md), § « P8b ». **Non prouvé** : la station face à un vrai greffon P7 ;
+son flux et ses gestes ne sont éprouvés que contre le faux Hermes de ses tests natifs et les fixtures partagées.
 
 ---
 

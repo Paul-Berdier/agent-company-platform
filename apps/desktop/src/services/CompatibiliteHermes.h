@@ -17,13 +17,23 @@
 //
 // Le blocage suit le dernier verdict rendu : « Compatible » ou « Compatible avec réserves » le
 // lève, l'oubli (session perdue, serveur changé) aussi ; une revérification en cours ou un
-// `/v1/meta` injoignable laissent le verdict précédent en place.
+// `/v1/meta` injoignable laissent le verdict précédent en place, avec ce qu'il avait lu
+// (annonce du flux d'invalidation comprise) : seul l'état publié dit « Non vérifiable ».
 //
 // Les étapes déployées se détectent sans supposition, d'après `machine.executant` (étape P6,
 // meta.py `_resume_executant`) : clé ABSENTE = étape non déployée (« absent »), sauf base du
 // greffon illisible (`machine.base` = « illisible » : « illisible ») ; `null` = étape en place
 // mais aucun exécutant connu pour l'instant (« aucun ») ; objet = exécutant annoncé
 // (« annonce »). Avant toute lecture de /v1/meta : « inconnu ».
+//
+// De même pour l'étape P7 (seconde relecture de P8b, constat desktop-8 ; décision P8b-2) : la clé
+// `accueil` de /v1/meta (meta.py) est née dans le MÊME commit du greffon (00bc069) que les quatre
+// routes qu'elle couvre, `GET /v1/accueil`, la relance d'une carte arrêtée, « qui répond » et la
+// clôture d'un projet. `accueil` vrai = « annonce » ; clé absente (ou faux) = greffon antérieur à P7
+// (« absent ») ; toute autre valeur = « illisible ». Le verdict APPLIQUÉ le pose sur le client du
+// greffon (ClientGreffonPoste::setEtapeP7), qui refuse alors localement ces quatre routes ; l'Accueil
+// agrégé et le sondage léger ne les lisent que sur l'annonce, « Clore » et « Qui répond » ne sont
+// offerts que sur elle.
 
 #pragma once
 
@@ -80,10 +90,17 @@ public:
         QJsonObject executant;
         /*!
             Flux d'invalidation du greffon (clé `flux` de /v1/meta, étape P7) : « annonce » (objet avec
-            un chemin), « absent » (clé absente), « illisible », « inconnu » (rien de lu). La station ne
-            l'ouvre pas : elle le DIT (relecture finale de P7, constat desktop-1).
+            un chemin), « absent » (clé absente), « illisible », « inconnu » (rien de lu). La station
+            l'ouvre seulement sur une annonce de chemin et de version attendus (FluxInvalidation).
         */
         QString etatFlux = QStringLiteral("inconnu");
+        //! Objet `flux` servi (chemin, version, sujets, battement, durée), vide sans annonce.
+        QJsonObject annonceFlux;
+        /*!
+            Étape P7 (clé `accueil` de /v1/meta) : « annonce », « absent », « illisible » ou « inconnu »
+            (rien de lu). Voir l'en-tête.
+        */
+        QString etatEtapeP7 = QStringLiteral("inconnu");
     };
 
     explicit CompatibiliteHermes(ClientGreffonPoste *greffon, QObject *parent = nullptr);
@@ -129,6 +146,8 @@ public:
     [[nodiscard]] const QString &etatExecutant() const { return m_evaluation.etatExecutant; }
     [[nodiscard]] const QJsonObject &executant() const { return m_evaluation.executant; }
     [[nodiscard]] const QString &etatFlux() const { return m_evaluation.etatFlux; }
+    [[nodiscard]] const QJsonObject &annonceFlux() const { return m_evaluation.annonceFlux; }
+    [[nodiscard]] const QString &etatEtapeP7() const { return m_evaluation.etatEtapeP7; }
 
 signals:
     void change();

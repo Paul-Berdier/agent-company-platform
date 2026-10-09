@@ -1,6 +1,8 @@
 // Oubli local des pages (docs/desktop-security.md, « oubli local complet ») : à la session
 // perdue, au changement de serveur et au blocage du greffon, aucune donnée lue ne reste en
 // mémoire ni affichée : modèles vidés, « Jamais lu », brouillons effacés, résumé « Inconnu ».
+// Le flux d'invalidation suit le verdict APPLIQUÉ : fermé au blocage du greffon, gardé quand
+// /v1/meta est seulement injoignable.
 //
 // Composition du produit (Application), contre deux faux Hermes : A sert le greffon, B ne le
 // sert pas (404). Porteur fixe, aucune connexion ouverte : aucune entrée de coffre n'est écrite.
@@ -9,6 +11,8 @@
 #include "app/Application.h"
 #include "auth/SessionHermes.h"
 #include "events/EventStreamService.h"
+#include "events/FluxInvalidation.h"
+#include "gateway/DiscussionsEnAttente.h"
 #include "gateway/GatewayClient.h"
 #include "models/JsonListModel.h"
 #include "services/CompatibiliteHermes.h"
@@ -58,7 +62,21 @@ void servirLeGreffon(FauxHermes &serveur, QJsonObject *meta)
     }
     serveur.route("GET", QStringLiteral("/api/sessions"),
                   [](const RequeteRecue &) { return ReponseFaux::json(200, fixture(QStringLiteral("sessions.json"))); });
+    // Étape P8b : bilan quotidien (route native) et discussions en attente (passerelle).
+    serveur.route("GET", QStringLiteral("/api/cron/jobs"), [](const RequeteRecue &) {
+        return ReponseFaux::json(200, QJsonArray{QJsonObject{{QStringLiteral("script"), QStringLiteral("acp-bilan.py")},
+                                                             {QStringLiteral("no_agent"), true}, {QStringLiteral("enabled"), true}}});
+    });
+    serveur.methodes.insert(QStringLiteral("session.active_list"), [](const QJsonObject &) {
+        return QJsonObject{{QStringLiteral("sessions"), QJsonArray{QJsonObject{
+            {QStringLiteral("session_key"), QStringLiteral("s1")}, {QStringLiteral("status"), QStringLiteral("waiting")},
+            {QStringLiteral("title"), QStringLiteral("Plan du site")}}}}};
+    });
     serveur.route("GET", kP + QStringLiteral("/meta"), [meta](const RequeteRecue &) { return ReponseFaux::json(200, *meta); });
+    // Accueil agrégé (étape P7) : la fixture partagée avec le greffon et la page web.
+    serveur.route("GET", kP + QStringLiteral("/accueil"), [](const RequeteRecue &) {
+        return ReponseFaux::json(200, fixturePartagee(QStringLiteral("fixtures_accueil/accueil.json")).object());
+    });
 }
 
 } // namespace
@@ -72,6 +90,8 @@ private slots:
     void sessionPerdueOublieToutesLesPages();
     void changementDeServeurNAfficheRienDeLAncien();
     void greffonBloqueOublieSesPages();
+    void fluxSuitLeVerdictApplique();
+    void greffonAbsentDitLeBlocageAuTempsReel();
     void cleanupTestCase();
 
 private:
@@ -153,14 +173,17 @@ void TestOubliLocal::ouvrirEtLireA()
         page->setPageVisible(true);
     }
     QTRY_VERIFY_WITH_TIMEOUT(m_accueil->sessionsLues(), 10000);
-    QTRY_VERIFY_WITH_TIMEOUT(m_accueil->carteProjets().value(QStringLiteral("lisible")).toBool(), 10000);
+    QTRY_VERIFY_WITH_TIMEOUT(m_accueil->lue(), 10000);
     QTRY_VERIFY_WITH_TIMEOUT(m_projets->listeLue(), 10000);
     QTRY_VERIFY_WITH_TIMEOUT(m_questions->lue(), 10000);
     QTRY_VERIFY_WITH_TIMEOUT(m_poste->lue(), 10000);
     QTRY_VERIFY_WITH_TIMEOUT(m_quotas->lue(), 10000);
     QTRY_VERIFY_WITH_TIMEOUT(m_routage->lue(), 10000);
     QTRY_COMPARE_WITH_TIMEOUT(m_discussion->sessions()->count(), 1, 10000);
-    QTRY_VERIFY(m_flux->questionsOuvertes() >= 0);
+    QTRY_VERIFY(m_flux->aTraiter() >= 0);
+    QTRY_VERIFY_WITH_TIMEOUT(m_accueil->carteBilan().value(QStringLiteral("lu")).toBool(), 10000);
+    QTRY_VERIFY_WITH_TIMEOUT(m_flux->discussions()->connues(), 10000);
+    QTRY_VERIFY_WITH_TIMEOUT(m_questions->discussions().value(QStringLiteral("connues")).toBool(), 10000);
     m_questions->setBrouillon(QStringLiteral("q:q_b627a3c245ec"), QStringLiteral("Brouillon tapé sur A"));
     m_routage->appliquerSuggestion(QStringLiteral("exploration"));
     QVERIFY(m_routage->brouillonModifie());
@@ -175,11 +198,13 @@ QStringList TestOubliLocal::donneesRestantes() const
             restes.append(QString::fromLatin1(nom));
         }
     };
-    si(m_accueil->carteProjets().value(QStringLiteral("lisible")).toBool(), "accueil.carteProjets");
-    si(m_accueil->carteQuotas().value(QStringLiteral("connu")).toBool(), "accueil.carteQuotas");
+    si(m_accueil->lue(), "accueil.lue");
+    si(m_accueil->carteATraiter().value(QStringLiteral("lisible")).toBool(), "accueil.carteATraiter");
+    si(m_accueil->projetsEnCours()->count() > 0, "accueil.projetsEnCours");
+    si(m_accueil->carteQuotas().value(QStringLiteral("lisible")).toBool(), "accueil.carteQuotas");
     si(m_accueil->sessions()->count() > 0, "accueil.sessions");
     si(m_accueil->sessionsLues(), "accueil.sessionsLues");
-    si(m_accueil->lectureProjets() != kJamaisLu, "accueil.lectureProjets");
+    si(m_accueil->lectureAccueil() != kJamaisLu, "accueil.lectureAccueil");
     si(m_accueil->lectureSessions() != kJamaisLu, "accueil.lectureSessions");
     si(m_projets->projets()->count() > 0, "projets.liste");
     si(m_projets->listeLue(), "projets.listeLue");
@@ -203,7 +228,11 @@ QStringList TestOubliLocal::donneesRestantes() const
     si(m_routage->lecture() != kJamaisLu, "routage.lecture");
     si(m_discussion->sessions()->count() > 0, "discussion.sessions");
     si(m_discussion->sessionsLues(), "discussion.sessionsLues");
-    si(m_flux->questionsOuvertes() >= 0, "resume.questions");
+    si(m_flux->aTraiter() >= 0, "resume.aTraiter");
+    si(m_accueil->carteBilan().value(QStringLiteral("lu")).toBool(), "accueil.carteBilan");
+    si(m_accueil->lectureBilan() != kJamaisLu, "accueil.lectureBilan");
+    si(m_flux->discussions()->connues(), "resume.discussions");
+    si(m_questions->discussions().value(QStringLiteral("connues")).toBool(), "questions.discussions");
     return restes;
 }
 
@@ -269,6 +298,10 @@ void TestOubliLocal::greffonBloqueOublieSesPages()
     restes.removeAll(QStringLiteral("accueil.sessions"));
     restes.removeAll(QStringLiteral("accueil.sessionsLues"));
     restes.removeAll(QStringLiteral("accueil.lectureSessions"));
+    // Le bilan quotidien vient de /api/cron/jobs (route native de Hermes) : relu aussitôt aussi (carte cachée tant que
+    // l'accueil du greffon n'est pas lu).
+    restes.removeAll(QStringLiteral("accueil.carteBilan"));
+    restes.removeAll(QStringLiteral("accueil.lectureBilan"));
     // Les pages du greffon, encore affichées, essaient de relire : refus de la station, sans
     // donnée ; leur « Lu à » reste « Jamais lu ».
     QVERIFY2(restes.isEmpty(), qPrintable(restes.join(QStringLiteral(", "))));
@@ -276,7 +309,8 @@ void TestOubliLocal::greffonBloqueOublieSesPages()
     restes = donneesRestantes();
     for (const QString &permis : {QStringLiteral("discussion.sessions"), QStringLiteral("discussion.sessionsLues"),
                                   QStringLiteral("accueil.sessions"), QStringLiteral("accueil.sessionsLues"),
-                                  QStringLiteral("accueil.lectureSessions")}) {
+                                  QStringLiteral("accueil.lectureSessions"), QStringLiteral("accueil.carteBilan"),
+                                  QStringLiteral("accueil.lectureBilan")}) {
         restes.removeAll(permis);
     }
     QVERIFY2(restes.isEmpty(), qPrintable(restes.join(QStringLiteral(", "))));
@@ -287,6 +321,80 @@ void TestOubliLocal::greffonBloqueOublieSesPages()
     QVERIFY2(m_a->compter("GET", kP + QStringLiteral("/meta")) - lecturesMeta <= 1,
              qPrintable(QString::number(m_a->compter("GET", kP + QStringLiteral("/meta")) - lecturesMeta)));
     m_metaA.insert(QStringLiteral("contrat"), QString::fromLatin1("acp-poste/1"));
+}
+
+// Relecture de P8b (constats desktop-3 et desktop-1), composition réelle : une revérification de /v1/meta en échec
+// réseau laisse le dernier verdict lu, donc le flux d'invalidation ouvert ; un verdict qui BLOQUE le greffon (contrat
+// d'une autre majeure, annonce du flux inchangée) ferme le flux, et la barre d'état ne dit plus « Temps réel ».
+void TestOubliLocal::fluxSuitLeVerdictApplique()
+{
+    const QString kFlux = kP + QStringLiteral("/flux");
+    const QJsonObject trames = fixturePartagee(QStringLiteral("fixtures_flux/trames.json")).object()
+                                   .value(QStringLiteral("trames")).toObject();
+    m_a->activerFlux();
+    m_metaA.insert(QStringLiteral("contrat"), QString::fromLatin1("acp-poste/1"));
+    m_metaA.insert(QStringLiteral("flux"), QJsonObject{
+        {QStringLiteral("chemin"), kFlux}, {QStringLiteral("version"), 1},
+        {QStringLiteral("sujets"), QJsonArray::fromStringList(FluxInvalidation::sujets())},
+        {QStringLiteral("battement_s"), 15}, {QStringLiteral("duree_max_s"), 600}});
+    QVERIFY(!m_client->setBaseUrl(m_a->url()).isError());
+    m_flux->demarrer();
+    m_compatibilite->verifier();
+    QTRY_COMPARE_WITH_TIMEOUT(m_compatibilite->etat(), CompatibilityStatus::Compatible, 5000);
+    QTRY_COMPARE_WITH_TIMEOUT(m_a->clientsFlux(), 1, 5000);
+    m_a->envoyerFlux(trames.value(QStringLiteral("ouverture")).toString().toUtf8());
+    QTRY_VERIFY_WITH_TIMEOUT(m_flux->tempsReel(), 5000);
+    QCOMPARE(m_flux->libelleTempsReel(), QStringLiteral("Temps réel"));
+
+    // 1. /v1/meta injoignable à la revérification : verdict et annonce restent, le flux aussi (aucune réouverture).
+    m_a->route("GET", kP + QStringLiteral("/meta"), [](const RequeteRecue &) {
+        ReponseFaux indisponible = ReponseFaux::json(503, QJsonObject{{QStringLiteral("detail"), QStringLiteral("indisponible")}});
+        indisponible.entetes.append({QByteArrayLiteral("Retry-After"), QByteArrayLiteral("0")});
+        return indisponible;
+    });
+    const int ouvertures = m_a->compter("GET", kFlux);
+    m_compatibilite->verifier();
+    QTRY_COMPARE_WITH_TIMEOUT(m_compatibilite->etat(), CompatibilityStatus::Injoignable, 10000);
+    QTest::qWait(200);
+    QCOMPARE(m_compatibilite->etatFlux(), QStringLiteral("annonce"));
+    QVERIFY2(m_flux->tempsReel(), qPrintable(m_flux->etatFlux()));
+    QCOMPARE(m_a->clientsFlux(), 1);
+    QCOMPARE(m_a->compter("GET", kFlux), ouvertures);
+
+    // 2. Verdict suivant : contrat d'une autre majeure, même annonce du flux. Le flux se ferme et ne se rouvre pas.
+    QJsonObject *meta = &m_metaA;
+    m_a->route("GET", kP + QStringLiteral("/meta"), [meta](const RequeteRecue &) { return ReponseFaux::json(200, *meta); });
+    m_metaA.insert(QStringLiteral("contrat"), QStringLiteral("acp-poste/2"));
+    m_compatibilite->verifier();
+    QTRY_COMPARE_WITH_TIMEOUT(m_compatibilite->etat(), CompatibilityStatus::Incompatible, 5000);
+    QTRY_COMPARE_WITH_TIMEOUT(m_a->clientsFlux(), 0, 5000);
+    QVERIFY(!m_flux->tempsReel());
+    QVERIFY(m_flux->libelleTempsReel() != QStringLiteral("Temps réel"));
+    QVERIFY2(m_flux->etatFlux().contains(QStringLiteral("Contrat du greffon incompatible")), qPrintable(m_flux->etatFlux()));
+    const int apresBlocage = m_a->compter("GET", kFlux);
+    QTest::qWait(1500); // la première reprise (1 s) l'aurait rouvert
+    QCOMPARE(m_a->compter("GET", kFlux), apresBlocage);
+    QCOMPARE(m_a->clientsFlux(), 0);
+
+    m_metaA.insert(QStringLiteral("contrat"), QString::fromLatin1("acp-poste/1"));
+    m_metaA.remove(QStringLiteral("flux"));
+}
+
+// Seconde relecture de P8b (constat desktop-9), composition réelle : face à un Hermes sans le greffon (/v1/meta en 404),
+// les Diagnostics et la barre d'état disaient « Inconnu : /v1/meta n'a pas encore été lu ; les pages sont relues par
+// sondage. » et « Sondage (aucun flux) ». Ils disent désormais la raison du blocage, sans prétendre sonder.
+void TestOubliLocal::greffonAbsentDitLeBlocageAuTempsReel()
+{
+    QVERIFY(!m_client->setBaseUrl(m_b->url()).isError()); // B ne sert pas le greffon : /v1/meta en 404
+    m_flux->demarrer();
+    m_compatibilite->verifier();
+    QTRY_COMPARE_WITH_TIMEOUT(m_compatibilite->etat(), CompatibilityStatus::GreffonAbsent, 5000);
+    const QString etat = m_flux->etatFlux();
+    QVERIFY2(etat.startsWith(QStringLiteral("Non utilisé : Greffon acp-poste absent de ce Hermes")), qPrintable(etat));
+    QVERIFY2(!etat.contains(QStringLiteral("/v1/meta n'a pas encore été lu")), qPrintable(etat));
+    QVERIFY2(!etat.contains(QStringLiteral("sondage")), qPrintable(etat));
+    QCOMPARE(m_flux->libelleTempsReel(), QStringLiteral("Aucun flux (greffon bloqué)"));
+    QVERIFY(QMetaObject::invokeMethod(m_session, "sessionPerdue", Q_ARG(QString, QStringLiteral("Fin de l'essai"))));
 }
 
 QTEST_MAIN(TestOubliLocal)
