@@ -1350,11 +1350,12 @@ Autres preuves :
 ### P9 — Exploitation, montée de version et publication
 
 > **État du 9 octobre 2026** : parts A à E **faites côté dépôt** sur `refonte/hermes-p9`, relues de bout en bout
-> (1.0.0 préparée ; fusion dans `main` et étiquette en attente de l'accord du propriétaire) : manuel [exploitation.md](../exploitation.md), restauration R1 à R4 et montée de données prouvées en
-> intégration continue, témoin `v2026.9.21`. Écarts à ce texte, décidés et dits : montée répétée à blanc et témoin
-> d'une release antérieure, faute de release suivante (D122) ; aucun environnement Railway éphémère (D123) ;
-> restauration répétée en production avant d'y mettre des données, et non dans un environnement jetable (D124).
-> Preuves et ce qui reste non prouvé : [preuves-1.0.0.md](preuves-1.0.0.md) § 3 et § 5.
+> (1.0.0 préparée ; fusion dans `main` et étiquette en attente de l'accord du propriétaire) : manuel
+> [exploitation.md](../exploitation.md), restauration R1 à R4 et montée de données prouvées en intégration continue,
+> témoin `v2026.9.21`. Écarts à ce texte, décidés et dits : montée répétée à blanc et témoin d'une release
+> antérieure, faute de release suivante (D122) ; aucun environnement Railway éphémère (D123) ; restauration répétée
+> en production avant d'y mettre des données, et non dans un environnement jetable (D124). Preuves et ce qui reste
+> non prouvé : [preuves-1.0.0.md](preuves-1.0.0.md) § 3 et § 5.
 
 **Livrable**
 

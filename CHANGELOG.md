@@ -156,8 +156,12 @@ Corrections des relectures indépendantes, une ligne par étape (détail : `docs
   n'attrapait (`config.yaml` sans `_config_version`) attrapée par un test nouveau (`d07753b`) ; critique et
   contre-vérification d'un sceptique des preuves de B et C : listes « jamais vu rouge » complétées, 33 runs de
   témoins de mutation au total (20 pour la restauration, 13 pour la montée) et un inventaire mécanique des
-  vérifications (`docs/exploitation.md` § 6.6 et § 10) ; relecture indépendante de toute P9, qui précède le commit
-  de ce journal : **à relever** (constats et traitement : `docs/refonte/preuves-1.0.0.md` § 3).
+  vérifications (`docs/exploitation.md` § 6.6 et § 10) ; relecture finale de toute P9 (9 octobre 2026) : 34 constats
+  retenus, tous traités, aucun réfuté, dont `scripts/monter_hermes.py derniere` aveugle aux étiquettes `vX.Y.Z`
+  (v0.21.6 manquée ; corrigé avec des tests rouges d'abord, D161), le retour arrière d'une montée rendu sûr et durable
+  (Rollback à la place du retour à la normale, PR de retour), la sonde R0 remise avant tout apply, deux gardes de
+  dérive du correctif SECU-TUI, et les textes des pages Routage (navigateur et station) et Réglages (station), avec
+  des tests rouges d'abord (constats et traitement : `docs/refonte/preuves-1.0.0.md` § 3).
 
 ### Sécurité
 

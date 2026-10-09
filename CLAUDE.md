@@ -25,9 +25,10 @@ remplacées par `docs/refonte/autonomie.md`.
 vers `refonte/hermes` (recette d'alors : `docs/refonte/historique.md`, partie D). Pour finir :
 
 1. P9 se termine sur `refonte/hermes-p9`, qui a réuni ses parts et `refonte/hermes` le 9 octobre 2026 :
-   `refonte/hermes-p9bc` (qui contient `-p9c`, fusionnée par `b867810`) en avance rapide, puis `-p9e` (`916bf7a`)
-   et `refonte/hermes` (`7b0d3d7`) par commits de fusion, jamais par rebase d'une branche poussée : commits de travail, suite complète verte avant chacun, CI verte, preuves de
-   l'étape publiées dans la documentation, relecture indépendante de toute P9.
+   `refonte/hermes-p9bc` (qui contient `-p9c`, fusionnée par `b867810`) en avance rapide, puis `-p9e` (`916bf7a`) et
+   `refonte/hermes` (`7b0d3d7`) par commits de fusion, jamais par rebase d'une branche poussée : commits de travail,
+   suite complète verte avant chacun, CI verte, preuves de l'étape publiées dans la documentation, relecture
+   indépendante de toute P9.
 2. Une fois P9 prouvée, sur `refonte/hermes-p9` et **avant** sa PR (D129) : commit d'ouverture
    `chore(release): open 1.0.0` (fichier `VERSION` et toutes les copies vérifiées par `scripts/check_version.py`,
    fichier par fichier), puis `chore(release): prepare 1.0.0 changelog` (section du journal datée, déjà préparée

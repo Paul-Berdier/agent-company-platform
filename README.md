@@ -2,9 +2,9 @@
 
 Espace de travail personnel d'agents IA, bâti autour de **Hermes Agent** (Nous Research, licence MIT) : c'est la
 refonte « Hermes au centre ». **1.0.0 est préparée** (étape P9) ; sa fusion dans `main` et l'étiquette `v1.0.0`
-attendent l'accord du propriétaire : rien n'est encore publié ni **déployé**. L'ancienne plateforme (API FastAPI, base SQLite et PostgreSQL,
-interface web Vite, CLI `acp`,
-déploiement Railway multi-services) reste entière sous l'étiquette `archive/acp-0.10.0-avant-hermes`.
+attendent l'accord du propriétaire : rien n'est encore publié ni **déployé**. L'ancienne plateforme (API FastAPI,
+base SQLite et PostgreSQL, interface web Vite, CLI `acp`, déploiement Railway multi-services) reste entière sous
+l'étiquette `archive/acp-0.10.0-avant-hermes`.
 
 ## Ce que c'est
 

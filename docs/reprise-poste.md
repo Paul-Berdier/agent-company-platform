@@ -23,11 +23,12 @@ L'ancienne plateforme reste entière sous l'étiquette annotée `archive/acp-0.1
 - **Branches** : `main` = `60a49b6` (ancienne plateforme) ; `refonte/hermes`, branche d'intégration et branche
   déployée par l'IaC, porte P0 à P8, P7, le correctif de sécurité SECU-TUI (PR #23, `5026a70`) et la station Qt
   alignée sur P7 (P8b, PR #22, `8583642`, dernière fusion, 9 octobre 2026) ; P9 est **réunie** sur
-  `refonte/hermes-p9` depuis le 9 octobre 2026 : parts A et D, `refonte/hermes-p9bc` (parts B et C, tête
-  `b6f2ada` ; elle contient `refonte/hermes-p9c`, le témoin, fusionnée par `b867810`), `refonte/hermes-p9e` (part
-  E, documentation, tête `3d8d723`) et `refonte/hermes` (`8583642`), réunies le 9 octobre 2026 : `-p9bc` en avance
+  `refonte/hermes-p9` depuis le 9 octobre 2026 : parts A et D, `refonte/hermes-p9bc` (parts B et C, tête `b6f2ada` ;
+  elle contient `refonte/hermes-p9c`, le témoin, fusionnée par `b867810`), `refonte/hermes-p9e` (part E,
+  documentation, tête `3d8d723`) et `refonte/hermes` (`8583642`), réunies le 9 octobre 2026 : `-p9bc` en avance
   rapide, puis `-p9e` (`916bf7a`) et `refonte/hermes` (`7b0d3d7`) par commits de fusion, jamais par rebase ; sa PR
-  vers `refonte/hermes` suit les deux commits de version (`CLAUDE.md`). Les branches `refonte/hermes-p8b` et `refonte/hermes-secu-tui` sont closes par leurs fusions.
+  vers `refonte/hermes` suit les deux commits de version (`CLAUDE.md`). Les branches `refonte/hermes-p8b` et
+  `refonte/hermes-secu-tui` sont closes par leurs fusions.
 - **Étiquettes** : `v0.2.0` à `v0.9.0` et `archive/acp-0.10.0-avant-hermes` ; ni `v0.10.0` ni `v0.11.0` (jamais
   publiées) ; aucune `v1.0.0`.
 - **Intégration continue** sur `refonte/hermes` : après la fusion de P7 (`b9779f1`), CI `37795932683`, Image de
@@ -58,10 +59,11 @@ L'ancienne plateforme reste entière sous l'étiquette annotée `archive/acp-0.1
 | P7 | questions, notifications, continuité ; dépôts réels | fusionnée (PR #21, `b9779f1`) ; aucun dépôt réel ajouté |
 | SECU-TUI | correctif de sécurité : `.env` et sources de secrets du volume | fusionné (PR #23, `5026a70`) ; D156, D157 |
 | P8b | station Qt alignée sur P7 | fusionnée (PR #22, `8583642`) ; D158, D159 ; prouvée contre le faux Hermes seulement |
-| P9 | exploitation, montée de version, publication 1.0.0 | **parts A à E faites**, sans PR : branches réunies sur `refonte/hermes-p9` (9 octobre 2026) ; A (outillage de version, montée de Hermes répétée à blanc à chaque construction) et D (procédures, manuel) relues ; B (test de restauration R1 à R4) et C (témoin `v2026.9.21`, montée de données) closes, prouvées en CI ([preuves](refonte/preuves-1.0.0.md) § 3) ; E (documentation finale) faite ; relecture indépendante de toute P9 faite (9 octobre 2026, D161 à D163) ; puis ouverture 1.0.0 et journal daté (deux derniers commits), PR vers `refonte/hermes` ; F (publication) après accord |
+| P9 | exploitation, montée de version, publication 1.0.0 | **parts A à E faites** : branches réunies sur `refonte/hermes-p9` (9 octobre 2026) ; A (outillage de version, montée de Hermes répétée à blanc à chaque construction) et D (procédures, manuel) relues ; B (test de restauration R1 à R4) et C (témoin `v2026.9.21`, montée de données) closes, prouvées en CI ([preuves](refonte/preuves-1.0.0.md) § 3) ; E (documentation finale) faite ; relecture indépendante de toute P9 faite (9 octobre 2026, D161 à D163) ; puis ouverture 1.0.0 et journal daté (deux derniers commits), PR vers `refonte/hermes` ; F (publication) après accord |
 
 Détail de chaque étape : [historique](refonte/historique.md), partie A (tableau des fusions) et partie B ; P9 :
-[plan](refonte/plan.md) § 1 (D122 à D155 et D160 à D163 ; D156 à D159 pour SECU-TUI et P8b) et [manuel](exploitation.md).
+[plan](refonte/plan.md) § 1 (D122 à D155 et D160 à D163 ; D156 à D159 pour SECU-TUI et P8b) et
+[manuel](exploitation.md).
 
 ## 2. Décisions du propriétaire
 
