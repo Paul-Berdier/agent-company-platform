@@ -114,6 +114,7 @@ private slots:
     void pageRelitSurSignalDeSesSujets();
     void serviceSuitLaSessionEtLaFenetre();
     void greffonBloqueFermeUnFluxOuvert();
+    void greffonAbsentDitLaRaisonDuBlocage();
     void sessionNeuveOublieLeRepli();
 };
 
@@ -432,6 +433,10 @@ void TestFluxInvalidation::greffonBloqueFermeUnFluxOuvert()
     QCOMPARE(banc.flux.raison(), blocage);
     QVERIFY2(banc.flux.libelleEtat().startsWith(QStringLiteral("Non utilisé : Contrat du greffon incompatible")),
              qPrintable(banc.flux.libelleEtat()));
+    // Seconde relecture de P8b (constat desktop-9) : greffon bloqué, ses pages ne sondent rien (refus local) ; jamais
+    // « relues par sondage » ni « Sondage (aucun flux) ».
+    QVERIFY2(!banc.flux.libelleEtat().contains(QStringLiteral("sondage")), qPrintable(banc.flux.libelleEtat()));
+    QCOMPARE(banc.flux.libelleCourt(), QStringLiteral("Aucun flux (greffon bloqué)"));
     QTRY_COMPARE(banc.serveur.clientsFlux(), 0);
     const int ouvertures = banc.ouvertures();
     banc.flux.relancer(); // retour du lien : rien ne part vers un greffon bloqué
@@ -444,6 +449,39 @@ void TestFluxInvalidation::greffonBloqueFermeUnFluxOuvert()
     banc.flux.setAnnonce(QStringLiteral("annonce"), annonce());
     QTRY_COMPARE(banc.serveur.clientsFlux(), 1);
     QCOMPARE(banc.serveur.ouverturesFlux.constLast().entete("last-event-id"), QByteArrayLiteral("1727791200.41"));
+}
+
+// Seconde relecture de P8b (constat desktop-9) : /v1/meta en 404 (greffon absent) rend un verdict dont l'annonce du flux
+// reste « inconnu » ; la station disait alors « Inconnu : /v1/meta n'a pas encore été lu ; les pages sont relues par
+// sondage. » et « Sondage (aucun flux) » : deux faussetés (/v1/meta a été lu ; les pages du greffon ne lisent plus rien).
+// Le blocage prime sur l'annonce, quelle qu'elle soit, et se dit avec sa raison.
+void TestFluxInvalidation::greffonAbsentDitLaRaisonDuBlocage()
+{
+    Banc banc;
+    banc.flux.setActif(true);
+    const QString blocage = QStringLiteral("Greffon acp-poste absent de ce Hermes : seules la Discussion et les Diagnostics "
+                                           "restent disponibles.");
+    const QString attendu = QStringLiteral("Non utilisé : Greffon acp-poste absent de ce Hermes : seules la Discussion et les "
+                                           "Diagnostics restent disponibles ; les pages du greffon ne lisent rien tant que ce "
+                                           "verdict le bloque.");
+    banc.greffon.bloquer(blocage);
+    for (const QString &etat : {QStringLiteral("inconnu"), QStringLiteral("absent"), QStringLiteral("illisible")}) {
+        banc.flux.setAnnonce(etat, {}); // GreffonAbsent : CompatibiliteHermes publie `Evaluation absent;` (« inconnu »)
+        QCOMPARE(banc.flux.mode(), FluxInvalidation::Mode::Indisponible);
+        QCOMPARE(banc.flux.raison(), blocage);
+        QCOMPARE(banc.flux.libelleEtat(), attendu);
+        QCOMPARE(banc.flux.libelleCourt(), QStringLiteral("Aucun flux (greffon bloqué)"));
+    }
+    QTest::qWait(100);
+    QCOMPARE(banc.ouvertures(), 0);
+
+    // Verdict oublié (session perdue, serveur changé) : rien de lu, donc « Inconnu », et le sondage habituel des pages.
+    banc.greffon.debloquer();
+    banc.flux.setAnnonce(QStringLiteral("inconnu"), {});
+    QVERIFY2(banc.flux.libelleEtat().startsWith(QStringLiteral("Inconnu : /v1/meta n'a pas encore été lu ; les pages sont "
+                                                               "relues par sondage.")),
+             qPrintable(banc.flux.libelleEtat()));
+    QCOMPARE(banc.flux.libelleCourt(), QStringLiteral("Sondage (aucun flux)"));
 }
 
 // Relecture de P8b (constat desktop-2) : le repli en sondage (401, ou trois échecs) survivait à la perte de session ; une

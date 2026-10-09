@@ -24,14 +24,17 @@
 //  - chien de garde : sans AUCUN octet (trame ou battement) pendant 40 s, ouverture comprise,
 //    la connexion est annulée et comptée comme un échec ;
 //  - reprise : aussitôt après `fin` (avec `Last-Event-ID`) ; sinon 1 s, 2 s, 5 s, 10 s puis
-//    30 s ; trois échecs en 2 min : mode « sondage » (relecture toutes les 15 s), dit, et
-//    nouvel essai toutes les 5 min ; 429 : jamais avant `Retry-After` ;
+//    30 s ; trois échecs en 2 min : mode « sondage » (chaque page à son sondage habituel :
+//    15 s, 60 s pour la page Quotas et le sondage léger du badge), dit, et nouvel essai
+//    toutes les 5 min ; 429 : jamais avant `Retry-After` ;
 //  - 401 : jamais réessayé aussitôt ; mode « sondage » et nouvel essai dans 5 min (décision
 //    P8b-1 : la station n'a pas de page à recharger ; les lectures REST de la session font
 //    tourner le jeton entre-temps, ou la perdent et ferment tout) ;
 //  - la perte de session ferme le flux et oublie le repli (oublierRepli) : une session neuve
 //    retente aussitôt ; un greffon BLOQUÉ par le verdict de /v1/meta ferme le flux, même
-//    déjà ouvert et même si l'annonce n'a pas changé (échec fermé, ClientGreffonPoste.h).
+//    déjà ouvert et même si l'annonce n'a pas changé (échec fermé, ClientGreffonPoste.h) ; le
+//    blocage prime sur l'annonce, quelle qu'elle soit, et se dit avec sa raison (« Aucun flux
+//    (greffon bloqué) ») : ses pages ne sondent rien, la station refuse leurs lectures.
 // Tant que le flux n'est pas en temps réel, les pages gardent leur sondage habituel : aucune
 // fraîcheur n'est jamais supposée.
 
@@ -180,6 +183,8 @@ private:
     bool m_actif = false;
     bool m_annonceUtilisable = false;
     QString m_etatAnnonce = QStringLiteral("inconnu");
+    //! Fermé par le verdict qui bloque le greffon : ses pages ne lisent rien (refus local), rien n'est « sondé ».
+    bool m_bloque = false;
     bool m_fin = false;
     bool m_chienEchu = false;
     bool m_statutLu = false;

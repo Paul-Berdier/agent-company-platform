@@ -91,6 +91,7 @@ private slots:
     void changementDeServeurNAfficheRienDeLAncien();
     void greffonBloqueOublieSesPages();
     void fluxSuitLeVerdictApplique();
+    void greffonAbsentDitLeBlocageAuTempsReel();
     void cleanupTestCase();
 
 private:
@@ -377,6 +378,23 @@ void TestOubliLocal::fluxSuitLeVerdictApplique()
 
     m_metaA.insert(QStringLiteral("contrat"), QString::fromLatin1("acp-poste/1"));
     m_metaA.remove(QStringLiteral("flux"));
+}
+
+// Seconde relecture de P8b (constat desktop-9), composition réelle : face à un Hermes sans le greffon (/v1/meta en 404),
+// les Diagnostics et la barre d'état disaient « Inconnu : /v1/meta n'a pas encore été lu ; les pages sont relues par
+// sondage. » et « Sondage (aucun flux) ». Ils disent désormais la raison du blocage, sans prétendre sonder.
+void TestOubliLocal::greffonAbsentDitLeBlocageAuTempsReel()
+{
+    QVERIFY(!m_client->setBaseUrl(m_b->url()).isError()); // B ne sert pas le greffon : /v1/meta en 404
+    m_flux->demarrer();
+    m_compatibilite->verifier();
+    QTRY_COMPARE_WITH_TIMEOUT(m_compatibilite->etat(), CompatibilityStatus::GreffonAbsent, 5000);
+    const QString etat = m_flux->etatFlux();
+    QVERIFY2(etat.startsWith(QStringLiteral("Non utilisé : Greffon acp-poste absent de ce Hermes")), qPrintable(etat));
+    QVERIFY2(!etat.contains(QStringLiteral("/v1/meta n'a pas encore été lu")), qPrintable(etat));
+    QVERIFY2(!etat.contains(QStringLiteral("sondage")), qPrintable(etat));
+    QCOMPARE(m_flux->libelleTempsReel(), QStringLiteral("Aucun flux (greffon bloqué)"));
+    QVERIFY(QMetaObject::invokeMethod(m_session, "sessionPerdue", Q_ARG(QString, QStringLiteral("Fin de l'essai"))));
 }
 
 QTEST_MAIN(TestOubliLocal)

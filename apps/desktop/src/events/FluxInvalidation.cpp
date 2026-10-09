@@ -102,12 +102,12 @@ FluxInvalidation::~FluxInvalidation()
 void FluxInvalidation::setAnnonce(const QString &etat, const QJsonValue &annonce)
 {
     m_etatAnnonce = etat;
-    QString raison = raisonAnnonce(etat, annonce);
-    if (raison.isEmpty() && m_greffon && m_greffon->bloque()) {
-        // Échec fermé (relecture de P8b, constat desktop-1) : le verdict qui bloque le greffon ferme aussi un flux DÉJÀ
-        // ouvert, même quand l'annonce n'a pas changé ; rien ne se rouvre avant un verdict qui lève le blocage.
-        raison = m_greffon->raisonBlocage();
-    }
+    // Échec fermé (relecture de P8b, constat desktop-1) : le verdict qui bloque le greffon ferme aussi un flux DÉJÀ
+    // ouvert, même quand l'annonce n'a pas changé ; rien ne se rouvre avant un verdict qui lève le blocage. Il prime
+    // sur l'annonce QUELLE QU'ELLE SOIT (seconde relecture, constat desktop-9 : un 404 de /v1/meta garde l'annonce
+    // « inconnu », et la station disait alors « /v1/meta n'a pas encore été lu »).
+    m_bloque = m_greffon && m_greffon->bloque();
+    const QString raison = m_bloque ? m_greffon->raisonBlocage() : raisonAnnonce(etat, annonce);
     if (!raison.isEmpty()) {
         const bool change = m_annonceUtilisable || m_mode != Mode::Indisponible || m_raison != raison;
         m_annonceUtilisable = false;
@@ -184,6 +184,7 @@ void FluxInvalidation::oublier()
     // L'annonce appartenait à l'ancien serveur : rien ne s'ouvre avant le verdict du nouveau (setAnnonce).
     m_annonceUtilisable = false;
     m_etatAnnonce = QStringLiteral("inconnu");
+    m_bloque = false;
     m_raison = raisonAnnonce(m_etatAnnonce, {});
     changerMode(Mode::Indisponible);
     emit etatChange();
@@ -208,7 +209,8 @@ void FluxInvalidation::ouvrir()
     QNetworkReply *reponse = m_greffon->ouvrirFlux(m_dernierId, &refus);
     if (!reponse) {
         // Refus local (greffon bloqué par le verdict, aucune session) : rien n'est émis.
-        m_raison = refus.message();
+        m_bloque = m_greffon->bloque();
+        m_raison = m_bloque ? m_greffon->raisonBlocage() : refus.message();
         changerMode(Mode::Indisponible);
         emit etatChange();
         return;
@@ -446,7 +448,7 @@ QString FluxInvalidation::libelleCourt() const
     case Mode::Ferme:
         return QStringLiteral("Temps réel : fermé");
     case Mode::Indisponible:
-        return QStringLiteral("Sondage (aucun flux)");
+        return m_bloque ? QStringLiteral("Aucun flux (greffon bloqué)") : QStringLiteral("Sondage (aucun flux)");
     case Mode::Connexion:
         return QStringLiteral("Temps réel : connexion…");
     case Mode::TempsReel:
@@ -465,6 +467,15 @@ QString FluxInvalidation::libelleEtat() const
     case Mode::Ferme:
         return QStringLiteral("Fermé : aucune page ne lit (session absente ou fenêtre réduite).");
     case Mode::Indisponible:
+        if (m_bloque) {
+            // Greffon bloqué : ses pages ne lisent rien (refus local de la station), le flux non plus.
+            QString raison = m_raison;
+            if (raison.endsWith(QLatin1Char('.'))) {
+                raison.chop(1);
+            }
+            return QStringLiteral("Non utilisé : %1 ; les pages du greffon ne lisent rien tant que ce verdict le bloque.")
+                .arg(raison);
+        }
         // Rien de lu : « Inconnu », jamais « non disponible » affirmé sans avoir lu /v1/meta.
         return QStringLiteral("%1 : %2 ; les pages sont relues par sondage.")
             .arg(!m_annonceUtilisable && m_etatAnnonce != QLatin1String("annonce") && m_etatAnnonce != QLatin1String("absent")

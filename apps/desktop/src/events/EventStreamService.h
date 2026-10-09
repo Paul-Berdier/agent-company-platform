@@ -138,7 +138,10 @@ public:
     /*! État du flux d'invalidation (FluxInvalidation::libelleEtat). */
     [[nodiscard]] QString etatFlux() const;
     [[nodiscard]] bool tempsReel() const;
-    /*! Libellé court de la barre d'état (« Temps réel », « Sondage (aucun flux) »…), vide hors session. */
+    /*!
+        Libellé court de la barre d'état (« Temps réel », « Sondage (aucun flux) », « Aucun flux (greffon
+        bloqué) »…), vide hors session.
+    */
     [[nodiscard]] QString libelleTempsReel() const;
 
 signals:
