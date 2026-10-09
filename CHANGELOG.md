@@ -190,10 +190,12 @@ dans `docs/refonte/preuves-1.0.0.md`.
 ## 0.10 — ligne archivée, jamais étiquetée
 
 Ancienne plateforme (API, base, interface web Vite, CLI `acp`, client Qt d'avant la refonte) : ses trois sections,
-autrefois « [Unreleased] », « 0.10.0 (préparation) » et « 0.9.1 (préparation) », sont gardées sans modification
-de contenu (titres abaissés d'un niveau). Aucune n'a été publiée ni étiquetée ; leurs fonctions n'existent plus
-depuis P0, et les documents qu'elles citent restent consultables sous l'étiquette `archive/acp-0.10.0-avant-hermes`
-(leurs liens y mènent).
+autrefois « [Unreleased] », « 0.10.0 (préparation) » et « 0.9.1 (préparation) », sont gardées telles quelles, à
+deux retouches près : titres abaissés d'un niveau, et **trois liens réécrits** (`docs/subscription-quotas.md`,
+`docs/desktop-chat-projects-2026-09-23.md` et `docs/functional-completion-2026-09-23.md`, retirés de l'arbre
+depuis P0), qui mènent désormais à ces fichiers sous l'étiquette `archive/acp-0.10.0-avant-hermes`
+(`blob/60a49b6…`). Aucune n'a été publiée ni étiquetée ; leurs fonctions n'existent plus depuis P0, et les autres
+documents qu'elles citent restent consultables sous la même étiquette.
 
 ### [Unreleased]
 
