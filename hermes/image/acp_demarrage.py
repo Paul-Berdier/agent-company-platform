@@ -37,7 +37,7 @@ Commandes, exécutées en root par l'interpréteur de Hermes
     Garde root en tête des scripts ``run`` du tableau de bord et des passerelles (variables
     interdites du volume ; depuis P3, serveurs MCP stdio ou hors catalogue).
 
-Chantier SECU-TUI (décisions provisoires SECU-1 et SECU-2) : ``gardes``, ``donnees`` et
+Chantier SECU-TUI (décisions SECU-1 et SECU-2, D156 et D157 du plan) : ``gardes``, ``donnees`` et
 ``verifier-relance`` retirent des ``.env`` et ``.op.env`` du volume (racine et profils) toute clé
 épinglée par ``/etc/hermes/.env``, que Hermes publierait un instant avant la portée gérée, et
 refusent toute source externe de secrets activée dans un ``config.yaml`` du volume.
@@ -1007,7 +1007,7 @@ def refuser_variables_du_volume(chemins: Chemins) -> None:
 
 
 # ---------------------------------------------------------------------------------------------
-# SECU-1 (décision provisoire, chantier SECU-TUI) : aucune clé épinglée dans un .env du volume
+# SECU-1 (D156 du plan, chantier SECU-TUI) : aucune clé épinglée dans un .env du volume
 # ---------------------------------------------------------------------------------------------
 #
 # Constat du run Image Hermes 37784838264 (tentative 1) : après un redémarrage du conteneur, une session du
@@ -1290,7 +1290,7 @@ def informer_neutralisation(rapport: List[Tuple[Path, List[str]]], moment: str) 
 
 
 # ---------------------------------------------------------------------------------------------
-# SECU-2 (décision provisoire, chantier SECU-TUI) : aucune source externe de secrets depuis le volume
+# SECU-2 (D157 du plan, chantier SECU-TUI) : aucune source externe de secrets depuis le volume
 # ---------------------------------------------------------------------------------------------
 #
 # La section ``secrets`` du config.yaml du volume est lue SANS la portée gérée (env_loader.py:620-640, par

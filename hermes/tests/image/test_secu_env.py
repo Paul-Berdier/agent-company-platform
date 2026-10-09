@@ -1,4 +1,4 @@
-"""Chantier sécurité SECU-TUI (décisions provisoires SECU-1 et SECU-2) : ce qu'un volume piégé fait entrer
+"""Chantier sécurité SECU-TUI (décisions SECU-1 et SECU-2, D156 et D157 du plan) : ce qu'un volume piégé fait entrer
 dans l'environnement des processus de Hermes, mesuré sur le code de Hermes à la version épinglée.
 
 Constat (run Image Hermes 37784838264, tentative 1) : après un redémarrage du conteneur, une session de la
