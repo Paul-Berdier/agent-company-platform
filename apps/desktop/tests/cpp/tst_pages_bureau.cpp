@@ -444,6 +444,12 @@ void TestPagesBureau::pagesAlimenteesPuisRacine()
         VERIFIER(page.get(), QStringLiteral("Routage"));
         QVERIFY(contientTexte(item, QStringLiteral("Exploration du dépôt")));
         QVERIFY(contientTexte(item, QStringLiteral("Aucune surcharge active.")));
+        // Relecture finale de P9 (constat produit-1) : l'introduction dit l'ordre réel de la résolution (surcharge,
+        // choix explicite du formulaire ou du plan, puis la table : routage.py, resoudre), et non « chaque étape
+        // part vers la première entrée admise de sa classe », faux pour l'exploration lancée par le formulaire.
+        QVERIFY(contientTexte(item, QStringLiteral("sinon le choix explicite")));
+        QVERIFY(contientTexte(item, QStringLiteral("« Nouveau projet »")));
+        QVERIFY(!contientTexte(item, QStringLiteral("Chaque étape d'un projet part vers la première entrée admise")));
         pageRoutage->appliquerSuggestion(QStringLiteral("exploration"));
         VERIFIER(page.get(), QStringLiteral("Routage, brouillon"));
         QVERIFY(contientTexte(item, QStringLiteral("Brouillon modifié")));
@@ -515,6 +521,19 @@ void TestPagesBureau::pagesAlimenteesPuisRacine()
         auto page = charger(QStringLiteral("Acp.Pages"), nom);
         QVERIFY2(page, qPrintable(nom));
         VERIFIER(page.get(), nom);
+    }
+    {
+        // Relecture finale de P9 (constat produit-3) : l'avertissement affiché quand une publication est disponible
+        // laissait croire les paquets publiés signés (« Vérifiez … la signature du paquet ») ; aucun certificat
+        // n'existe et les publications de 1.0.0 sont des brouillons non signés (D131 du plan). Lu même masqué.
+        auto page = charger(QStringLiteral("Acp.Pages"), QStringLiteral("SettingsPage"));
+        QVERIFY(page);
+        QObject *avertissement = page->findChild<QObject *>(QStringLiteral("reglages-avertissement-paquet"));
+        QVERIFY(avertissement);
+        const QString texte = avertissement->property("text").toString();
+        QVERIFY2(texte.contains(QStringLiteral("n'est signé que si les notes de sa publication le disent")),
+                 qPrintable(texte));
+        QVERIFY2(!texte.contains(QStringLiteral("la signature du paquet")), qPrintable(texte));
     }
     {
         auto coquille = charger(QStringLiteral("Acp.Station"), QStringLiteral("ShellRoot"));

@@ -49,7 +49,8 @@ public:
         Echange,            //!< Code reçu, échange contre les jetons.
     };
 
-    //! Nom du fournisseur OIDC auto-hébergé de Hermes (avec un tiret, reprise-poste.md § 8).
+    //! Nom du fournisseur OIDC auto-hébergé de Hermes (avec un tiret : docs/reprise-poste.md § 5, « Image Hermes et
+    //! exécutant »).
     static constexpr char kFournisseur[] = "self-hosted";
 
     using OuvreurNavigateur = std::function<bool(const QUrl &)>;

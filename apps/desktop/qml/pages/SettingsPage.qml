@@ -84,7 +84,7 @@ ScrollView {
         }
         Label { text: Updates.status; textFormat: Text.PlainText; Layout.fillWidth: true; wrapMode: Text.WordWrap; color: Colors.textSecondary }
         Label { visible: Updates.latestVersion.length > 0; text: qsTr("Publication vérifiée : %1").arg(Updates.latestVersion); textFormat: Text.PlainText; color: Colors.textPrimary }
-        Label { textFormat: Text.PlainText; visible: Updates.updateAvailable; text: qsTr("Vérifiez SHA256SUMS.txt et la signature du paquet avant installation. Les paquets de développement peuvent être non signés."); color: Colors.textSecondary; Layout.fillWidth: true; wrapMode: Text.WordWrap }
+        Label { objectName: "reglages-avertissement-paquet"; textFormat: Text.PlainText; visible: Updates.updateAvailable; text: qsTr("Vérifiez l'empreinte du paquet dans SHA256SUMS.txt avant installation. Un paquet n'est signé que si les notes de sa publication le disent."); color: Colors.textSecondary; Layout.fillWidth: true; wrapMode: Text.WordWrap }
         TextArea { visible: Updates.notes.length > 0; text: Updates.notes; textFormat: TextEdit.PlainText; readOnly: true; selectByMouse: true; wrapMode: TextEdit.Wrap; color: Colors.textPrimary; Layout.fillWidth: true }
         Item { Layout.preferredHeight: Space.space8 }
     }
