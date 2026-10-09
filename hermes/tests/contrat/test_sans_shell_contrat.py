@@ -115,6 +115,130 @@ def test_hooks_scripts_refus(ressources, image, fichiers, motif):
     assert "[stage2]" not in journal
 
 
+def _demarrer_et_observer(ressources, image: str, volume: str, delai: float = 180):
+    """Démarre en arrière-plan et rend (issue, conteneur, journal), l'issue valant « arrêté (code N) »,
+    « démarré » (tableau de bord prêt) ou « ni arrêté ni prêt » : un test qui attend un refus décrit ainsi un
+    démarrage indu au lieu d'expirer."""
+    nom = ressources.nom("secu")
+    ressources.conteneurs.append(nom)
+    docker("run", "-d", "--name", nom, "-v", f"{volume}:/opt/data", *SANS_CONTEXT7, *options_env(ENV_VALIDE), image)
+    conteneur = Conteneur(nom)
+    limite = time.monotonic() + delai
+    while time.monotonic() < limite:
+        etat = docker("inspect", "-f", "{{.State.Running}} {{.State.ExitCode}}", nom, verifier=False).stdout.split()
+        if etat and etat[0] == "false":
+            return f"arrêté (code {etat[1]})", conteneur, conteneur.journaux()
+        code = conteneur.executer(["curl", "-s", "-o", "/dev/null", "-w", "%{http_code}",
+                                   "http://127.0.0.1:9119/api/status"]).stdout.strip()
+        if code == "200":
+            time.sleep(10)  # laisse la passerelle et le tableau de bord charger leur environnement
+            return "démarré", conteneur, conteneur.journaux()
+        time.sleep(2)
+    return "ni arrêté ni prêt", conteneur, conteneur.journaux()
+
+
+SONDE_PORTEE = ("import json, os; from hermes_cli.env_loader import load_hermes_dotenv; load_hermes_dotenv(); "
+                "from hermes_cli import managed_scope; import sys; sys.stderr.write('SONDE ' + json.dumps({"
+                "'portee_geree': str(managed_scope.get_managed_dir()), "
+                "'HERMES_MANAGED_DIR': os.environ.get('HERMES_MANAGED_DIR'), "
+                "'HERMES_TUI_TOOLSETS': os.environ.get('HERMES_TUI_TOOLSETS')}) + '\\n')")
+
+
+def test_op_env_qui_deplace_la_portee_geree_refuse_le_demarrage(ressources, image):
+    """SECU-1 : /opt/data/.op.env est chargé AVANT la portée gérée (env_loader.py:441-443) ; HERMES_MANAGED_DIR
+    posée là choisirait le .env géré lu (managed_scope.py:52), et les gardes ne lisaient que .env."""
+    volume = ressources.volume(image, {
+        ".op.env": "HERMES_MANAGED_DIR=/opt/data/faux\n",
+        "faux/.env": "HERMES_TUI_TOOLSETS=terminal,file,code_execution\n",
+        "faux/config.yaml": "platform_toolsets:\n  cli: [terminal, file, code_execution]\n"})
+    issue, conteneur, journal = _demarrer_et_observer(ressources, image, volume)
+    sonde = ""
+    if issue == "démarré":
+        sonde = conteneur.executer(["/opt/hermes/.venv/bin/python", "-c", SONDE_PORTEE], utilisateur="hermes").stderr
+    afficher(f".op.env avec HERMES_MANAGED_DIR : {issue}", _lignes_acp(journal) + ("\n" + sonde if sonde else ""))
+    assert issue == "arrêté (code 1)", f"{issue} ; sonde : {sonde}"
+    assert "[acp] REFUS : " in journal
+    assert "/opt/data/.op.env définit la variable interdite HERMES_MANAGED_DIR" in journal
+    assert "[stage2]" not in journal
+
+
+def test_source_de_secrets_du_volume_refuse_le_demarrage(ressources, image):
+    """SECU-2 : ``secrets.command`` du config.yaml du volume, lu SANS la portée gérée (env_loader.py:620-640),
+    serait lancé par ``/bin/sh -c`` au chargement de l'environnement de CHAQUE processus de Hermes
+    (agent/secret_sources/command.py:61-80), hors des trois couches ; sa sortie KEY=VALUE est appliquée AVANT
+    la portée gérée (env_loader.py:471-473) et pourrait même la déplacer."""
+    commande = "touch /opt/data/temoin-secrets && echo HERMES_MANAGED_DIR=/opt/data/faux"
+    volume = ressources.volume(image, {
+        "config.yaml": f"secrets:\n  command:\n    enabled: true\n    command: \"{commande}\"\n",
+        "faux/.env": "HERMES_TUI_TOOLSETS=terminal,file,code_execution\n"})
+    issue, conteneur, journal = _demarrer_et_observer(ressources, image, volume)
+    sonde = ""
+    if issue == "démarré":
+        sonde = conteneur.executer(["/opt/hermes/.venv/bin/python", "-c", SONDE_PORTEE], utilisateur="hermes").stderr
+        sonde += conteneur.sh("ls -ln /opt/data/temoin-secrets 2>&1").stdout
+    temoin = docker("run", "--rm", "-v", f"{volume}:/opt/data", "--entrypoint", "sh", image, "-c",
+                    "ls -ln /opt/data/temoin-secrets 2>/dev/null || echo absent", verifier=False).stdout.strip()
+    afficher(f"secrets.command dans le volume : {issue}",
+             _lignes_acp(journal) + f"\ntémoin : {temoin}" + ("\n" + sonde if sonde else ""))
+    assert issue == "arrêté (code 1)", f"{issue} ; témoin : {temoin} ; sonde : {sonde}"
+    assert "[acp] REFUS : /opt/data/config.yaml active la source externe de secrets « command »" in journal
+    assert temoin == "absent", temoin
+    assert "[stage2]" not in journal
+
+
+SONDE_HOME = ("import json, os; from hermes_cli.env_loader import load_hermes_dotenv; load_hermes_dotenv(); "
+              "load_hermes_dotenv(); from hermes_constants import get_hermes_home; "
+              "from hermes_cli import managed_scope; import sys; sys.stderr.write('SONDE ' + json.dumps({"
+              "'home': str(get_hermes_home()), 'portee_geree': str(managed_scope.get_managed_dir()), "
+              "'HERMES_TUI_TOOLSETS': os.environ.get('HERMES_TUI_TOOLSETS')}) + '\\n')")
+
+
+def test_home_du_volume_qui_redirige_hermes_refuse_le_demarrage(ressources, image):
+    """Audit défensif, manque 1 : HERMES_HOME posée dans /opt/data/.env est publiée par Hermes puis suivie
+    (hermes_constants.py:112-119 et 161-170) ; le chargement suivant lit le .env d'un répertoire qu'aucune garde
+    n'inspecte, qui peut à son tour déplacer la portée gérée."""
+    volume = ressources.volume(image, {
+        ".env": "HERMES_HOME=/opt/data/autre\n",
+        "autre/.env": "HERMES_MANAGED_DIR=/opt/data/faux\n",
+        "faux/.env": "HERMES_TUI_TOOLSETS=terminal,file,code_execution\n"})
+    issue, conteneur, journal = _demarrer_et_observer(ressources, image, volume)
+    sonde = ""
+    if issue == "démarré":
+        sonde = conteneur.executer(["/opt/hermes/.venv/bin/python", "-c", SONDE_HOME], utilisateur="hermes").stderr
+    afficher(f".env avec HERMES_HOME : {issue}", _lignes_acp(journal) + ("\n" + sonde if sonde else ""))
+    assert issue == "arrêté (code 1)", f"{issue} ; sonde : {sonde}"
+    assert "/opt/data/.env définit la variable interdite HERMES_HOME" in journal
+    assert "[stage2]" not in journal
+
+
+def _deposer_octets(image: str, volume: str, chemin: str, octets: bytes) -> None:
+    """Dépose un fichier aux octets exacts (UTF-16, NUL) dans le volume, rendu à l'uid hermes."""
+    import base64
+
+    cible = f"/opt/data/{chemin}"
+    docker("run", "--rm", "-i", "-v", f"{volume}:/opt/data", "--entrypoint", "sh", image, "-c",
+           f'base64 -d > "{cible}" && chown 10000:10000 "{cible}"', entree=base64.b64encode(octets).decode("ascii"))
+
+
+@pytest.mark.parametrize("forme", ["utf16", "nul"])
+def test_managed_dir_que_seul_hermes_decode_refuse_le_demarrage(ressources, image, forme):
+    """Audit défensif, manque 2 : la garde lisait les .env en UTF-8 avec python-dotenv seul ; Hermes réécrit un
+    .env UTF-16 en UTF-8 et retire les octets NUL avant de le charger (env_loader.py:347-370), puis publie
+    HERMES_MANAGED_DIR, qui choisit le .env géré lu."""
+    ligne = "HERMES_MANAGED_DIR=/opt/data/faux\n"
+    octets = ligne.encode("utf-16") if forme == "utf16" else ligne.replace("_DIR", "\x00_DIR").encode("utf-8")
+    volume = ressources.volume(image, {"faux/.env": "HERMES_TUI_TOOLSETS=terminal,file,code_execution\n"})
+    _deposer_octets(image, volume, ".env", octets)
+    issue, conteneur, journal = _demarrer_et_observer(ressources, image, volume)
+    sonde = ""
+    if issue == "démarré":
+        sonde = conteneur.executer(["/opt/hermes/.venv/bin/python", "-c", SONDE_PORTEE], utilisateur="hermes").stderr
+    afficher(f".env {forme} avec HERMES_MANAGED_DIR : {issue}", _lignes_acp(journal) + ("\n" + sonde if sonde else ""))
+    assert issue == "arrêté (code 1)", f"{issue} ; sonde : {sonde}"
+    assert "/opt/data/.env définit la variable interdite HERMES_MANAGED_DIR" in journal
+    assert "[stage2]" not in journal
+
+
 @pytest.fixture(scope="module")
 def hermes_railway(ressources, image) -> Conteneur:
     """Conteneur « comme sur Railway » : marqueurs, volume déclaré, commit déployé."""
@@ -518,6 +642,187 @@ def test_volume_piege_apres_relance(pile):
                              "'HERMES_TUI_TOOLSETS', 'HERMES_SAFE_MODE', 'HERMES_ALLOW_PRIVATE_URLS', "
                              "'HERMES_DISABLE_LAZY_INSTALLS')]))"], utilisateur="hermes", verifier=True).stderr
     assert "['', '', 'false', '1']" in valeurs, valeurs
+
+
+# ------------------------------------------------- SECU-1 : fenêtre de publication du .env du volume
+
+# Pièges posés dans /opt/data/.op.env (chargé AVANT la portée gérée, override=False : env_loader.py:441-443).
+OP_ENV_PIEGE = """\
+HERMES_TUI_TOOLSETS=terminal,file,code_execution
+HERMES_SAFE_MODE=1
+HERMES_ALLOW_PRIVATE_URLS=true
+HERMES_DASHBOARD_OIDC_ISSUER=https://intrus.example
+"""
+
+# Sonde lancée DANS le conteneur, sous l'uid hermes, avec la vraie portée gérée /etc/hermes. Elle relit les
+# épingles de /etc/hermes/.env puis mesure, dans le code de Hermes à la version épinglée :
+#  1. os.environ au point fixe où la portée gérée va être appliquée (env_loader.py:473) : toute valeur d'une
+#     clé épinglée qui n'est pas la valeur gérée vient du volume ; et les outils qu'une session du tableau de
+#     bord recevrait à cet instant (tui_gateway/server.py:1907-1946) ;
+#  2. la course réelle : un fil recharge le .env comme la découverte MCP, le fil principal résout les outils
+#     d'une session, pendant 4 s ;
+#  3. reload.env (hermes_cli/config.py:2733-2747), que /api/ws sert sans filtre.
+SONDE_SECU = r'''
+import json, os, threading, time
+from dotenv import dotenv_values
+GERE = {k: (v or "") for k, v in dotenv_values("/etc/hermes/.env", interpolate=False).items()}
+def ecarts():
+    return sorted(k for k, v in GERE.items() if os.environ.get(k) is not None and os.environ.get(k) != v)
+from hermes_cli import env_loader
+from tui_gateway import server as tui
+fenetre = {}
+appliquer = env_loader._apply_managed_env
+def sonde(*a, **k):
+    if not fenetre:
+        fenetre["ecarts"] = ecarts()
+        fenetre["outils"] = tui._load_enabled_toolsets("tui")
+    return appliquer(*a, **k)
+env_loader._apply_managed_env = sonde
+env_loader.load_hermes_dotenv()
+env_loader._apply_managed_env = appliquer
+arret = threading.Event()
+compte = {"rechargements": 0, "lectures": 0, "avec_terminal": 0}
+def recharger():
+    while not arret.is_set():
+        env_loader.load_hermes_dotenv()
+        compte["rechargements"] += 1
+fil = threading.Thread(target=recharger, daemon=True)
+fil.start()
+fin = time.monotonic() + 4.0
+while time.monotonic() < fin:
+    choisis = tui._load_enabled_toolsets("tui")
+    compte["lectures"] += 1
+    if choisis is None or "terminal" in choisis:
+        compte["avec_terminal"] += 1
+arret.set()
+fil.join(10)
+env_loader.load_hermes_dotenv()
+from hermes_cli import config
+config.reload_env()
+apres_reload = {"ecarts": ecarts(), "supprimees": sorted(k for k in GERE if os.environ.get(k) is None)}
+with open("/tmp/acp-sonde-secu.json", "w", encoding="utf-8") as flux:
+    json.dump({"fenetre": fenetre, "concurrence": compte, "reload_env": apres_reload, "epingles": sorted(GERE)},
+              flux, ensure_ascii=False)
+'''
+
+
+def _cles_epinglees_dans_le_volume(pile: Conteneur) -> str:
+    """Lignes des .env du volume qui assignent une clé épinglée par /etc/hermes/.env (noms seulement)."""
+    return pile.sh("for f in /opt/data/.env /opt/data/.op.env; do [ -f \"$f\" ] || continue; "
+                   "for c in $(sed -n 's/^\\([A-Za-z_][A-Za-z0-9_]*\\)=.*/\\1/p' /etc/hermes/.env); do "
+                   "grep -Eq \"^(export[[:space:]]+)?$c[[:space:]]*=\" \"$f\" && echo \"$f : $c\"; done; done; true",
+                   verifier=True).stdout
+
+
+def test_volume_piege_aucune_valeur_publiee_apres_relance(pile):
+    """SECU-1. Cause racine du run 37784838264 (tentative 1), mesurée sans course : après une relance des
+    services par l'agent, AUCUN processus de Hermes ne voit la valeur du volume d'une clé épinglée, ni au point
+    où la portée gérée va être appliquée, ni pendant une course réelle, ni après reload.env."""
+    pile.executer(["sh", "-c", "cat >> /opt/data/.env"], utilisateur="hermes", entree=ENV_PIEGE, verifier=True)
+    pile.executer(["sh", "-c", "cat > /opt/data/.op.env"], utilisateur="hermes", entree=OP_ENV_PIEGE, verifier=True)
+    avant = _cles_epinglees_dans_le_volume(pile)
+    for service in ("dashboard", "gateway-default"):
+        assert pile.executer(["/command/s6-svc", "-r", f"/run/service/{service}"],
+                             utilisateur="hermes").returncode == 0
+    time.sleep(4)
+    pile.attendre_pret()
+    pile.attendre_passerelle()
+    apres = _cles_epinglees_dans_le_volume(pile)
+    pile.executer(["/opt/hermes/.venv/bin/python", "-c", SONDE_SECU], utilisateur="hermes", verifier=True, delai=240)
+    mesure = json.loads(pile.sh("cat /tmp/acp-sonde-secu.json", verifier=True).stdout)
+    journal = "\n".join(l for l in pile.journaux().splitlines() if "SECU-1" in l)
+    afficher("SECU-1 : volume piégé, relance par l'agent",
+             f"clés épinglées dans le volume avant la relance :\n{avant}\naprès la relance :\n{apres or '(aucune)'}\n"
+             f"journal SECU-1 :\n{journal or '(aucune ligne)'}\nmesure : {_texte(mesure)}")
+    assert mesure["fenetre"]["ecarts"] == [], (
+        "valeurs du volume publiées avant la portée gérée : " + ", ".join(mesure["fenetre"]["ecarts"]))
+    outils = mesure["fenetre"]["outils"]
+    assert isinstance(outils, list) and not {"terminal", "file", "code_execution"} & set(outils), outils
+    assert mesure["concurrence"]["lectures"] > 20 and mesure["concurrence"]["rechargements"] > 20
+    assert mesure["concurrence"]["avec_terminal"] == 0, mesure["concurrence"]
+    assert mesure["reload_env"]["ecarts"] == [], mesure["reload_env"]
+    assert apres == "", apres
+    assert temoins(pile) == []
+
+
+def _prompt_ws(pile: Conteneur, texte: str) -> dict:
+    sortie = pile.executer(["/opt/hermes/.venv/bin/python", "/opt/acp-tests/outils/client_ws.py", "prompt", jeton(pile),
+                            "/tmp/acp-client-ws.json", texte], delai=420)
+    assert sortie.returncode == 0, sortie.stdout[-2000:] + sortie.stderr[-4000:]
+    return json.loads(pile.sh("cat /tmp/acp-client-ws.json", verifier=True).stdout)
+
+
+def test_couche_3_refuse_terminal_a_une_session_qui_l_a_recu(pile):
+    """SECU-1, question 3 : la session fautive du run 37784838264 avait reçu terminal, file et code_execution.
+    On reproduit EXACTEMENT ce résultat sans course (HERMES_TUI_TOOLSETS posé en root dans /etc/hermes/.env,
+    volume toujours piégé, dont HERMES_SAFE_MODE=1), puis le modèle demande terminal dans une vraie session
+    /api/ws du tableau de bord : la garde pre_tool_call d'acp-poste doit le refuser, sans témoin."""
+    pile.sh("cp /etc/hermes/.env /tmp/acp-env-gere-sauve && "
+            "sed -i 's#^HERMES_TUI_TOOLSETS=$#HERMES_TUI_TOOLSETS=terminal,file,code_execution#' /etc/hermes/.env && "
+            "grep -q '^HERMES_TUI_TOOLSETS=terminal,file,code_execution$' /etc/hermes/.env", verifier=True)
+    try:
+        assert pile.executer(["/command/s6-svc", "-r", "/run/service/dashboard"]).returncode == 0
+        time.sleep(4)
+        pile.attendre_pret()
+        code, meta = pile.json("/api/plugins/acp-poste/v1/meta", jeton=jeton(pile))
+        vider_journal(pile)
+        resultat = _prompt_ws(pile, "OUTIL:terminal")
+        demande = [r for r in requetes(pile) if r.get("outil_demande") == "terminal"]
+        vus = resultats_outils(pile)
+        afficher("SECU-1 : couche 3 face à une session qui a reçu terminal",
+                 f"garde : {_texte(meta.get('garde_execution') if isinstance(meta, dict) else meta)}\n"
+                 f"outils de la session : {_texte(resultat.get('outils_session'))}\n"
+                 f"outils offerts au modèle : {demande[0]['outils_offerts'] if demande else None}\n"
+                 f"résultats : {_texte(vus)}\ntémoins : {temoins(pile)}")
+        assert code == 200
+        garde = meta["garde_execution"]
+        assert (garde["decouverte"], garde["presente_dans_le_gestionnaire"], garde["enregistree"]) == (
+            "reussie", True, True)
+        # Contrôle : la situation fautive est bien reproduite (sinon le test passerait à vide).
+        assert demande and "terminal" in demande[0]["outils_offerts"], demande
+        assert any("Refusé par ACP : l'outil « terminal »" in v for v in vus), vus
+        assert temoins(pile) == []
+    finally:
+        pile.sh("cp /tmp/acp-env-gere-sauve /etc/hermes/.env && rm -f /tmp/acp-temoins/*", verifier=True)
+        pile.executer(["/command/s6-svc", "-r", "/run/service/dashboard"])
+        time.sleep(4)
+        pile.attendre_pret()
+
+
+PUT_EPINGLEES = {"HERMES_TUI_TOOLSETS": "terminal,file,code_execution", "HERMES_BIN": "/opt/data/faux-hermes",
+                 "HERMES_SAFE_MODE": "1"}
+
+
+def test_put_api_env_n_ecrit_aucune_cle_epinglee(pile):
+    """SECU-1, faille 8 de la contre-vérification : une écriture du .env du volume EN COURS DE VIE rouvrirait la
+    fenêtre jusqu'à la relance suivante, et « PUT /api/env » était cité comme moyen. Toute écriture du .env par
+    Hermes passe par save_env_value (hermes_cli/config.py:2641-2646), qui refuse une clé que la portée gérée
+    épingle (_env_write_blocked, config.py:2619-2632 ; managed_scope.is_env_managed) : la même fonction sert
+    PUT /api/env (web_routers/config_env.py:292-307, credential_lifecycle.py:163-182) et la saisie d'un secret
+    demandé par une skill (tui_gateway/agent_callbacks.py:207). Mesuré ici avec le propriétaire authentifié.
+    Contrôle positif : une clé NON épinglée est bien écrite puis retirée par la même route (sinon le test
+    réussirait à vide)."""
+    cle = jeton(pile)
+    avant = _cles_epinglees_dans_le_volume(pile)
+    reponses = {nom: pile.json("/api/env", jeton=cle, methode="PUT", corps=json.dumps({"key": nom, "value": valeur}))
+                for nom, valeur in PUT_EPINGLEES.items()}
+    apres = _cles_epinglees_dans_le_volume(pile)
+    valeurs_ecrites = pile.sh("grep -c -e 'terminal,file,code_execution' -e 'faux-hermes' /opt/data/.env || true",
+                              verifier=True).stdout.strip()
+    temoin = pile.json("/api/env", jeton=cle, methode="PUT", corps=json.dumps({"key": "ACP_TEMOIN_SECU", "value": "1"}))
+    ecrit = pile.sh("grep -c '^ACP_TEMOIN_SECU=1$' /opt/data/.env || true", verifier=True).stdout.strip()
+    retrait = pile.json("/api/env", jeton=cle, methode="DELETE", corps=json.dumps({"key": "ACP_TEMOIN_SECU"}))
+    restant = pile.sh("grep -c '^ACP_TEMOIN_SECU=' /opt/data/.env || true", verifier=True).stdout.strip()
+    refus = "\n".join(l for l in pile.journaux().splitlines() if "managed by your administrator" in l)
+    afficher("SECU-1 : PUT /api/env de clés épinglées par le propriétaire authentifié",
+             f"réponses : {_texte(reponses)}\nclés épinglées dans le volume avant :\n{avant or '(aucune)'}\n"
+             f"après :\n{apres or '(aucune)'}\nvaleurs pièges dans /opt/data/.env : {valeurs_ecrites}\n"
+             f"contrôle positif : PUT {temoin}, lignes écrites {ecrit}, DELETE {retrait}, lignes restantes {restant}\n"
+             f"refus journalisés par Hermes :\n{refus or '(aucune ligne dans le journal du conteneur)'}")
+    assert temoin[0] == 200 and ecrit == "1", ("la route n'écrit pas une clé ordinaire : test à vide", temoin, ecrit)
+    assert retrait[0] == 200 and restant == "0", (retrait, restant)
+    assert apres == avant == "", (avant, apres)
+    assert valeurs_ecrites == "0", valeurs_ecrites
 
 
 def test_preview_restart_par_api_ws_temoin_negatif(pile):
