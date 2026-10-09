@@ -40,6 +40,8 @@ rupture de nos interfaces appellera 2.0.0.
 | P6 | exécutant Railway | #19 | `7697a1c` |
 | P8 | station Qt rebranchée | #20 | `b715edb` |
 | P7 | questions, notifications, continuité ; dépôts réels | #21 | `b9779f1` |
+| SECU-TUI | correctif de sécurité : `.env` et sources de secrets du volume (D156, D157) | #23 | `5026a70` |
+| P8b | station Qt alignée sur P7 (D158, D159) | #22 | `8583642` |
 | P9 | exploitation, montée de version, publication | à relever | à relever |
 
 ### Ajouté
@@ -76,7 +78,10 @@ rupture de nos interfaces appellera 2.0.0.
   vérifiés au build) ; visibilité des dépôts mesurée et outil `scripts/preuve_accord_requis.py` (P7).
 - **Station de travail Qt** (P8) : connexion native RFC 8252, porteur sur les API du tableau de bord et la façade du
   greffon, JSON-RPC sur Qt WebSockets, pages Accueil, Projets, Questions, Discussion, Poste, Quotas, Routage,
-  Diagnostics et Sauvegarde (export chiffré `ACPB1`), bout en bout local `scripts/e2e-desktop-windows.ps1`.
+  Diagnostics et Sauvegarde (export chiffré `ACPB1`), bout en bout local `scripts/e2e-desktop-windows.ps1` ; en
+  P8b, alignée sur P7 : flux d'invalidation `GET /v1/flux` (D158), Accueil agrégé, file Questions à cinq sections et
+  ses gestes (relancer, revues, qui répond, clore), discussions en attente, bilan quotidien, étape P7 détectée par
+  `/v1/meta` avant d'être lue (D159).
 - **Exploitation** (P9, état du 8 octobre 2026, parts B et C encore ouvertes) : `scripts/monter_hermes.py`
   (`verifier`, `ecrire`, `inventaire`, `derniere`) et sa répétition à blanc à chaque construction ; concordance de
   toutes les épingles de Hermes (`scripts/tests/test_epingles_hermes.py`) ; toute copie versionnée contrôlée
@@ -95,7 +100,8 @@ rupture de nos interfaces appellera 2.0.0.
   D74).
 - `apps/worker` devient `apps/poste` (commande `acp-poste`), contrat des quotas dans
   `hermes/plugins/acp-poste/contrat` (P0) ; `poste.toml` remplace les réglages `ACP_WORKER_*` (P5).
-- Station Qt : rebranchée sur Hermes, ancien client retiré (P8).
+- Station Qt : rebranchée sur Hermes, ancien client retiré (P8) ; pages relues sur signal du flux, comme le
+  navigateur (P8b).
 - Pages relues sur signal du flux au lieu du sondage de 15 s (gardé en repli) ; voie Codex ouverte seulement sur un
   dépôt prouvé privé (P7, D103).
 - Contrôle des décisions documentées à trois chiffres (P7, P9 : D132).
@@ -128,6 +134,12 @@ Corrections des relectures indépendantes, une ligne par étape (détail : `docs
   les corrections, l'`auth.json` de Codex n'est plus lisible par une commande de l'agent en régime A ;
 - P8 : 16 constats, chacun avec un test qui échoue sans la correction ;
 - P7 : relecture finale, 37 constats retenus : 33 corrigés, 3 en limite dite, 1 de procédure (D117 à D121) ;
+- SECU-TUI : contre-vérification d'un sceptique (failles traitées par D156 et D157 ; l'écriture d'une clé épinglée
+  par `PUT /api/env`, en partie réfutée par la mesure : Hermes la refuse) et audit défensif du 9 octobre 2026
+  (variables d'emplacement et d'exécution comme `HERMES_HOME`, lecture des `.env` comme Hermes : deux manques
+  prouvés rouges, corrigés par `2c4e2d4`) ;
+- P8b : deux relectures, 12 constats (desktop-1 à desktop-12), chacun vérifié dans le code puis traité, les
+  constats de code avec un test relevé rouge sans la correction ;
 - P9 : relecture de l'outillage de version (six constats sur `scripts/monter_hermes.py` et `image.yml`, chacun avec
   un test rouge d'abord) et vérification factuelle du manuel (19 constats recoupés et corrigés) ; compteur
   `AUTOINCREMENT` ramené par la reconstruction d'une table du greffon, trouvé par la montée de données et corrigé
@@ -137,6 +149,11 @@ Corrections des relectures indépendantes, une ligne par étape (détail : `docs
 
 - Agent sans outil d'exécution sur Railway, garde en liste blanche ; `PATH` des scripts root sans répertoire du
   volume ; managed scope régénérée à chaque démarrage ; Hermes jamais hors de s6 en PID 1.
+- Chantier SECU-TUI (PR #23) : toute clé que la managed scope épingle est retirée par root des `.env` et `.op.env`
+  du volume, au démarrage et à chaque relance d'un service, noms journalisés, valeurs jamais (D156) ; variables
+  d'emplacement et d'exécution (`HERMES_HOME`, valeurs imposées par l'image, noms que Hermes refuse d'écrire)
+  refusées dans ces fichiers ; source externe de secrets activée dans un `config.yaml` du volume : refus de démarrer
+  et de relancer (D157).
 - Connexion par OIDC auto-hébergé seulement (Authelia, un utilisateur, passkeys) ; aucun fournisseur `basic` ni Nous.
 - Jetons : coffres Windows (DPAPI, Gestionnaire d'identification) sur le poste et la station ; fichiers 0600 de root
   sur le volume de l'exécutant, jamais en variable (D92) ; aucun secret dans Git (balayage en CI).
@@ -150,7 +167,8 @@ Corrections des relectures indépendantes, une ligne par étape (détail : `docs
 
 Et en intégration continue : chaque étape a été fusionnée sur des runs verts ; identifiants, compteurs et relectures
 dans `docs/refonte/preuves-1.0.0.md`.
-- P0 à P8 et P7 : runs des PR #13 à #21 et des commits de fusion (preuves, § 1 et § 2).
+- P0 à P8 et P7 : runs des PR #13 à #21 et des commits de fusion (preuves, § 1 et § 2) ; SECU-TUI et P8b : runs
+  des PR #23 et #22 et de leurs commits de fusion (preuves, § 1).
 - P9, parts A et D : outillage de version vert en CI (répétition à blanc « Aucun écart », Image Hermes
   `37004128839` puis `37028491959`) ; ébauche du manuel relue contre le code et la documentation de Railway.
 - P9, parts B et C (restauration, témoin, montée de données) : **à relever**.
@@ -163,16 +181,16 @@ dans `docs/refonte/preuves-1.0.0.md`.
   § 12 et § 14.7, `docs/exploitation.md` § 10) : bord et PID 1 réels, sonde R0 (régime de l'exécutant, donc ouverture
   de la voie Codex), sauvegardes réelles, répétition de restauration et reconnexions réelles, notification et
   parcours réels sur le téléphone, premier dépôt réel, coût réel.
-- **À corriger avant la publication** : une fois, après un redémarrage du conteneur sur un volume piégé, la session
-  du tableau de bord a reçu les outils d'exécution posés par le `.env` du volume (deuxième des trois couches de la
-  défense de P2, `docs/refonte/image.md` § 5), alors que l'api_server les refusait (Image Hermes `37784838264`,
-  tentative 1, test `test_volume_piege_apres_relance`). Le chantier SECU-TUI (branche `refonte/hermes-secu-tui`,
-  partie de `b9779f1`, sa propre PR, non fusionnée au 9 octobre 2026) en a prouvé la cause sans course : Hermes
-  publie la valeur du `.env` du volume avant d'appliquer la portée gérée (run jetable `37831355746`, rouge attendu
-  sur le code de P7) ; il y mesure que la garde `pre_tool_call` aurait refusé l'appel. Son correctif (SECU-1) et le
-  refus d'une seconde faille, hors des trois couches (SECU-2 : source externe de secrets du volume), sont verts sur
-  une branche jetable (`37832691849`) ; leur fusion, leurs preuves finales et leurs numéros de décision sont
-  **à relever**.
+- **Constat de sécurité corrigé, avec une limite** : une fois, après un redémarrage du conteneur sur un volume
+  piégé, la session du tableau de bord a reçu les outils d'exécution posés par le `.env` du volume (deuxième des
+  trois couches de la défense de P2, `docs/refonte/image.md` § 5), alors que l'api_server les refusait (Image Hermes
+  `37784838264`, tentative 1, test `test_volume_piege_apres_relance`). Le chantier SECU-TUI en a prouvé la cause sans
+  course : Hermes publie la valeur du `.env` du volume avant d'appliquer la portée gérée (run jetable `37831355746`,
+  rouge attendu sur le code de P7) ; il y mesure que la garde `pre_tool_call` aurait refusé l'appel. Correctif et
+  refus d'une seconde faille hors des trois couches (D156, D157, rubrique « Sécurité ») fusionnés par la PR #23
+  (`5026a70`, 9 octobre 2026). Reste, non corrigée : une écriture **directe** d'un `.env` du volume pendant la vie
+  d'un service (faille de Hermes, ou shell du propriétaire) rouvrirait la fenêtre jusqu'à la relance suivante ;
+  quelques variables ni épinglées ni refusées dans le volume restent non mesurées (`docs/refonte/image.md` § 10).
 - Binaires de la station **non signés** ; aucune installation sur un Windows propre.
 - Sans Docker sur le poste de travail (D134), les bouts en bout locaux du poste (dernier passage : P5) et de la
   station (P8), les témoins négatifs de P4 à P6 et la recompilation du verrou Python ne tournent plus nulle part
@@ -180,7 +198,9 @@ dans `docs/refonte/preuves-1.0.0.md`.
 - Cookies de Hermes sans `Secure` tant que `trusted_proxies` est vide ; jeton de rafraîchissement rejoué : 503
   persistant jusqu'à la déconnexion ou l'effacement des cookies (`docs/refonte/identite.md` § 12).
 - Pages natives de Hermes en partie en anglais ; rendu éprouvé dans Chromium seulement.
-- Station Qt sans le flux ni les gestes de P7 ; MCP côté exécutant reporté.
+- Station Qt : flux et gestes de P7 (P8b) prouvés contre le faux Hermes de ses tests natifs et les fixtures
+  partagées seulement, jamais face à un vrai greffon P7 (`docs/refonte/desktop.md`, « Non prouvé ») ; MCP côté
+  exécutant reporté.
 - `preserve()` sur une variable jamais posée : supposé sans effet (D116).
 - Aucune montée vers une release de Hermes postérieure à `v2026.9.24` (aucune n'existait au 2 octobre 2026) ;
   montée de données depuis `v2026.9.21` non lancée (D147) ; montée d'Authelia non prouvée (D152).

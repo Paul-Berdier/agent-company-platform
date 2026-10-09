@@ -17,7 +17,7 @@ fait relire, pose ses questions et notifie. ACP n'a plus de backend propre ; il 
    questions, routage des modèles, quotas, notifications, protocole des machines) et greffons d'interface. Sur
    Railway, l'agent ne doit avoir **aucun outil d'exécution** (ni terminal, ni fichiers, ni code) : trois couches
    de défense, chacune prouvée en local et en intégration continue ; la deuxième a cédé une fois, et son
-   correctif n'est **pas encore fusionné** (limites ci-dessous). Détail : [`docs/refonte/image.md`](docs/refonte/image.md) § 5.
+   correctif est fusionné depuis le 9 octobre 2026 (limites ci-dessous). Détail : [`docs/refonte/image.md`](docs/refonte/image.md) § 5.
 2. **L'identité** ([`identite/`](identite)) : Authelia 4.39.28 épinglé, un seul utilisateur, passkeys ; Hermes
    n'accepte que ce fournisseur OIDC auto-hébergé. Détail : [`docs/refonte/identite.md`](docs/refonte/identite.md).
 3. **L'exécutant Railway** ([`executant/`](executant)) : un service séparé, sans port en écoute, qui réclame ses
@@ -29,8 +29,8 @@ fait relire, pose ses questions et notifie. ACP n'a plus de backend propre ; il 
    [`docs/refonte/poste.md`](docs/refonte/poste.md).
 5. **La station de travail native** C++23 / Qt 6 / QML ([`apps/desktop`](apps/desktop/README.md)), sans WebView :
    connexion OIDC native, pages Accueil, Projets, Questions, Discussion, Poste, Quotas, Routage, Diagnostics,
-   Sauvegarde (export chiffré de Hermes) ; elle ne parle qu'au Hermes authentifié. Détail :
-   [`docs/refonte/desktop.md`](docs/refonte/desktop.md).
+   Sauvegarde (export chiffré de Hermes) ; alignée sur P7 (flux d'invalidation, Accueil agrégé, gestes de la file
+   Questions) ; elle ne parle qu'au Hermes authentifié. Détail : [`docs/refonte/desktop.md`](docs/refonte/desktop.md).
 6. **Le navigateur et le téléphone** : le tableau de bord de Hermes habillé en français, avec les pages d'ACP
    (Accueil, Projets et sa file Questions, Poste, Discussion, Catalogue) sur la même URL. Détail :
    [`docs/refonte/interface.md`](docs/refonte/interface.md), [`docs/refonte/questions.md`](docs/refonte/questions.md).
@@ -40,10 +40,12 @@ L'infrastructure Railway (trois services, trois volumes) est déclarée en code 
 
 ## État réel (9 octobre 2026)
 
-- Étapes P0 à P8 de la refonte fusionnées dans `refonte/hermes` ; P9 (exploitation, montée de version, publication)
-  en cours. Historique : [`docs/refonte/historique.md`](docs/refonte/historique.md).
-- **Non déployé, et pas encore prêt à l'être** : la branche que l'IaC déploie (`refonte/hermes`) porte le défaut
-  de sécurité ci-dessous tant que son correctif n'y est pas fusionné. Ce qui ne se prouve que sur Railway (bord,
+- Étapes P0 à P8 de la refonte fusionnées dans `refonte/hermes`, puis, le 9 octobre 2026, le correctif de sécurité
+  SECU-TUI (PR #23, `5026a70`) et la station Qt alignée sur P7 (P8b, PR #22, `8583642`) ; P9 (exploitation, montée
+  de version, publication) en cours. Historique : [`docs/refonte/historique.md`](docs/refonte/historique.md).
+- **Non déployé** : le premier déploiement est un geste du propriétaire
+  ([`docs/refonte/railway.md`](docs/refonte/railway.md) § 4). La branche que l'IaC déploie (`refonte/hermes`) porte
+  depuis le 9 octobre 2026 le correctif du constat de sécurité ci-dessous. Ce qui ne se prouve que sur Railway (bord,
   sauvegardes, coût et notifications réels, sonde de l'exécutant) reste **non prouvé**.
 - Prouvé en local et en intégration continue : les images et leurs gardes, les tests de contrat de Hermes et de
   l'identité, les parcours dans un navigateur, l'exécutant de bout en bout avec des CLI factices, la station Qt.
@@ -55,14 +57,16 @@ L'infrastructure Railway (trois services, trois volumes) est déclarée en code 
 
 ## Limites connues, en bref
 
-- **Constat de sécurité ouvert, correctif non fusionné** : une fois, après un redémarrage du conteneur sur un
-  volume piégé, la session du tableau de bord a reçu les outils d'exécution (`terminal`, `write_file`…) posés par
-  le `.env` du volume, alors que l'api_server les refusait. La branche `refonte/hermes-secu-tui` (chantier SECU-TUI,
-  sans PR au 9 octobre 2026) en prouve la cause sans course (Hermes publie la valeur du `.env` du volume avant
-  d'appliquer la portée gérée), mesure que la troisième couche (garde `pre_tool_call`) aurait refusé l'appel, et
-  porte le correctif (SECU-1) avec le refus d'une seconde faille trouvée en chemin, hors des trois couches (SECU-2 :
-  source externe de secrets du volume). D'ici sa fusion, `refonte/hermes` porte ces défauts
-  ([preuves](docs/refonte/preuves-1.0.0.md) § 5).
+- **Constat de sécurité corrigé, avec une limite** : une fois, après un redémarrage du conteneur sur un volume
+  piégé, la session du tableau de bord a reçu les outils d'exécution (`terminal`, `write_file`…) posés par le `.env`
+  du volume, alors que l'api_server les refusait. Le chantier SECU-TUI (PR #23, fusion `5026a70` le 9 octobre 2026)
+  en a prouvé la cause sans course (Hermes publie la valeur du `.env` du volume avant d'appliquer la portée gérée) et
+  mesuré que la troisième couche (garde `pre_tool_call`) aurait refusé l'appel ; root retire désormais des `.env` du
+  volume toute clé que la portée gérée épingle, au démarrage et à chaque relance (D156), et une source externe de
+  secrets du volume, seconde faille trouvée en chemin hors des trois couches, refuse le démarrage (D157). Reste une
+  écriture **directe** d'un `.env` du volume pendant la vie d'un service (faille de Hermes, ou shell du
+  propriétaire) : elle rouvrirait la fenêtre jusqu'à la relance suivante
+  ([`docs/refonte/image.md`](docs/refonte/image.md) § 10).
 - Rien n'est déployé : la [procédure Railway](docs/refonte/railway.md) § 12 liste ce qui ne se prouve que là.
 - Tant que `trusted_proxies` reste vide, les cookies de Hermes n'ont pas l'attribut `Secure` ; un jeton de
   rafraîchissement rejoué laisse une erreur 503 jusqu'à la déconnexion ou l'effacement des cookies du site

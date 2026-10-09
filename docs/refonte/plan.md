@@ -1274,7 +1274,8 @@ Sonde MCP côté poste (Playwright, context7) ; décision sur Figma.
 > P8 « desktop Qt et MCP côté poste ». Texte d'origine conservé pour mémoire.
 >
 > **État du 2 octobre 2026** : volet desktop **réalisé côté dépôt** sur `refonte/hermes-p8`
-> (sans PR ni fusion) : fournisseur `self-hosted` (et non `nous`), pages Accueil, Projets,
+> (alors sans PR ni fusion ; fusionné le même jour par la PR #20, `b715edb`, puis aligné sur P7 par
+> l'étape P8b, PR #22, `8583642`, 9 octobre 2026) : fournisseur `self-hosted` (et non `nous`), pages Accueil, Projets,
 > Questions, Discussion, Poste, Quotas, Routage, Diagnostics, Sauvegarde ; bout en bout local
 > contre Authelia et l'image de test. Connexion à Railway et VM Windows propre : non faites
 > (rien n'est déployé). Le volet « MCP côté poste » est reporté après la fusion de P6. Détail :
