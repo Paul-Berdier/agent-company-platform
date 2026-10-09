@@ -73,7 +73,12 @@ Item {
 
             Discret {
                 text: qsTr("Le poste Windows qui exécute les étapes de vos projets sur dépôt : enrôlement, état, "
-                           + "inventaire. Page relue toutes les 15 secondes tant qu'elle est affichée.")
+                           + "inventaire.")
+            }
+            // Cadence RÉELLE (temps réel ou sondage), jamais écrite en dur (relecture de P8b, constat desktop-4).
+            Discret {
+                objectName: "poste-cadence"
+                text: Poste.cadence
             }
             EtatLecture {
                 Layout.fillWidth: true
@@ -307,16 +312,42 @@ Item {
                         Ligne { label: qsTr("Claude Code"); value: "" }
                         StatusChip { statusKey: Poste.inventaire.claudeCle || "unknown"; label: Poste.inventaire.claudeLibelle || "" }
                     }
+                    // Étape P7 (partie E) : visibilité MESURÉE de chaque dépôt et voies ouvertes ou fermées pour lui.
                     SectionHeader { Layout.fillWidth: true; title: qsTr("Dépôts autorisés") }
                     Discret {
-                        visible: (Poste.inventaire.depots || []).length === 0
+                        text: qsTr("Visibilité mesurée par l'exécutant à chaque inventaire et avant chaque carte Codex. Privé "
+                                   + "veut dire accès anonyme refusé et lecture avec le jeton réussie. Codex ne travaille que "
+                                   + "sur un dépôt prouvé privé (D83), Claude sur tout dépôt (D84).")
+                    }
+                    Discret {
+                        visible: Poste.depots.length === 0
                         text: qsTr("Aucun dépôt déclaré par le poste.")
                     }
-                    BlocTexte {
-                        Layout.fillWidth: true
-                        visible: (Poste.inventaire.depots || []).length > 0
-                        texte: (Poste.inventaire.depots || []).join("\n")
-                        monospace: true
+                    Repeater {
+                        model: Poste.depots
+                        delegate: ColumnLayout {
+                            id: depot
+                            required property var modelData
+                            objectName: "poste-depot-" + modelData.alias
+                            Layout.fillWidth: true
+                            spacing: Space.space1
+                            RowLayout {
+                                Layout.fillWidth: true
+                                Text {
+                                    Layout.fillWidth: true
+                                    text: depot.modelData.alias
+                                    textFormat: Text.PlainText
+                                    color: Colors.textPrimary
+                                    font.family: Type.identifier.family
+                                    font.pixelSize: Type.identifier.pixelSize
+                                }
+                                StatusChip { statusKey: depot.modelData.visibiliteCle; label: depot.modelData.visibilite }
+                            }
+                            Ligne { label: qsTr("Visibilité mesurée"); value: depot.modelData.visibilite }
+                            Ligne { label: qsTr("Lecture par l'exécutant"); value: depot.modelData.lecture }
+                            Ligne { label: qsTr("Mesurée"); value: depot.modelData.verifieLe }
+                            BlocTexte { Layout.fillWidth: true; libelle: qsTr("Voies pour ce dépôt"); texte: depot.modelData.voies }
+                        }
                     }
                 }
             }

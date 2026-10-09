@@ -3,7 +3,12 @@
 //    construits DEPUIS `actions` (jamais une liste fixe), geste non offert refusé sans envoi ;
 //  - réponse : corps exact, texte borné, message suivant la RÉPONSE du greffon, question
 //    fermée entre-temps dite telle quelle puis relue ;
-//  - revues de P6 : affichées seulement si la clé `revues` existe, en lecture seule.
+//  - revues de P6 : affichées seulement si la clé `revues` existe ; « Accepter » et « Refuser »
+//    (motif exigé), refus du greffon dit tel quel ;
+//  - étape P7 : « À traiter par vous » d'après `compteurs`, discussions en attente (compteur du
+//    tableau de bord), « Relancer » une carte arrêtée seulement si le greffon la dit relançable,
+//    consigne jamais envoyée pour une carte d'intégration, message d'après la réponse (alerte si
+//    la carte n'est pas repartie), 409 en français rendu tel quel puis liste relue.
 
 #include "api/ApiClient.h"
 #include "api/ClientGreffonPoste.h"
@@ -14,6 +19,7 @@
 #include "viewmodels/QuestionsViewModel.h"
 
 #include <QJsonArray>
+#include <QSignalSpy>
 #include <QTest>
 
 using namespace acp;
@@ -25,6 +31,25 @@ const QString kP = QStringLiteral("/api/plugins/acp-poste/v1");
 const QString kQuestion = QStringLiteral("q_b627a3c245ec");
 const QString kTableau = QStringLiteral("acp-veille-llm-b43a");
 const QString kCarte = QStringLiteral("t_0c1d2e3f");
+// Carte arrêtée relançable (ARRETEE_RELANCABLE de l'interface web) et revue de pilotage (forme de
+// execution.revues_en_cours).
+const QString kTableauOutil = QStringLiteral("acp-outil-3dd5");
+const QString kArretee = QStringLiteral("t_5e6f7a8b");
+const QString kRevue = QStringLiteral("t_aa11bb22");
+
+QJsonObject revuePilotage()
+{
+    return QJsonObject{
+        {QStringLiteral("projet"), QStringLiteral("p_367e23fd51b7")}, {QStringLiteral("projet_titre"), QStringLiteral("Outil")},
+        {QStringLiteral("tableau"), kTableauOutil}, {QStringLiteral("carte"), kRevue},
+        {QStringLiteral("titre"), QStringLiteral("Implémentation — e2 : règles des agents")},
+        {QStringLiteral("role"), QStringLiteral("implementation")}, {QStringLiteral("voie"), QStringLiteral("poste-claude")},
+        {QStringLiteral("chemins"), QJsonArray{QStringLiteral("AGENTS.md"), QStringLiteral(".github/workflows/ci.yml")}},
+        {QStringLiteral("diffstat"), QJsonObject{{QStringLiteral("fichiers"), 2}, {QStringLiteral("ajouts"), 14}, {QStringLiteral("retraits"), 3}}},
+        {QStringLiteral("branche"), QStringLiteral("acp/outil/e2")}, {QStringLiteral("tete"), QStringLiteral("9f8e7d6c")},
+        {QStringLiteral("resume"), QJsonValue::Null},
+        {QStringLiteral("diff"), QStringLiteral("Le diff reste sur l'exécutant.")}};
+}
 
 QJsonObject refus(const QString &code, const QString &message)
 {
@@ -47,7 +72,12 @@ struct Banc
     ReponseFaux reprise = ReponseFaux::json(200, QJsonObject{{QStringLiteral("carte"), kCarte},
                                                              {QStringLiteral("reprise"), true},
                                                              {QStringLiteral("action"), QStringLiteral("prolongation")}});
-    QList<QUrl> ouvertes;
+    ReponseFaux relance = ReponseFaux::json(200, QJsonObject{{QStringLiteral("carte"), kArretee},
+                                                             {QStringLiteral("relancee"), true},
+                                                             {QStringLiteral("statut_apres"), QStringLiteral("ready")},
+                                                             {QStringLiteral("session_neuve"), true},
+                                                             {QStringLiteral("branche_neuve"), false}});
+    ReponseFaux revue = ReponseFaux::json(200, QJsonObject{{QStringLiteral("carte"), kRevue}, {QStringLiteral("etat"), QStringLiteral("done")}});
 
     Banc()
     {
@@ -59,10 +89,7 @@ struct Banc
         }
         client.setBearerProvider([] { return QByteArrayLiteral("jeton-a"); });
         flux.setIntervalleFond(std::chrono::hours(1));
-        questions.setOuvreur([this](const QUrl &url) {
-            ouvertes.append(url);
-            return true;
-        });
+        flux.setEtapeP7(QStringLiteral("annonce")); // greffon de l'étape P7 : le badge lit /v1/accueil
         serveur.route("GET", kP + QStringLiteral("/questions"), [this](const RequeteRecue &) { return ReponseFaux::json(200, liste); });
         serveur.route("GET", kP + QStringLiteral("/projets"),
                       [](const RequeteRecue &) { return ReponseFaux::json(200, fixture(QStringLiteral("projets.json"))); });
@@ -74,6 +101,30 @@ struct Banc
                       [](const RequeteRecue &) {
                           return ReponseFaux::json(200, QJsonObject{{QStringLiteral("carte"), kCarte}, {QStringLiteral("conclu"), true}});
                       });
+        serveur.route("POST", kP + QStringLiteral("/cartes/") + kTableauOutil + QLatin1Char('/') + kArretee + QStringLiteral("/relancer"),
+                      [this](const RequeteRecue &) { return relance; });
+        for (const QString &geste : {QStringLiteral("accepter"), QStringLiteral("refuser")}) {
+            serveur.route("POST", kP + QStringLiteral("/revues/") + kTableauOutil + QLatin1Char('/') + kRevue + QLatin1Char('/') + geste,
+                          [this](const RequeteRecue &) { return revue; });
+        }
+    }
+
+    //! Ajoute à la file la carte arrêtée relançable de la page web et une revue de pilotage.
+    void ajouterRelancableEtRevue()
+    {
+        QJsonArray bloquees = liste.value(QStringLiteral("bloquees")).toArray();
+        bloquees.append(fixture(QStringLiteral("arretee-relancable.json")));
+        liste.insert(QStringLiteral("bloquees"), bloquees);
+        liste.insert(QStringLiteral("revues"), QJsonArray{revuePilotage()});
+    }
+
+    int envoisPost() const
+    {
+        int envois = 0;
+        for (const RequeteRecue &requete : serveur.requetes) {
+            envois += requete.methode == "POST" ? 1 : 0;
+        }
+        return envois;
     }
 
     void ouvrirLaPage()
@@ -95,14 +146,18 @@ class TestQuestions : public QObject
 private slots:
     void questionLibellee();
     void triageConstruitDepuisLesActions();
-    void bloqueesEnLectureSeule();
+    void bloqueesRelancablesSelonLeGreffon();
+    void revueConstruite();
+    void resumeEtDiscussionsDuGreffon();
     void messagesSuiventLaReponse();
     void pageLueEtRevuesSeulementSiPubliees();
     void repondreCorpsExactEtRelecture();
     void reponseRefuseeOuHorsBornes();
     void gestesDeTriage();
     void gesteNonOffertRefuseSansEnvoi();
-    void revuesTraiteesDansLeNavigateur();
+    void relancerCorpsExactEtMessage();
+    void relanceRefuseeParLeGreffonOuLaStation();
+    void revuesAccepteesOuRefusees();
 };
 
 void TestQuestions::questionLibellee()
@@ -189,18 +244,108 @@ void TestQuestions::triageConstruitDepuisLesActions()
     QCOMPARE(i.value(QStringLiteral("gestesInconnus")).toString(), QStringLiteral("Geste non pris en charge par la station : teleporter."));
 }
 
-void TestQuestions::bloqueesEnLectureSeule()
+void TestQuestions::bloqueesRelancablesSelonLeGreffon()
 {
+    // Carte étrangère (fixture de la page web) : le greffon la dit non relançable, et pourquoi.
     const QJsonObject source = fixture(QStringLiteral("questions.json")).value(QStringLiteral("bloquees")).toArray().at(0).toObject();
     const QJsonObject bloquee = QuestionsViewModel::construireBloquee(source);
     QCOMPARE(bloquee.value(QStringLiteral("etatLibelle")).toString(), QStringLiteral("Bloquée"));
     QCOMPARE(bloquee.value(QStringLiteral("assigne")).toString(), QStringLiteral("poste-codex"));
     QVERIFY(bloquee.value(QStringLiteral("raison")).toString().startsWith(QStringLiteral("Refusé par ACP")));
-    QVERIFY(!bloquee.contains(QStringLiteral("avecConsigne")));
+    QCOMPARE(bloquee.value(QStringLiteral("peutRelancer")).toBool(), false);
+    QCOMPARE(bloquee.value(QStringLiteral("avecConsigne")).toBool(), false);
+    QCOMPARE(bloquee.value(QStringLiteral("refusRelance")).toString(), QStringLiteral("Carte non émise par ACP : ACP ne la relance pas."));
     QJsonObject abandonnee = source;
     abandonnee.insert(QStringLiteral("abandonnee"), true);
     QCOMPARE(QuestionsViewModel::construireBloquee(abandonnee).value(QStringLiteral("etatLibelle")).toString(),
              QStringLiteral("Abandonnée après plusieurs échecs"));
+    // Sans `relancable` (greffon antérieur à P7) : jamais relançable par déduction, raison inconnue.
+    QJsonObject sansCle = source;
+    sansCle.remove(QStringLiteral("relancable"));
+    sansCle.remove(QStringLiteral("refus_relance"));
+    const QJsonObject inconnue = QuestionsViewModel::construireBloquee(sansCle);
+    QCOMPARE(inconnue.value(QStringLiteral("peutRelancer")).toBool(), false);
+    QCOMPARE(inconnue.value(QStringLiteral("refusRelance")).toString(), QStringLiteral("Inconnu"));
+
+    // Carte de l'exécutant relançable (ARRETEE_RELANCABLE) : consigne offerte, session neuve annoncée.
+    const QJsonObject relancable = QuestionsViewModel::construireBloquee(fixture(QStringLiteral("arretee-relancable.json")));
+    QCOMPARE(relancable.value(QStringLiteral("tableau")).toString(), kTableauOutil);
+    QCOMPARE(relancable.value(QStringLiteral("carte")).toString(), kArretee);
+    QCOMPARE(relancable.value(QStringLiteral("etatLibelle")).toString(), QStringLiteral("Abandonnée après plusieurs échecs"));
+    QCOMPARE(relancable.value(QStringLiteral("peutRelancer")).toBool(), true);
+    QCOMPARE(relancable.value(QStringLiteral("avecConsigne")).toBool(), true);
+    QCOMPARE(relancable.value(QStringLiteral("refusRelance")).toString(), QString());
+    QCOMPARE(relancable.value(QStringLiteral("aide")).toString(), QStringLiteral("L'agent repart d'une session neuve, sur la branche déjà commencée."));
+    QCOMPARE(relancable.value(QStringLiteral("aideAlerte")).toBool(), false);
+
+    // Quarantaine (secret détecté, K25) : dite en alerte.
+    QJsonObject quarantaine = fixture(QStringLiteral("arretee-relancable.json"));
+    quarantaine.insert(QStringLiteral("quarantaine"), true);
+    const QJsonObject q = QuestionsViewModel::construireBloquee(quarantaine);
+    QVERIFY(q.value(QStringLiteral("aide")).toString().startsWith(QStringLiteral("Bloquée pour un secret détecté.")));
+    QCOMPARE(q.value(QStringLiteral("aideAlerte")).toBool(), true);
+
+    // Carte d'intégration : relançable, mais sans consigne (aucun agent).
+    QJsonObject integration = fixture(QStringLiteral("arretee-relancable.json"));
+    integration.insert(QStringLiteral("integration"), true);
+    const QJsonObject i = QuestionsViewModel::construireBloquee(integration);
+    QCOMPARE(i.value(QStringLiteral("peutRelancer")).toBool(), true);
+    QCOMPARE(i.value(QStringLiteral("integration")).toBool(), true);
+    QCOMPARE(i.value(QStringLiteral("avecConsigne")).toBool(), false);
+    QVERIFY(i.value(QStringLiteral("aide")).toString().startsWith(QStringLiteral("Carte d'intégration, sans agent")));
+
+    // Relançable mais identifiant illisible : aucun bouton, la raison le dit.
+    QJsonObject illisible = fixture(QStringLiteral("arretee-relancable.json"));
+    illisible.insert(QStringLiteral("carte"), QStringLiteral("../t"));
+    const QJsonObject l = QuestionsViewModel::construireBloquee(illisible);
+    QCOMPARE(l.value(QStringLiteral("peutRelancer")).toBool(), false);
+    QCOMPARE(l.value(QStringLiteral("refusRelance")).toString(), QStringLiteral("identifiant de carte illisible."));
+}
+
+void TestQuestions::revueConstruite()
+{
+    const QJsonObject revue = QuestionsViewModel::construireRevue(revuePilotage());
+    QCOMPARE(revue.value(QStringLiteral("adressable")).toBool(), true);
+    QCOMPARE(revue.value(QStringLiteral("chemins")).toString(), QStringLiteral("AGENTS.md\n.github/workflows/ci.yml"));
+    QCOMPARE(revue.value(QStringLiteral("modification")).toString(), QStringLiteral("2 fichier(s) · 14 ajout(s) · 3 retrait(s)"));
+    QCOMPARE(revue.value(QStringLiteral("branche")).toString(), QStringLiteral("acp/outil/e2"));
+    QCOMPARE(revue.value(QStringLiteral("resume")).toString(), QStringLiteral("Inconnu"));
+    QCOMPARE(revue.value(QStringLiteral("diff")).toString(), QStringLiteral("Le diff reste sur l'exécutant."));
+    QJsonObject sansStat = revuePilotage();
+    sansStat.insert(QStringLiteral("diffstat"), QJsonValue::Null);
+    sansStat.insert(QStringLiteral("tableau"), QStringLiteral("a b"));
+    const QJsonObject r = QuestionsViewModel::construireRevue(sansStat);
+    QCOMPARE(r.value(QStringLiteral("modification")).toString(), QStringLiteral("Inconnu"));
+    QCOMPARE(r.value(QStringLiteral("adressable")).toBool(), false);
+}
+
+void TestQuestions::resumeEtDiscussionsDuGreffon()
+{
+    const QJsonObject liste = fixture(QStringLiteral("questions.json"));
+    const QVariantMap resume = QuestionsViewModel::construireResume(liste);
+    QCOMPARE(resume.value(QStringLiteral("connu")).toBool(), true);
+    QCOMPARE(resume.value(QStringLiteral("total")).toString(), QStringLiteral("3"));
+    QCOMPARE(resume.value(QStringLiteral("nombre")).toInt(), 3);
+    QCOMPARE(resume.value(QStringLiteral("chezHermes")).toString(), QStringLiteral("0"));
+    // Les discussions en attente ne sont pas lues par la station : le total le dit, jamais zéro par défaut.
+    QCOMPARE(resume.value(QStringLiteral("mention")).toString(), QStringLiteral("(discussions en attente : état inconnu, non comptées)"));
+    // Sans compteurs (greffon antérieur à P7) : inconnu.
+    const QVariantMap inconnu = QuestionsViewModel::construireResume(QJsonObject{});
+    QCOMPARE(inconnu.value(QStringLiteral("connu")).toBool(), false);
+    QCOMPARE(inconnu.value(QStringLiteral("total")).toString(), QStringLiteral("Inconnu"));
+    QCOMPARE(inconnu.value(QStringLiteral("nombre")).toInt(), -1);
+    QCOMPARE(inconnu.value(QStringLiteral("chezHermes")).toString(), QStringLiteral("Inconnu"));
+
+    const QVariantMap discussions = QuestionsViewModel::construireDiscussions(liste.value(QStringLiteral("discussions")));
+    QCOMPARE(discussions.value(QStringLiteral("etat")).toString(), QStringLiteral("Requêtes ouvertes dans le tableau de bord : 0"));
+    QCOMPARE(discussions.value(QStringLiteral("limite")).toString(),
+             QStringLiteral("Les questions posées dans la discussion en terminal (/chat) ne sont visibles que dans cette discussion."));
+    const QVariantMap nonSuivies = QuestionsViewModel::construireDiscussions(QJsonObject{
+        {QStringLiteral("suivies"), false}, {QStringLiteral("requetes_ouvertes"), QJsonValue::Null},
+        {QStringLiteral("message"), QStringLiteral("Hermes ne publie pas ce compteur.")}});
+    QCOMPARE(nonSuivies.value(QStringLiteral("etat")).toString(), QStringLiteral("Hermes ne publie pas ce compteur."));
+    QCOMPARE(QuestionsViewModel::construireDiscussions(QJsonValue()).value(QStringLiteral("etat")).toString(),
+             QStringLiteral("Discussions : état inconnu (le tableau de bord n'a pas pu être interrogé)."));
 }
 
 void TestQuestions::messagesSuiventLaReponse()
@@ -220,6 +365,21 @@ void TestQuestions::messagesSuiventLaReponse()
     QCOMPARE(QuestionsViewModel::messageTriage(QJsonObject{{QStringLiteral("reprise"), true},
                                                            {QStringLiteral("action"), QStringLiteral("reprise")}}),
              QStringLiteral("Carte reprise : elle repart dans le graphe du projet."));
+    // Relance (messageRelance de la page web), d'après la réponse seulement.
+    QCOMPARE(QuestionsViewModel::messageRelance(QJsonObject{{QStringLiteral("relancee"), false}}, false),
+             QStringLiteral("La carte n'a pas été relancée."));
+    QCOMPARE(QuestionsViewModel::messageRelance(QJsonObject{{QStringLiteral("relancee"), true},
+                                                            {QStringLiteral("session_neuve"), true}}, false),
+             QStringLiteral("La carte repart : l'agent reprend d'une session neuve, sur la branche déjà commencée."));
+    QCOMPARE(QuestionsViewModel::messageRelance(QJsonObject{{QStringLiteral("relancee"), true},
+                                                            {QStringLiteral("session_neuve"), false}}, false),
+             QStringLiteral("La carte repart."));
+    QCOMPARE(QuestionsViewModel::messageRelance(QJsonObject{{QStringLiteral("relancee"), true}}, true),
+             QStringLiteral("La carte repart : l'exécutant rejoue la même fusion."));
+    QCOMPARE(QuestionsViewModel::messageRelance(QJsonObject{{QStringLiteral("relancee"), true},
+                                                            {QStringLiteral("branche_neuve"), true},
+                                                            {QStringLiteral("session_neuve"), true}}, false),
+             QStringLiteral("La carte repart sur une branche neuve, en session neuve. Le travail en quarantaine n'est pas repris."));
 }
 
 void TestQuestions::pageLueEtRevuesSeulementSiPubliees()
@@ -232,22 +392,25 @@ void TestQuestions::pageLueEtRevuesSeulementSiPubliees()
     QCOMPARE(banc.questions.questions()->count(), 1);
     QCOMPARE(banc.questions.triage()->count(), 1);
     QCOMPARE(banc.questions.bloquees()->count(), 1);
-    QCOMPARE(banc.questions.revuesPresentes(), false); // base b3faac0 : aucune clé `revues`
+    QCOMPARE(banc.questions.revuesPresentes(), true); // forme de l'étape P7 : clé `revues` (vide)
+    QCOMPARE(banc.questions.revues()->count(), 0);
+    QCOMPARE(banc.questions.resume().value(QStringLiteral("total")).toString(), QStringLiteral("3"));
     QVERIFY(banc.questions.tableauxIllisibles().isEmpty());
     QVERIFY(banc.questions.lecture().startsWith(QStringLiteral("Lu à ")));
 
-    banc.liste.insert(QStringLiteral("revues"), QJsonArray{QJsonObject{
-        {QStringLiteral("projet"), QStringLiteral("p_367e23fd51b7")}, {QStringLiteral("projet_titre"), QStringLiteral("Outil")},
-        {QStringLiteral("carte"), QStringLiteral("t_aa")}, {QStringLiteral("titre"), QStringLiteral("Revue de AGENTS.md")},
-        {QStringLiteral("chemins"), QJsonArray{QStringLiteral("AGENTS.md"), QStringLiteral(".github/workflows/ci.yml")}},
-        {QStringLiteral("resume"), QJsonValue::Null}}});
+    // Greffon antérieur à P6 : aucune clé `revues`, la section n'est pas montrée.
+    banc.liste.remove(QStringLiteral("revues"));
     banc.liste.insert(QStringLiteral("tableaux_illisibles"), QJsonArray{QStringLiteral("acp-casse-0000")});
+    banc.questions.actualiser();
+    QTRY_VERIFY(!banc.questions.revuesPresentes());
+    QCOMPARE(banc.questions.tableauxIllisibles(), QStringList{QStringLiteral("acp-casse-0000")});
+
+    banc.liste.insert(QStringLiteral("revues"), QJsonArray{revuePilotage()});
     banc.questions.actualiser();
     QTRY_VERIFY(banc.questions.revuesPresentes());
     QCOMPARE(banc.questions.revues()->count(), 1);
     QCOMPARE(banc.questions.revues()->get(0).value(QStringLiteral("chemins")).toString(),
              QStringLiteral("AGENTS.md\n.github/workflows/ci.yml"));
-    QCOMPARE(banc.questions.tableauxIllisibles(), QStringList{QStringLiteral("acp-casse-0000")});
 }
 
 void TestQuestions::repondreCorpsExactEtRelecture()
@@ -255,7 +418,7 @@ void TestQuestions::repondreCorpsExactEtRelecture()
     Banc banc;
     banc.ouvrirLaPage();
     const int avant = banc.lectures();
-    const int fond = banc.serveur.compter("GET", kP + QStringLiteral("/projets"));
+    const int fond = banc.serveur.compter("GET", kP + QStringLiteral("/accueil"));
     banc.questions.repondre(kQuestion, QStringLiteral("  Python 3.12  "));
     QTRY_VERIFY(!banc.questions.gesteEnCours());
     QCOMPARE(banc.questions.messageGeste(), QStringLiteral("Réponse envoyée : la carte reprend."));
@@ -266,7 +429,7 @@ void TestQuestions::repondreCorpsExactEtRelecture()
     QCOMPARE(envois.first().entete("authorization"), QByteArrayLiteral("Bearer jeton-a"));
     QVERIFY(!envois.first().aEntete("origin"));
     QTRY_COMPARE(banc.lectures(), avant + 1); // la liste est relue
-    QTRY_VERIFY(banc.serveur.compter("GET", kP + QStringLiteral("/projets")) > fond); // et le badge
+    QTRY_VERIFY(banc.serveur.compter("GET", kP + QStringLiteral("/accueil")) > fond); // et le badge (sondage léger)
 
     // Projet en pause : reprise différée, dite telle que le greffon la rend.
     banc.reponse = ReponseFaux::json(200, QJsonObject{{QStringLiteral("carte_debloquee"), false},
@@ -321,11 +484,13 @@ void TestQuestions::gestesDeTriage()
     banc.questions.agirTriage(kTableau, kCarte, QStringLiteral("reprise"), QStringLiteral("   "));
     QTRY_VERIFY(!banc.questions.gesteEnCours());
     QCOMPARE(banc.questions.messageGeste(), QStringLiteral("La carte n'a pas été reprise (voir le kanban de Hermes)."));
+    QCOMPARE(banc.questions.alerteGeste(), true);
     QCOMPARE(banc.serveur.filtrer("POST", chemin + QStringLiteral("/reprendre")).last().json(), QJsonObject{});
 
     banc.questions.agirTriage(kTableau, kCarte, QStringLiteral("conclure"), QString());
     QTRY_VERIFY(!banc.questions.gesteEnCours());
     QCOMPARE(banc.questions.messageGeste(), QStringLiteral("Projet conclu."));
+    QCOMPARE(banc.questions.alerteGeste(), false);
     QCOMPARE(banc.serveur.filtrer("POST", chemin + QStringLiteral("/conclure")).size(), 1);
     QCOMPARE(banc.serveur.filtrer("POST", chemin + QStringLiteral("/conclure")).first().json(), QJsonObject{});
 }
@@ -353,16 +518,120 @@ void TestQuestions::gesteNonOffertRefuseSansEnvoi()
     }
 }
 
-void TestQuestions::revuesTraiteesDansLeNavigateur()
+void TestQuestions::relancerCorpsExactEtMessage()
 {
     Banc banc;
-    QVERIFY(banc.questions.traiterDansLeNavigateur());
-    QCOMPARE(banc.ouvertes.size(), 1);
-    QCOMPARE(banc.ouvertes.first(), QUrl(banc.serveur.url().toString() + QStringLiteral("/projets?vue=questions")));
-    // Constat de relecture P8 : derrière un sous-chemin, le lien gardait la racine du domaine.
-    QVERIFY(!banc.client.setBaseUrl(QUrl(banc.serveur.url().toString() + QStringLiteral("/hermes"))).isError());
-    QVERIFY(banc.questions.traiterDansLeNavigateur());
-    QCOMPARE(banc.ouvertes.last(), QUrl(banc.serveur.url().toString() + QStringLiteral("/hermes/projets?vue=questions")));
+    banc.ajouterRelancableEtRevue();
+    banc.ouvrirLaPage();
+    QCOMPARE(banc.questions.bloquees()->count(), 2);
+    const QString chemin = kP + QStringLiteral("/cartes/") + kTableauOutil + QLatin1Char('/') + kArretee + QStringLiteral("/relancer");
+    const int avant = banc.lectures();
+    banc.questions.setBrouillon(QStringLiteral("r:") + kTableauOutil + QLatin1Char('/') + kArretee, QStringLiteral("brouillon"));
+    QSignalSpy effaces(&banc.questions, &QuestionsViewModel::brouillonEfface);
+    banc.questions.relancer(kTableauOutil, kArretee, QStringLiteral("  Reprends avec Python 3.12.  "));
+    QTRY_VERIFY(!banc.questions.gesteEnCours());
+    QCOMPARE(banc.questions.erreurGeste(), QString());
+    QCOMPARE(banc.questions.messageGeste(),
+             QStringLiteral("La carte repart : l'agent reprend d'une session neuve, sur la branche déjà commencée. Statut : Prête."));
+    QCOMPARE(banc.questions.alerteGeste(), false);
+    const auto envois = banc.serveur.filtrer("POST", chemin);
+    QCOMPARE(envois.size(), 1);
+    QCOMPARE(envois.first().json(), (QJsonObject{{QStringLiteral("consigne"), QStringLiteral("Reprends avec Python 3.12.")}}));
+    QCOMPARE(envois.first().entete("content-type"), QByteArrayLiteral("application/json"));
+    QVERIFY(!envois.first().aEntete("origin"));
+    QCOMPARE(effaces.size(), 1);
+    QCOMPARE(effaces.first().first().toString(), QStringLiteral("r:") + kTableauOutil + QLatin1Char('/') + kArretee);
+    QTRY_COMPARE(banc.lectures(), avant + 1); // la file est relue
+
+    // Réponse sans effet : alerte, jamais une réussite ; le statut servi est traduit.
+    banc.relance = ReponseFaux::json(200, QJsonObject{{QStringLiteral("carte"), kArretee}, {QStringLiteral("relancee"), false},
+                                                      {QStringLiteral("statut_apres"), QStringLiteral("blocked")},
+                                                      {QStringLiteral("session_neuve"), false}});
+    banc.questions.relancer(kTableauOutil, kArretee, QString());
+    QTRY_VERIFY(!banc.questions.gesteEnCours());
+    QCOMPARE(banc.questions.messageGeste(), QStringLiteral("La carte n'a pas été relancée. Statut : Bloquée."));
+    QCOMPARE(banc.questions.alerteGeste(), true);
+    QCOMPARE(banc.serveur.filtrer("POST", chemin).last().json(), QJsonObject{});
+
+    // Carte d'intégration : aucune consigne n'est jamais envoyée, même tapée.
+    QJsonArray bloquees = banc.liste.value(QStringLiteral("bloquees")).toArray();
+    QJsonObject integration = bloquees.last().toObject();
+    integration.insert(QStringLiteral("integration"), true);
+    bloquees.replace(bloquees.size() - 1, integration);
+    banc.liste.insert(QStringLiteral("bloquees"), bloquees);
+    banc.questions.actualiser();
+    QTRY_VERIFY(banc.questions.bloquees()->get(1).value(QStringLiteral("integration")).toBool());
+    banc.relance = ReponseFaux::json(200, QJsonObject{{QStringLiteral("relancee"), true}, {QStringLiteral("session_neuve"), false},
+                                                      {QStringLiteral("statut_apres"), QStringLiteral("ready")}});
+    banc.questions.relancer(kTableauOutil, kArretee, QStringLiteral("consigne ignorée"));
+    QTRY_VERIFY(!banc.questions.gesteEnCours());
+    QCOMPARE(banc.serveur.filtrer("POST", chemin).last().json(), QJsonObject{});
+    QCOMPARE(banc.questions.messageGeste(), QStringLiteral("La carte repart : l'exécutant rejoue la même fusion. Statut : Prête."));
+}
+
+void TestQuestions::relanceRefuseeParLeGreffonOuLaStation()
+{
+    Banc banc;
+    banc.ajouterRelancableEtRevue();
+    banc.ouvrirLaPage();
+    // 409 du greffon (projet mis en pause entre-temps) : son message français tel quel, puis la file relue.
+    const QString message = QStringLiteral("Refusé par ACP : le projet « Outil » est en pause : reprenez-le d'abord.");
+    banc.relance = ReponseFaux::json(409, refus(QStringLiteral("projet_en_pause"), message));
+    const int avant = banc.lectures();
+    banc.questions.relancer(kTableauOutil, kArretee, QStringLiteral("essai"));
+    QTRY_VERIFY(!banc.questions.gesteEnCours());
+    QCOMPARE(banc.questions.erreurGeste(), message);
+    QCOMPARE(banc.questions.messageGeste(), QString());
+    QTRY_COMPARE(banc.lectures(), avant + 1);
+    const int envois = banc.envoisPost();
+    QCOMPARE(envois, 1);
+
+    // Carte que le greffon dit non relançable (fixture : carte étrangère) : refus local, rien n'est émis.
+    banc.questions.relancer(QStringLiteral("acp-veille-llm-b43a"), QStringLiteral("t_9a8b7c6d"), QString());
+    QCOMPARE(banc.questions.erreurGeste(), QStringLiteral("Cette carte n'est pas relançable selon la dernière lecture : la liste est relue."));
+    // Consigne trop longue : refus local.
+    banc.questions.relancer(kTableauOutil, kArretee, QString(4001, QLatin1Char('x')));
+    QCOMPARE(banc.questions.erreurGeste(), QStringLiteral("La consigne compte 4 000 caractères au plus."));
+    QCOMPARE(banc.envoisPost(), envois);
+}
+
+void TestQuestions::revuesAccepteesOuRefusees()
+{
+    Banc banc;
+    banc.ajouterRelancableEtRevue();
+    banc.ouvrirLaPage();
+    QCOMPARE(banc.questions.revues()->count(), 1);
+    const QString base = kP + QStringLiteral("/revues/") + kTableauOutil + QLatin1Char('/') + kRevue;
+
+    banc.questions.accepterRevue(kTableauOutil, kRevue);
+    QTRY_VERIFY(!banc.questions.gesteEnCours());
+    QCOMPARE(banc.questions.messageGeste(), QStringLiteral("Revue acceptée : la carte est terminée."));
+    QCOMPARE(banc.serveur.filtrer("POST", base + QStringLiteral("/accepter")).first().json(), QJsonObject{});
+
+    // Refus : motif exigé et borné, rien n'est émis sans lui.
+    banc.questions.refuserRevue(kTableauOutil, kRevue, QStringLiteral("   "));
+    QCOMPARE(banc.questions.erreurGeste(), QStringLiteral("Le motif du refus doit compter de 1 à 1 000 caractères."));
+    banc.questions.refuserRevue(kTableauOutil, kRevue, QString(1001, QLatin1Char('m')));
+    QCOMPARE(banc.questions.erreurGeste(), QStringLiteral("Le motif du refus doit compter de 1 à 1 000 caractères."));
+    QCOMPARE(banc.serveur.filtrer("POST", base + QStringLiteral("/refuser")).size(), 0);
+    banc.questions.refuserRevue(kTableauOutil, kRevue, QStringLiteral("  Ne touche pas à la CI.  "));
+    QTRY_VERIFY(!banc.questions.gesteEnCours());
+    QCOMPARE(banc.questions.messageGeste(), QStringLiteral("Revue refusée : la carte revient à l'exécutant avec votre motif."));
+    QCOMPARE(banc.serveur.filtrer("POST", base + QStringLiteral("/refuser")).first().json(),
+             (QJsonObject{{QStringLiteral("motif"), QStringLiteral("Ne touche pas à la CI.")}}));
+
+    // 409 `revue_changee` du greffon : dit tel quel.
+    const QString message = QStringLiteral("Refusé par ACP : la carte t_aa11bb22 n'est plus en revue (statut : done).");
+    banc.revue = ReponseFaux::json(409, refus(QStringLiteral("revue_changee"), message));
+    banc.questions.accepterRevue(kTableauOutil, kRevue);
+    QTRY_VERIFY(!banc.questions.gesteEnCours());
+    QCOMPARE(banc.questions.erreurGeste(), message);
+
+    // Revue absente de la dernière lecture : refus local, sans envoi.
+    const int envois = banc.envoisPost();
+    banc.questions.accepterRevue(kTableauOutil, QStringLiteral("t_inconnue"));
+    QCOMPARE(banc.questions.erreurGeste(), QStringLiteral("Cette revue n'est plus en attente selon la dernière lecture : la liste est relue."));
+    QCOMPARE(banc.envoisPost(), envois);
 }
 
 QTEST_MAIN(TestQuestions)

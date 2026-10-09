@@ -169,10 +169,13 @@ public:
         moment de l'envoi puis effacé, aucun cookie, aucune redirection suivie, aucun proxy
         implicite. Sans rafraîchissement ni réémission : un 401 est rendu tel quel.
 
-        Rend nullptr et remplit `refus` si l'adresse ou la session manque.
+        Rend nullptr et remplit `refus` si l'adresse ou la session manque. `entetes` : en-têtes
+        de lecture en plus (`Last-Event-ID` du flux d'invalidation), jamais un en-tête
+        d'authentification ni `Origin`.
     */
     [[nodiscard]] QNetworkReply *ouvrirFlux(const QString &path, const QUrlQuery &query, ApiError *refus,
-                                            const QByteArray &accept = QByteArrayLiteral("application/octet-stream"));
+                                            const QByteArray &accept = QByteArrayLiteral("application/octet-stream"),
+                                            const QList<QPair<QByteArray, QByteArray>> &entetes = {});
 
     /*! Nombre d'appels en vol, pour la barre d'état et l'écran de diagnostics. */
     [[nodiscard]] int inFlightCount() const;

@@ -16,6 +16,7 @@
 #include "api/ClientGreffonPoste.h"
 #include "events/EventStreamService.h"
 #include "gateway/DemandesAgent.h"
+#include "gateway/DiscussionsEnAttente.h"
 #include "gateway/GatewayClient.h"
 #include "gateway/JsonRpcChannel.h"
 #include "models/JsonListModel.h"
@@ -173,6 +174,7 @@ private slots:
     void lignesDeSessionEtDeTranscription();
     void messagesEtIssues();
     void listeEtOuverture();
+    void discussionsEnAttenteMarqueesDansLaListe();
     void fluxDUnTourSansContenuBrut();
     void autreSessionIgnoreeEtTypesInconnusComptes();
     void erreurInterruptionEtEchec();
@@ -252,6 +254,43 @@ void TestDiscussion::listeEtOuverture()
     QCOMPARE(banc.discussion.transcription()->itemAt(2).value(QStringLiteral("texte")).toString(), QStringLiteral("Outil « terminal »"));
     QVERIFY(!banc.texteDeTranscription().contains(QStringLiteral("SORTIE-SECRETE")));
     QVERIFY(!banc.discussion.tourEnCours());
+}
+
+// Seconde relecture de P8b (constat desktop-11) : la liste des discussions du navigateur (Liste.tsx, P7) marque « En
+// attente d'une réponse » chaque discussion dont une demande attend (session.active_list) et dit quand cet état n'a pas
+// pu être lu ; celle de la station n'en montrait rien. Même suivi : même marque, même avertissement.
+void TestDiscussion::discussionsEnAttenteMarqueesDansLaListe()
+{
+    Banc banc;
+    banc.serveur.methodes.insert(QStringLiteral("session.active_list"), [](const QJsonObject &) {
+        return QJsonObject{{QStringLiteral("sessions"), QJsonArray{
+            QJsonObject{{QStringLiteral("session_key"), QStringLiteral("s2")}, {QStringLiteral("status"), QStringLiteral("waiting")}},
+            QJsonObject{{QStringLiteral("session_key"), QStringLiteral("s1")}, {QStringLiteral("status"), QStringLiteral("working")}}}}};
+    });
+    banc.ouvrirPasserelle();
+    banc.discussion.setPageVisible(true);
+    QTRY_COMPARE(banc.discussion.sessions()->count(), 2);
+    // La page lit elle-même l'état d'attente avec sa liste, comme la page web (lireDiscussionsEnAttente).
+    QTRY_VERIFY(banc.flux.discussions()->connues());
+    QTRY_VERIFY(banc.discussion.sessions()->get(1).value(QStringLiteral("enAttente")).toBool()); // s2
+    QCOMPARE(banc.discussion.sessions()->get(1).value(QStringLiteral("id")).toString(), QStringLiteral("s2"));
+    QCOMPARE(banc.discussion.sessions()->get(0).value(QStringLiteral("enAttente")).toBool(), false); // s1 travaille
+    QCOMPARE(banc.discussion.property("attenteInconnue").toString(), QString());
+
+    // Méthode refusée par Hermes : l'état est inconnu ; aucune marque, et l'absence de marque est dite sans valeur.
+    banc.serveur.methodes.remove(QStringLiteral("session.active_list"));
+    banc.discussion.actualiserSessions();
+    QTRY_VERIFY(!banc.flux.discussions()->connues());
+    // Le texte même de la page web (T.discussion.attenteInconnue) : français, sans le message brut de Hermes.
+    QTRY_COMPARE(banc.discussion.property("attenteInconnue").toString(),
+                 QStringLiteral("Discussions en attente : état inconnu (le tableau de bord n'a pas pu être interrogé) ; "
+                                "l'absence de la marque « En attente d'une réponse » ne veut rien dire."));
+    QCOMPARE(banc.discussion.sessions()->get(1).value(QStringLiteral("enAttente")).toBool(), false);
+    QCOMPARE(banc.discussion.sessions()->count(), 2); // la liste, elle, reste
+    // Oubli (session perdue) : rien n'est dit tant qu'aucune lecture n'a été tentée.
+    banc.flux.discussions()->oublier();
+    QVERIFY(!banc.flux.discussions()->tentee());
+    QCOMPARE(banc.discussion.property("attenteInconnue").toString(), QString());
 }
 
 void TestDiscussion::fluxDUnTourSansContenuBrut()

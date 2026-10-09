@@ -190,6 +190,14 @@ void FauxHermes::lire(QTcpSocket *socket)
         requete.corps = tampon.mid(finEntetes + 4, longueur);
         tampon.remove(0, finEntetes + 4 + longueur);
         requetes.append(requete);
+        if (m_flux && requete.methode == "GET" && requete.chemin == QStringLiteral("/api/plugins/acp-poste/v1/flux")
+            && ouvrirFlux(socket, requete)) {
+            socket->setProperty(kTampon, QByteArray());
+            return; // la connexion appartient désormais au flux
+        }
+        if (m_flux && requete.methode == "GET" && requete.chemin == QStringLiteral("/api/plugins/acp-poste/v1/flux")) {
+            continue; // refus déjà rendu
+        }
         repondre(socket, traiter(requete));
     }
     socket->setProperty(kTampon, tampon);
@@ -247,6 +255,87 @@ ReponseFaux FauxHermes::traiter(const RequeteRecue &requete)
         return ReponseFaux::json(404, QJsonObject{{QStringLiteral("detail"), QStringLiteral("Not Found")}});
     }
     return (*route)(requete);
+}
+
+void FauxHermes::activerFlux()
+{
+    m_flux = true;
+}
+
+bool FauxHermes::ouvrirFlux(QTcpSocket *socket, const RequeteRecue &requete)
+{
+    if (m_porte) {
+        const QByteArray autorisation = requete.entete(QByteArrayLiteral("authorization"));
+        const QByteArray jeton = autorisation.startsWith("Bearer ") ? autorisation.mid(7) : QByteArray();
+        if (jeton.isEmpty() || !jetonsAccesValides.contains(jeton)) {
+            repondre(socket, refusPorte(requete));
+            return false;
+        }
+    }
+    if (!refusFlux.isEmpty()) {
+        repondre(socket, refusFlux.takeFirst());
+        return false;
+    }
+    ouverturesFlux.append(requete);
+    QByteArray brut = "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream; charset=utf-8\r\n"
+                      "cache-control: no-store\r\nx-accel-buffering: no\r\ntransfer-encoding: chunked\r\n";
+    if (!sansDate) {
+        brut += "Date: "
+            + QLocale::c().toString(QDateTime::currentDateTimeUtc(), QStringLiteral("ddd, dd MMM yyyy HH:mm:ss 'GMT'")).toLatin1()
+            + "\r\n";
+    }
+    brut += "\r\n";
+    disconnect(socket, &QTcpSocket::readyRead, this, nullptr);
+    socket->write(brut);
+    socket->flush();
+    m_clientsFlux.append(QPointer<QTcpSocket>(socket));
+    return true;
+}
+
+QTcpSocket *FauxHermes::dernierClientFlux() const
+{
+    for (qsizetype index = m_clientsFlux.size() - 1; index >= 0; --index) {
+        QTcpSocket *client = m_clientsFlux.at(index);
+        if (client && client->state() == QAbstractSocket::ConnectedState) {
+            return client;
+        }
+    }
+    return nullptr;
+}
+
+void FauxHermes::envoyerFlux(const QByteArray &octets)
+{
+    if (QTcpSocket *client = dernierClientFlux(); client && !octets.isEmpty()) {
+        client->write(QByteArray::number(octets.size(), 16) + "\r\n" + octets + "\r\n");
+        client->flush();
+    }
+}
+
+void FauxHermes::terminerFlux()
+{
+    if (QTcpSocket *client = dernierClientFlux()) {
+        client->write("0\r\n\r\n");
+        client->flush();
+        client->disconnectFromHost();
+    }
+}
+
+void FauxHermes::couperFlux()
+{
+    if (QTcpSocket *client = dernierClientFlux()) {
+        client->abort();
+    }
+}
+
+int FauxHermes::clientsFlux() const
+{
+    int nombre = 0;
+    for (const QPointer<QTcpSocket> &client : m_clientsFlux) {
+        if (client && client->state() == QAbstractSocket::ConnectedState) {
+            ++nombre;
+        }
+    }
+    return nombre;
 }
 
 void FauxHermes::activerPasserelle()

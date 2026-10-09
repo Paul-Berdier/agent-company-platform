@@ -27,6 +27,7 @@
 #include <QList>
 #include <QObject>
 #include <QPair>
+#include <QPointer>
 #include <QSet>
 #include <QString>
 #include <QUrl>
@@ -176,6 +177,25 @@ public:
     QList<RequeteRecue> ouverturesKanban;
     bool refuserKanban = false; //!< Toute ouverture du kanban reçoit 403.
 
+    // --- Flux d'invalidation du greffon (GET /api/plugins/acp-poste/v1/flux) --------------
+    //
+    // Comme la StreamingResponse de Starlette derrière uvicorn (route `flux_d_invalidation` de
+    // plugin_api.py) : derrière la porte, 200 `text/event-stream`, `Cache-Control: no-store`,
+    // corps en morceaux (`Transfer-Encoding: chunked`), connexion gardée ouverte. Le test pousse
+    // les trames (fixture PARTAGÉE fixtures_flux/trames.json) au dernier client.
+
+    void activerFlux();
+    /*! Envoie des octets (une ou plusieurs trames) au dernier client du flux, en un morceau. */
+    void envoyerFlux(const QByteArray &octets);
+    /*! Morceau final puis fermeture : fin propre du corps, comme après la trame `fin`. */
+    void terminerFlux();
+    /*! Coupe brutalement le dernier client du flux (perte de lien). */
+    void couperFlux();
+    [[nodiscard]] int clientsFlux() const;
+    QList<RequeteRecue> ouverturesFlux;
+    //! Réponses rendues À LA PLACE des prochaines ouvertures (429, 404…), une par ouverture.
+    QList<ReponseFaux> refusFlux;
+
 private:
     void accepter();
     void lire(QTcpSocket *socket);
@@ -185,12 +205,16 @@ private:
 
     bool ouvrirPasserelle(QTcpSocket *socket);
     bool ouvrirKanban(QTcpSocket *socket, const RequeteRecue &requete, qsizetype finEntetes);
+    bool ouvrirFlux(QTcpSocket *socket, const RequeteRecue &requete);
+    [[nodiscard]] QTcpSocket *dernierClientFlux() const;
     void accepterPasserelle();
 
     QTcpServer *m_serveur = nullptr;
     QWebSocketServer *m_passerelle = nullptr;
     QWebSocketServer *m_kanban = nullptr;
     QList<QWebSocket *> m_clientsKanban;
+    QList<QPointer<QTcpSocket>> m_clientsFlux;
+    bool m_flux = false;
     QList<QWebSocket *> m_clients;
     QHash<QString, Gestionnaire> m_routes;
     bool m_porte = false;

@@ -161,6 +161,8 @@ set(ACP_CORE_SOURCES
     src/events/Backoff.h
     src/events/EventStreamService.cpp
     src/events/EventStreamService.h
+    src/events/FluxInvalidation.cpp
+    src/events/FluxInvalidation.h
     src/events/Sondage.cpp
     src/events/Sondage.h
     src/events/SseEvent.h
@@ -170,6 +172,8 @@ set(ACP_CORE_SOURCES
     src/events/VeilleKanban.h
     src/gateway/DemandesAgent.cpp
     src/gateway/DemandesAgent.h
+    src/gateway/DiscussionsEnAttente.cpp
+    src/gateway/DiscussionsEnAttente.h
     src/gateway/GatewayClient.cpp
     src/gateway/GatewayClient.h
     src/gateway/JsonRpcChannel.cpp

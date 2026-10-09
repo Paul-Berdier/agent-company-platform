@@ -76,8 +76,10 @@ Item {
         }
 
         BandeauMessage {
+            objectName: "projets-bandeau"
             Layout.fillWidth: true
             message: Projets.messageGeste
+            alerte: Projets.alerteGeste
             erreur: Projets.erreurGeste
         }
 
@@ -118,7 +120,12 @@ Item {
 
             Discret {
                 text: qsTr("Les projets que vous confiez à Hermes : il les planifie, les fait avancer carte par carte "
-                           + "et vous pose ses questions. Page relue toutes les 15 secondes tant qu'elle est affichée.")
+                           + "et vous pose ses questions.")
+            }
+            // Cadence RÉELLE (temps réel ou sondage), jamais écrite en dur (relecture de P8b, constat desktop-4).
+            Discret {
+                objectName: "projets-cadence"
+                text: Projets.cadence
             }
             EtatLecture {
                 Layout.fillWidth: true
@@ -284,6 +291,128 @@ Item {
                     }
                     KeyValueRow { Layout.fillWidth: true; label: qsTr("Tableau kanban"); value: Projets.detail.tableau; monospace: true }
                     Discret { objectName: "projets-veille"; text: Projets.etatVeille }
+                    // Seconde relecture de P8b (constat desktop-8) : sans l'annonce de l'étape P7 par /v1/meta, aucun
+                    // bouton « Qui répond » ni « Clore » ; la raison est dite à leur place.
+                    Discret {
+                        objectName: "projet-gestes-p7"
+                        visible: (Projets.detail.gestesP7 || "").length > 0
+                        text: Projets.detail.gestesP7 || ""
+                        color: Colors.textSecondary
+                    }
+
+                    // --- « Changer qui répond » (étape P7) : rien ne change à l'écran avant la réponse du greffon.
+                    Item {
+                        id: reglage
+                        property bool ouvert: false
+                        Layout.fillWidth: true
+                        implicitHeight: colonneReglage.implicitHeight
+                        visible: Projets.detail.peutChangerReponses === true
+                        Connections {
+                            target: Projets
+                            function onReglageReponsesEnregistre() { reglage.ouvert = false; }
+                            function onVueChange() { reglage.ouvert = false; }
+                        }
+                        ColumnLayout {
+                            id: colonneReglage
+                            width: parent.width
+                            spacing: Space.space2
+                            AcpButton {
+                                objectName: "projets-changer-reponses"
+                                visible: !reglage.ouvert
+                                label: qsTr("Changer qui répond")
+                                onTriggered: {
+                                    choixReponses.currentIndex = Projets.detail.reponsesCode === "proprietaire" ? 1 : 0;
+                                    reglage.ouvert = true;
+                                }
+                            }
+                            Discret { visible: reglage.ouvert; text: qsTr("Qui répond aux questions suivantes"); color: Colors.textSecondary }
+                            ComboBox {
+                                id: choixReponses
+                                objectName: "projets-choix-reponses"
+                                visible: reglage.ouvert
+                                Layout.preferredWidth: 280
+                                model: [qsTr("Hermes d'abord"), qsTr("Moi")]
+                                Accessible.name: qsTr("Qui répond aux questions suivantes")
+                            }
+                            Discret {
+                                visible: reglage.ouvert
+                                text: qsTr("Le changement vaut pour les questions suivantes ; les questions déjà ouvertes gardent "
+                                           + "leur traitement, et vous pouvez toujours y répondre vous-même.")
+                            }
+                            RowLayout {
+                                visible: reglage.ouvert
+                                spacing: Space.space4
+                                AcpButton {
+                                    objectName: "projets-enregistrer-reponses"
+                                    primary: true
+                                    label: qsTr("Enregistrer")
+                                    manualEnabled: !Projets.gesteEnCours
+                                    onTriggered: Projets.changerReponses(choixReponses.currentIndex === 1 ? "proprietaire" : "hermes_d_abord")
+                                }
+                                AcpButton {
+                                    objectName: "projets-annuler-reponses"
+                                    label: qsTr("Annuler")
+                                    onTriggered: reglage.ouvert = false
+                                }
+                            }
+                        }
+                    }
+
+                    // --- « Clore le projet » (étape P7) : la confirmation dit exactement ce que fait la clôture.
+                    Item {
+                        id: cloture
+                        property bool confirmation: false
+                        Layout.fillWidth: true
+                        implicitHeight: colonneCloture.implicitHeight
+                        visible: Projets.detail.peutClore === true
+                        Connections {
+                            target: Projets
+                            function onClotureFaite() { cloture.confirmation = false; }
+                            function onVueChange() { cloture.confirmation = false; }
+                        }
+                        ColumnLayout {
+                            id: colonneCloture
+                            width: parent.width
+                            spacing: Space.space2
+                            AcpButton {
+                                objectName: "projets-clore"
+                                visible: !cloture.confirmation
+                                label: qsTr("Clore le projet")
+                                onTriggered: cloture.confirmation = true
+                            }
+                            Text {
+                                objectName: "projets-clore-question"
+                                Layout.fillWidth: true
+                                visible: cloture.confirmation
+                                text: qsTr("Clore ce projet ?")
+                                textFormat: Text.PlainText
+                                wrapMode: Text.WordWrap
+                                color: Colors.textPrimary
+                                font.family: Type.tableCellEmphasis.family
+                                font.pixelSize: Type.tableCellEmphasis.pixelSize
+                                font.weight: Type.tableCellEmphasis.weight
+                            }
+                            Discret { visible: cloture.confirmation; text: qsTr("• Les cartes ouvertes du projet sont archivées ; un travail en cours est arrêté.") }
+                            Discret { visible: cloture.confirmation; text: qsTr("• Ses questions ouvertes sont annulées.") }
+                            Discret { visible: cloture.confirmation; text: qsTr("• Le projet passe « Terminé » si la synthèse du tour en cours est faite, sinon « Abandonné ».") }
+                            Discret { visible: cloture.confirmation; text: qsTr("• Aucune notification n'est envoyée ; les branches déjà rapportées restent sur l'exécutant jusqu'à leur purge (7 jours).") }
+                            RowLayout {
+                                visible: cloture.confirmation
+                                spacing: Space.space4
+                                AcpButton {
+                                    objectName: "projets-confirmer-clore"
+                                    label: qsTr("Confirmer la clôture")
+                                    manualEnabled: !Projets.gesteEnCours
+                                    onTriggered: Projets.clore()
+                                }
+                                AcpButton {
+                                    objectName: "projets-annuler-clore"
+                                    label: qsTr("Annuler")
+                                    onTriggered: cloture.confirmation = false
+                                }
+                            }
+                        }
+                    }
                 }
 
                 Carte {
@@ -545,6 +674,30 @@ Item {
                         currentIndex: Math.max(0, indexOfValue(formulaire.f.voie))
                         Accessible.name: qsTr("Exécutant")
                         onActivated: Projets.choisirVoie(currentValue)
+                        // Étape P7 : un exécutant fermé pour le dépôt choisi est grisé, jamais choisissable.
+                        delegate: ItemDelegate {
+                            required property var modelData
+                            required property int index
+                            objectName: "projets-voie-option-" + modelData.valeur
+                            width: voieChoix.width
+                            text: modelData.libelle
+                            enabled: !modelData.fermee
+                            highlighted: voieChoix.highlightedIndex === index
+                        }
+                    }
+                    Repeater {
+                        model: formulaire.f.voiesFermees || []
+                        delegate: Discret {
+                            required property var modelData
+                            objectName: "projets-voie-fermee"
+                            text: modelData
+                        }
+                    }
+                    Alerte {
+                        objectName: "projets-aucune-voie-ouverte"
+                        text: formulaire.f.aucuneVoieOuverte === true
+                            ? qsTr("Aucun exécutant ouvert pour ce dépôt. Le projet part sans exploration du dépôt.")
+                            : ""
                     }
                     Discret { text: qsTr("Modèle"); color: Colors.textSecondary }
                     ComboBox {

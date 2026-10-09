@@ -1,11 +1,12 @@
-// Accueil de la station contre les formes relevées sur l'image (tests/fixtures/hermes) et le
+// Accueil de la station contre la fixture PARTAGÉE de l'Accueil agrégé
+// (hermes/tests/outils/fixtures_accueil/accueil.json, la même que le greffon et la page web) et le
 // faux Hermes :
-//  - cartes libellées en français, « Inconnu » pour toute valeur absente ou d'un autre type,
-//    « Non configuré » pour un poste jamais vu, aucune valeur inventée ;
-//  - lecture des trois sources (projets, quotas, sessions récentes) seulement quand la page
-//    est affichée ET la session établie, avec les chemins et paramètres exacts ;
+//  - cartes dans l'ordre de l'Accueil du navigateur, libellées en français, « Inconnu » pour toute
+//    valeur absente ou d'un autre type, bloc illisible dit avec sa raison, aucune valeur inventée ;
+//  - lecture de `GET /v1/accueil` et des sessions récentes seulement quand la page est affichée ET
+//    la session établie, avec les chemins et paramètres exacts ;
 //  - un échec garde la dernière valeur, datée, avec l'erreur à côté ;
-//  - pause générale : corps exact, refus du greffon rendu tel quel.
+//  - pause générale et notification de test : corps exacts, refus du greffon rendus tels quels.
 
 #include "api/ApiClient.h"
 #include "api/ClientGreffonPoste.h"
@@ -20,6 +21,7 @@
 #include <QJsonDocument>
 #include <QSignalSpy>
 #include <QTest>
+#include <QUrl>
 
 using namespace acp;
 using namespace acp::test;
@@ -28,6 +30,11 @@ namespace {
 
 const QString kP = QStringLiteral("/api/plugins/acp-poste/v1");
 
+QJsonObject accueilPartage()
+{
+    return fixturePartagee(QStringLiteral("fixtures_accueil/accueil.json")).object();
+}
+
 struct Banc
 {
     FauxHermes serveur;
@@ -35,11 +42,15 @@ struct Banc
     ClientGreffonPoste greffon{&client};
     EventStreamService flux{&client, &greffon, nullptr};
     AccueilViewModel accueil{&client, &greffon, &flux};
-    QJsonObject projets = fixture(QStringLiteral("projets.json"));
-    int statutProjets = 200;
+    QJsonObject document = accueilPartage();
+    int statutAccueil = 200;
     ReponseFaux reponsePause = ReponseFaux::json(200, QJsonObject{{QStringLiteral("pause_generale"), QJsonObject{}}});
+    ReponseFaux reponseTest = ReponseFaux::json(202, QJsonObject{
+        {QStringLiteral("notification"), QStringLiteral("test:1790886944")}, {QStringLiteral("etat"), QStringLiteral("en_attente")},
+        {QStringLiteral("message"), QStringLiteral("Notification de test mise en file : la passerelle l'envoie à sa prochaine passe.")}});
 
-    Banc()
+    //! `etapeP7` : ce que le verdict de /v1/meta a dit de la clé `accueil` (Application le relaie) ; un greffon de P7.
+    explicit Banc(const QString &etapeP7 = QStringLiteral("annonce"))
     {
         serveur.installerAuthentification();
         serveur.jetonsAccesValides.insert(QByteArrayLiteral("jeton-a"));
@@ -49,16 +60,24 @@ struct Banc
         }
         client.setBearerProvider([] { return QByteArrayLiteral("jeton-a"); });
         flux.setIntervalleFond(std::chrono::hours(1));
-        serveur.route("GET", kP + QStringLiteral("/projets"), [this](const RequeteRecue &) {
-            return statutProjets == 200 ? ReponseFaux::json(200, projets)
-                                        : ReponseFaux::json(statutProjets, QJsonObject{{QStringLiteral("detail"), QStringLiteral("Not Found")}});
+        greffon.setEtapeP7(etapeP7);
+        flux.setEtapeP7(etapeP7);
+        serveur.route("GET", kP + QStringLiteral("/accueil"), [this](const RequeteRecue &) {
+            return statutAccueil == 200 ? ReponseFaux::json(200, document)
+                                        : ReponseFaux::json(statutAccueil, QJsonObject{{QStringLiteral("detail"), QStringLiteral("Not Found")}});
         });
-        serveur.route("GET", kP + QStringLiteral("/quotas"),
-                      [](const RequeteRecue &) { return ReponseFaux::json(200, fixture(QStringLiteral("quotas.json"))); });
+        serveur.route("GET", kP + QStringLiteral("/projets"),
+                      [](const RequeteRecue &) { return ReponseFaux::json(200, fixture(QStringLiteral("projets.json"))); });
         serveur.route("GET", QStringLiteral("/api/sessions"),
                       [](const RequeteRecue &) { return ReponseFaux::json(200, fixture(QStringLiteral("sessions.json"))); });
         serveur.route("POST", kP + QStringLiteral("/pause"), [this](const RequeteRecue &) { return reponsePause; });
+        serveur.route("POST", kP + QStringLiteral("/notifications/test"), [this](const RequeteRecue &) { return reponseTest; });
+        // Route NATIVE de Hermes (cron/jobs.py) : la liste des tâches, puis la création du bilan.
+        serveur.route("GET", QStringLiteral("/api/cron/jobs"), [this](const RequeteRecue &) { return ReponseFaux::json(200, taches); });
+        serveur.route("POST", QStringLiteral("/api/cron/jobs"), [this](const RequeteRecue &) { return reponseCreation; });
     }
+    QJsonArray taches;
+    ReponseFaux reponseCreation = ReponseFaux::json(200, QJsonObject{{QStringLiteral("id"), QStringLiteral("j1")}});
 };
 
 QString localDepuisIso(const QString &iso)
@@ -75,122 +94,165 @@ class TestAccueil : public QObject
     Q_OBJECT
 
 private slots:
-    void carteProjetsDepuisLaListe();
-    void carteProjetsVideOuIllisible();
-    void carteQuestions();
-    void cartePoste();
+    void carteATraiterDepuisLaFixturePartagee();
+    void carteProjetsEtListe();
+    void carteExecutant();
+    void carteQuotasParVoie();
+    void carteNotifications();
     void cartePause();
-    void carteQuotas();
+    void blocsIllisiblesDitsAvecLeurRaison();
     void sessionsRecentes();
-    void litLesTroisSourcesQuandLaPageEstAffichee();
+    void litLAccueilEtLesSessionsQuandLaPageEstAffichee();
     void neLitRienSansSessionNiHorsDeLaPage();
+    void accueilEtBadgeSeulementSurLAnnonceDeLEtapeP7();
     void echecGardeLaDerniereValeur();
     void pauseGeneraleCorpsExactEtRefusTelQuel();
+    void notificationDeTestSeulementAvecUnCanal();
     void carteHermesRelueAvecLaPage();
+    void carteBilanCommeLaPageWeb();
+    void creerLeBilanQuotidienEtOuvrirCron();
 };
 
-void TestAccueil::carteProjetsDepuisLaListe()
+void TestAccueil::carteATraiterDepuisLaFixturePartagee()
 {
-    const QVariantMap carte = AccueilViewModel::construireCarteProjets(fixture(QStringLiteral("projets.json")));
+    const QVariantMap carte = AccueilViewModel::construireCarteATraiter(accueilPartage());
     QCOMPARE(carte.value(QStringLiteral("lisible")).toBool(), true);
-    QCOMPARE(carte.value(QStringLiteral("aucunProjet")).toBool(), false);
-    QCOMPARE(carte.value(QStringLiteral("total")).toString(), QStringLiteral("2"));
-    QCOMPARE(carte.value(QStringLiteral("actifs")).toString(), QStringLiteral("2"));
+    QCOMPARE(carte.value(QStringLiteral("total")).toString(), QStringLiteral("1"));
+    QCOMPARE(carte.value(QStringLiteral("attente")).toBool(), true);
+    QCOMPARE(carte.value(QStringLiteral("questions")).toString(), QStringLiteral("1"));
+    QCOMPARE(carte.value(QStringLiteral("decisions")).toString(), QStringLiteral("0"));
+    QCOMPARE(carte.value(QStringLiteral("revues")).toString(), QStringLiteral("0"));
+    QCOMPARE(carte.value(QStringLiteral("arretees")).toString(), QStringLiteral("0"));
+    QCOMPARE(carte.value(QStringLiteral("chezHermes")).toString(), QStringLiteral("0"));
+    // Les discussions en attente ne sont pas lues par la station : dites inconnues, jamais zéro.
+    QCOMPARE(carte.value(QStringLiteral("discussions")).toString(), QStringLiteral("Inconnues"));
+    QCOMPARE(carte.value(QStringLiteral("mention")).toString(), QStringLiteral("(discussions en attente : état inconnu, non comptées)"));
+    const QVariantList premieres = carte.value(QStringLiteral("premieres")).toList();
+    QCOMPARE(premieres.size(), 1);
+    const QVariantMap premiere = premieres.first().toMap();
+    QCOMPARE(premiere.value(QStringLiteral("genre")).toString(), QStringLiteral("Question :"));
+    QCOMPARE(premiere.value(QStringLiteral("titre")).toString(), QStringLiteral("Exploration du dépôt « jetable »"));
+    QCOMPARE(premiere.value(QStringLiteral("projet")).toString(), QStringLiteral("Outil jetable"));
+}
+
+void TestAccueil::carteProjetsEtListe()
+{
+    const QJsonObject document = accueilPartage();
+    const QVariantMap carte = AccueilViewModel::construireCarteProjets(document);
+    QCOMPARE(carte.value(QStringLiteral("lisible")).toBool(), true);
+    QCOMPARE(carte.value(QStringLiteral("enCours")).toString(), QStringLiteral("1"));
     QCOMPARE(carte.value(QStringLiteral("enPause")).toString(), QStringLiteral("0"));
-    QCOMPARE(carte.value(QStringLiteral("cartesFaites")).toString(), QStringLiteral("2 sur 6"));
-    QCOMPARE(carte.value(QStringLiteral("attentePoste")).toString(), QStringLiteral("0"));
-    // La première note trouvée, dans l'ordre du serveur (du plus récent au plus ancien).
-    QCOMPARE(carte.value(QStringLiteral("derniereNote")).toString(), QStringLiteral("Plan posé : deux recherches."));
-    QCOMPARE(carte.value(QStringLiteral("derniereNoteProjet")).toString(), QStringLiteral("Veille LLM"));
+    QCOMPARE(carte.value(QStringLiteral("termines7j")).toString(), QStringLiteral("0"));
+    QCOMPARE(carte.value(QStringLiteral("aucunOuvert")).toBool(), false);
+    const QJsonArray liste = AccueilViewModel::construireProjetsEnCours(document);
+    QCOMPARE(liste.size(), 1);
+    const QJsonObject projet = liste.first().toObject();
+    QCOMPARE(projet.value(QStringLiteral("id")).toString(), QStringLiteral("p_7886b97a0890"));
+    QCOMPARE(projet.value(QStringLiteral("titre")).toString(), QStringLiteral("Outil jetable"));
+    QCOMPARE(projet.value(QStringLiteral("etatLibelle")).toString(), QStringLiteral("Exploration du dépôt"));
+    QCOMPARE(projet.value(QStringLiteral("avancement")).toString(), QStringLiteral("0 sur 2 cartes faites"));
+    QCOMPARE(projet.value(QStringLiteral("note")).toString(), QString());
+
+    // Liste vide : « Aucun projet ouvert » ; une ligne sans identifiant lisible ne désigne rien.
+    QJsonObject vide = document;
+    QJsonObject projets = vide.value(QStringLiteral("projets")).toObject();
+    projets.insert(QStringLiteral("liste"), QJsonArray{});
+    vide.insert(QStringLiteral("projets"), projets);
+    QCOMPARE(AccueilViewModel::construireCarteProjets(vide).value(QStringLiteral("aucunOuvert")).toBool(), true);
+    projets.insert(QStringLiteral("liste"), QJsonArray{QJsonObject{{QStringLiteral("id"), QStringLiteral("../x")}}});
+    vide.insert(QStringLiteral("projets"), projets);
+    QCOMPARE(AccueilViewModel::construireProjetsEnCours(vide).size(), 0);
 }
 
-void TestAccueil::carteProjetsVideOuIllisible()
+void TestAccueil::carteExecutant()
 {
-    const QVariantMap vide = AccueilViewModel::construireCarteProjets(fixture(QStringLiteral("projets-vide.json")));
-    QCOMPARE(vide.value(QStringLiteral("aucunProjet")).toBool(), true);
-    QCOMPARE(vide.value(QStringLiteral("actifs")).toString(), QStringLiteral("0"));
-    QCOMPARE(vide.value(QStringLiteral("cartesFaites")).toString(), QStringLiteral("0 sur 0"));
-    QCOMPARE(vide.value(QStringLiteral("derniereNote")).toString(), QString());
+    const QVariantMap carte = AccueilViewModel::construireCarteExecutant(accueilPartage());
+    QCOMPARE(carte.value(QStringLiteral("lisible")).toBool(), true);
+    QCOMPARE(carte.value(QStringLiteral("etat")).toString(), QStringLiteral("En ligne"));
+    QCOMPARE(carte.value(QStringLiteral("cle")).toString(), QStringLiteral("succeeded"));
+    QCOMPARE(carte.value(QStringLiteral("machine")).toString(), QStringLiteral("Exécutant Railway"));
+    QCOMPARE(carte.value(QStringLiteral("plateforme")).toString(), QStringLiteral("linux"));
+    QCOMPARE(carte.value(QStringLiteral("derniereVue")).toString(),
+             QDateTime::fromSecsSinceEpoch(1790886944).toLocalTime().toString(QStringLiteral("dd/MM/yyyy HH:mm")));
+    QCOMPARE(carte.value(QStringLiteral("carteEnCours")).toString(),
+             QStringLiteral("Exploration du dépôt « jetable » (projet « Outil jetable ») · Suspendue"));
+    QCOMPARE(carte.value(QStringLiteral("cartesEnAttente")).toString(), QStringLiteral("0"));
+    QVERIFY(carte.value(QStringLiteral("voiesFermees")).toString().startsWith(QStringLiteral("Poste (Codex) : isolement de l'exécutant")));
 
-    // Liste absente : rien n'est compté, tout est « Inconnu ».
-    const QVariantMap illisible = AccueilViewModel::construireCarteProjets({});
-    QCOMPARE(illisible.value(QStringLiteral("lisible")).toBool(), false);
-    for (const char *cle : {"total", "actifs", "enPause", "cartesFaites", "attentePoste"}) {
-        QCOMPARE(illisible.value(QString::fromLatin1(cle)).toString(), QStringLiteral("Inconnu"));
+    // Objet vide : rien n'est affiché, comme la page web (CarteExecutant.tsx) — le greffon sert `{}` aussi quand AUCUN
+    // exécutant n'est connu (noyau/accueil.py) : « Aucune » y inventerait une absence de fermeture (relecture de P8b,
+    // constat desktop-6). Forme inattendue : « Inconnu » ; aucune carte en main.
+    QJsonObject document = accueilPartage();
+    QJsonObject executant = document.value(QStringLiteral("executant")).toObject();
+    executant.insert(QStringLiteral("voies_fermees"), QJsonObject{});
+    executant.insert(QStringLiteral("carte_en_cours"), QJsonValue::Null);
+    document.insert(QStringLiteral("executant"), executant);
+    const QVariantMap libre = AccueilViewModel::construireCarteExecutant(document);
+    QCOMPARE(libre.value(QStringLiteral("voiesFermees")).toString(), QString());
+    QCOMPARE(libre.value(QStringLiteral("carteEnCours")).toString(), QStringLiteral("Aucune carte en cours"));
+    // Exécutant inconnu, tel que le greffon le sert (`_executant` sans machine) : aucune voie dite fermée ni ouverte.
+    QJsonObject inconnu = executant;
+    for (const char *cle : {"plateforme", "hote", "peut_executer"}) {
+        inconnu.insert(QString::fromLatin1(cle), QJsonValue::Null);
     }
-
-    // Tableau illisible côté greffon (compteurs à null, noyau/projets.lister) : jamais inventés.
-    QJsonObject liste = fixture(QStringLiteral("projets.json"));
-    QJsonArray projets = liste.value(QStringLiteral("projets")).toArray();
-    QJsonObject premier = projets.at(0).toObject();
-    premier.insert(QStringLiteral("compteurs"), QJsonObject{{QStringLiteral("faites"), QJsonValue::Null},
-                                                            {QStringLiteral("total"), 2},
-                                                            {QStringLiteral("en_attente_du_poste"), QJsonValue::Null}});
-    projets.replace(0, premier);
-    liste.insert(QStringLiteral("projets"), projets);
-    const QVariantMap partiel = AccueilViewModel::construireCarteProjets(liste);
-    QCOMPARE(partiel.value(QStringLiteral("cartesFaites")).toString(), QStringLiteral("Inconnu"));
-    QCOMPARE(partiel.value(QStringLiteral("attentePoste")).toString(), QStringLiteral("Inconnu"));
-    QCOMPARE(partiel.value(QStringLiteral("total")).toString(), QStringLiteral("2"));
+    document.insert(QStringLiteral("executant"), inconnu);
+    QCOMPARE(AccueilViewModel::construireCarteExecutant(document).value(QStringLiteral("voiesFermees")).toString(), QString());
+    executant.insert(QStringLiteral("voies_fermees"), QJsonArray{QStringLiteral("poste-codex")});
+    executant.remove(QStringLiteral("nom"));
+    document.insert(QStringLiteral("executant"), executant);
+    const QVariantMap etrange = AccueilViewModel::construireCarteExecutant(document);
+    QCOMPARE(etrange.value(QStringLiteral("voiesFermees")).toString(), QStringLiteral("Inconnu"));
+    QCOMPARE(etrange.value(QStringLiteral("machine")).toString(), QStringLiteral("Inconnu"));
 }
 
-void TestAccueil::carteQuestions()
+void TestAccueil::carteQuotasParVoie()
 {
-    const QVariantMap une = AccueilViewModel::construireCarteQuestions(fixture(QStringLiteral("projets.json")));
-    QCOMPARE(une.value(QStringLiteral("nombre")).toString(), QStringLiteral("1"));
-    QCOMPARE(une.value(QStringLiteral("attente")).toBool(), true);
-    QVERIFY(une.value(QStringLiteral("libelle")).toString().startsWith(QStringLiteral("1 question")));
-    const QVariantMap aucune = AccueilViewModel::construireCarteQuestions(fixture(QStringLiteral("projets-vide.json")));
-    QCOMPARE(aucune.value(QStringLiteral("libelle")).toString(), QStringLiteral("Aucune question en attente."));
-    const QVariantMap inconnue = AccueilViewModel::construireCarteQuestions(
-        QJsonObject{{QStringLiteral("questions_ouvertes"), QStringLiteral("beaucoup")}});
-    QCOMPARE(inconnue.value(QStringLiteral("nombre")).toString(), QStringLiteral("Inconnu"));
-    QCOMPARE(inconnue.value(QStringLiteral("connu")).toBool(), false);
+    const QVariantMap carte = AccueilViewModel::construireCarteQuotas(accueilPartage());
+    QCOMPARE(carte.value(QStringLiteral("lisible")).toBool(), true);
+    const QVariantList voies = carte.value(QStringLiteral("voies")).toList();
+    QCOMPARE(voies.size(), 2);
+    const QVariantMap codex = voies.at(0).toMap();
+    QCOMPARE(codex.value(QStringLiteral("nom")).toString(), QStringLiteral("Poste (Codex)"));
+    QCOMPARE(codex.value(QStringLiteral("etat")).toString(), QStringLiteral("Relevé"));
+    QCOMPARE(codex.value(QStringLiteral("utilise")).toString(), QStringLiteral("41 %"));
+    QCOMPARE(codex.value(QStringLiteral("source")).toString(),
+             QStringLiteral("Compteurs de votre compte ChatGPT, lus par Codex (app-server) sur la machine qui exécute"));
+    QVERIFY(codex.value(QStringLiteral("remise")).toString() != QStringLiteral("Inconnu"));
+    const QVariantMap claude = voies.at(1).toMap();
+    QCOMPARE(claude.value(QStringLiteral("nom")).toString(), QStringLiteral("Poste (Claude)"));
+    QCOMPARE(claude.value(QStringLiteral("utilise")).toString(), QStringLiteral("Inconnu")); // aucun résumé : jamais estimé
+    QCOMPARE(claude.value(QStringLiteral("remise")).toString(), QStringLiteral("Inconnu"));
+    QCOMPARE(carte.value(QStringLiteral("hermes")).toString(), QStringLiteral("Même enveloppe que Codex (déclaré dans poste.toml)"));
 }
 
-void TestAccueil::cartePoste()
+void TestAccueil::carteNotifications()
 {
-    const QVariantMap enLigne = AccueilViewModel::construireCartePoste(fixture(QStringLiteral("projets.json")));
-    QCOMPARE(enLigne.value(QStringLiteral("etat")).toString(), QStringLiteral("En ligne"));
-    QCOMPARE(enLigne.value(QStringLiteral("cle")).toString(), QStringLiteral("succeeded"));
-    QCOMPARE(enLigne.value(QStringLiteral("machine")).toString(), QStringLiteral("poste-simule"));
-    QCOMPARE(enLigne.value(QStringLiteral("vuA")).toString(), QStringLiteral("26/09/2026 13:43"));
-    QCOMPARE(enLigne.value(QStringLiteral("cartesEnAttente")).toString(), QStringLiteral("0"));
-
-    const QVariantMap jamais = AccueilViewModel::construireCartePoste(fixture(QStringLiteral("projets-vide.json")));
-    QCOMPARE(jamais.value(QStringLiteral("etat")).toString(), QStringLiteral("Non configuré"));
-    QCOMPARE(jamais.value(QStringLiteral("cle")).toString(), QStringLiteral("notConfigured"));
-    QCOMPARE(jamais.value(QStringLiteral("machine")).toString(), QStringLiteral("Aucune"));
-    QCOMPARE(jamais.value(QStringLiteral("vuA")).toString(), QStringLiteral("Jamais"));
-    QVERIFY(jamais.value(QStringLiteral("message")).toString().contains(QStringLiteral("jamais été vu")));
-
-    // État inconnu de la station : montré tel quel, pastille « Inconnu », jamais traduit au hasard.
-    const QVariantMap inconnu = AccueilViewModel::construireCartePoste(
-        QJsonObject{{QStringLiteral("poste"), QJsonObject{{QStringLiteral("etat"), QStringLiteral("en_orbite")}}}});
-    QCOMPARE(inconnu.value(QStringLiteral("etat")).toString(), QStringLiteral("en_orbite"));
-    QCOMPARE(inconnu.value(QStringLiteral("cle")).toString(), QStringLiteral("unknown"));
-    QCOMPARE(inconnu.value(QStringLiteral("connu")).toBool(), false);
-    QCOMPARE(inconnu.value(QStringLiteral("machine")).toString(), QStringLiteral("Inconnu"));
-
-    // Relecture finale de P7 (constats produit-10 et desktop-5) : titre d'après l'hôte publié par la machine
-    // (`poste.poste.hote`), jamais « Poste Windows » pour l'exécutant Railway.
-    QCOMPARE(enLigne.value(QStringLiteral("titre")).toString(), QStringLiteral("Exécutant"));  // poste simulé
-    for (const auto &[hote, titre] : {std::pair{QStringLiteral("railway"), QStringLiteral("Exécutant Railway")},
-                                      std::pair{QStringLiteral("pc"), QStringLiteral("Poste Windows")}}) {
-        const QVariantMap carte = AccueilViewModel::construireCartePoste(QJsonObject{{QStringLiteral("poste"), QJsonObject{
-            {QStringLiteral("etat"), QStringLiteral("en_ligne")},
-            {QStringLiteral("poste"), QJsonObject{{QStringLiteral("hote"), hote}}}}}});
-        QCOMPARE(carte.value(QStringLiteral("titre")).toString(), titre);
-    }
-
-    const QVariantMap absent = AccueilViewModel::construireCartePoste({});
-    QCOMPARE(absent.value(QStringLiteral("etat")).toString(), QStringLiteral("Inconnu"));
-    QCOMPARE(absent.value(QStringLiteral("vuA")).toString(), QStringLiteral("Inconnu"));
+    const QVariantMap ntfy = AccueilViewModel::construireCarteNotifications(accueilPartage());
+    QCOMPARE(ntfy.value(QStringLiteral("canal")).toString(), QStringLiteral("ntfy"));
+    QCOMPARE(ntfy.value(QStringLiteral("etat")).toString(), QStringLiteral("Configurées"));
+    QCOMPARE(ntfy.value(QStringLiteral("configure")).toBool(), true);
+    QCOMPARE(ntfy.value(QStringLiteral("note")).toString(), QString());
+    // Passerelle muette : état inconnu, jamais « non configurées » ; le message du greffon est rendu tel quel.
+    QJsonObject document = accueilPartage();
+    document.insert(QStringLiteral("notifications"), QJsonObject{
+        {QStringLiteral("canal"), QJsonValue::Null}, {QStringLiteral("configure"), false}, {QStringLiteral("connu"), false},
+        {QStringLiteral("message"), QStringLiteral("État du canal inconnu : la passerelle ne l'a pas encore publié.")}});
+    const QVariantMap inconnu = AccueilViewModel::construireCarteNotifications(document);
+    QCOMPARE(inconnu.value(QStringLiteral("canal")).toString(), QStringLiteral("Inconnu"));
+    QCOMPARE(inconnu.value(QStringLiteral("etat")).toString(), QStringLiteral("Inconnu"));
+    QCOMPARE(inconnu.value(QStringLiteral("configure")).toBool(), false);
+    QCOMPARE(inconnu.value(QStringLiteral("note")).toString(), QStringLiteral("État du canal inconnu : la passerelle ne l'a pas encore publié."));
+    document.insert(QStringLiteral("notifications"), QJsonObject{
+        {QStringLiteral("canal"), QStringLiteral("aucune")}, {QStringLiteral("configure"), false}, {QStringLiteral("connu"), true}});
+    const QVariantMap aucun = AccueilViewModel::construireCarteNotifications(document);
+    QCOMPARE(aucun.value(QStringLiteral("canal")).toString(), QStringLiteral("Aucun"));
+    QCOMPARE(aucun.value(QStringLiteral("etat")).toString(), QStringLiteral("Non configurées"));
 }
 
 void TestAccueil::cartePause()
 {
-    const QVariantMap levee = AccueilViewModel::construireCartePause(fixture(QStringLiteral("projets.json")));
+    // Fixture partagée : pause levée (`null`).
+    const QVariantMap levee = AccueilViewModel::construireCartePause(accueilPartage());
     QCOMPARE(levee.value(QStringLiteral("etat")).toInt(), 0);
     QCOMPARE(levee.value(QStringLiteral("pausePossible")).toBool(), true);
     QCOMPARE(levee.value(QStringLiteral("reprisePossible")).toBool(), false);
@@ -216,30 +278,30 @@ void TestAccueil::cartePause()
     QCOMPARE(inconnue.value(QStringLiteral("pausePossible")).toBool(), false);
 }
 
-void TestAccueil::carteQuotas()
+void TestAccueil::blocsIllisiblesDitsAvecLeurRaison()
 {
-    const QVariantMap releve = AccueilViewModel::construireCarteQuotas(fixture(QStringLiteral("quotas.json")));
-    QCOMPARE(releve.value(QStringLiteral("connu")).toBool(), true);
-    QCOMPARE(releve.value(QStringLiteral("libelle")).toString(), QStringLiteral("Poste (Codex) : 41\u00A0% utilisés"));
-    QCOMPARE(releve.value(QStringLiteral("cle")).toString(), QStringLiteral("succeeded")); // 41 < seuil 90
-    QCOMPARE(releve.value(QStringLiteral("etat")).toString(), QStringLiteral("Sous le seuil d'alerte"));
-    QVERIFY(releve.value(QStringLiteral("remise")).toString().startsWith(QStringLiteral("Remise à zéro : ")));
-    QCOMPARE(releve.value(QStringLiteral("detail")).toString(), QStringLiteral("Seuil d'alerte : 90\u00A0%"));
-
-    const QVariantMap vides = AccueilViewModel::construireCarteQuotas(fixture(QStringLiteral("quotas-vides.json")));
-    QCOMPARE(vides.value(QStringLiteral("connu")).toBool(), false);
-    QCOMPARE(vides.value(QStringLiteral("libelle")).toString(), QStringLiteral("Inconnu"));
-    QCOMPARE(vides.value(QStringLiteral("detail")).toString(), QStringLiteral("Aucune voie n'a de relevé de quota."));
-
-    QJsonObject depasse = fixture(QStringLiteral("quotas.json"));
-    QJsonObject claude = depasse.value(QStringLiteral("poste-claude")).toObject();
-    claude.insert(QStringLiteral("resume"), QJsonObject{{QStringLiteral("pourcentage_utilise"), 93.5}});
-    depasse.insert(QStringLiteral("poste-claude"), claude);
-    const QVariantMap alerte = AccueilViewModel::construireCarteQuotas(depasse);
-    QCOMPARE(alerte.value(QStringLiteral("libelle")).toString(), QStringLiteral("Poste (Claude) : 93,5\u00A0% utilisés"));
-    QCOMPARE(alerte.value(QStringLiteral("cle")).toString(), QStringLiteral("degraded"));
-    QCOMPARE(alerte.value(QStringLiteral("etat")).toString(), QStringLiteral("Seuil d'alerte atteint"));
-    QCOMPARE(vides.value(QStringLiteral("etat")).toString(), QStringLiteral("Inconnu"));
+    // accueil.construire : un bloc illisible vaut `null` et sa raison est rangée dans `illisibles`.
+    QJsonObject document = accueilPartage();
+    QJsonObject illisibles;
+    for (const QString &bloc : {QStringLiteral("a_traiter"), QStringLiteral("projets"), QStringLiteral("executant"),
+                                QStringLiteral("quotas"), QStringLiteral("notifications"), QStringLiteral("pause_generale")}) {
+        document.insert(bloc, QJsonValue::Null);
+        illisibles.insert(bloc, QStringLiteral("bloc illisible (OperationalError)"));
+    }
+    document.insert(QStringLiteral("illisibles"), illisibles);
+    const QVariantMap aTraiter = AccueilViewModel::construireCarteATraiter(document);
+    QCOMPARE(aTraiter.value(QStringLiteral("lisible")).toBool(), false);
+    QCOMPARE(aTraiter.value(QStringLiteral("raison")).toString(), QStringLiteral("bloc illisible (OperationalError)"));
+    QCOMPARE(aTraiter.value(QStringLiteral("total")).toString(), QStringLiteral("Inconnu"));
+    QCOMPARE(AccueilViewModel::construireCarteProjets(document).value(QStringLiteral("enCours")).toString(), QStringLiteral("Inconnu"));
+    QCOMPARE(AccueilViewModel::construireCarteExecutant(document).value(QStringLiteral("etat")).toString(), QStringLiteral("Inconnu"));
+    QCOMPARE(AccueilViewModel::construireCarteQuotas(document).value(QStringLiteral("lisible")).toBool(), false);
+    QCOMPARE(AccueilViewModel::construireCarteNotifications(document).value(QStringLiteral("configure")).toBool(), false);
+    // Pause illisible : `null` n'est PAS « levée » — aucun geste offert, la raison est dite.
+    const QVariantMap pause = AccueilViewModel::construireCartePause(document);
+    QCOMPARE(pause.value(QStringLiteral("etat")).toInt(), -1);
+    QCOMPARE(pause.value(QStringLiteral("pausePossible")).toBool(), false);
+    QCOMPARE(pause.value(QStringLiteral("raisonIllisible")).toString(), QStringLiteral("bloc illisible (OperationalError)"));
 }
 
 void TestAccueil::sessionsRecentes()
@@ -257,18 +319,22 @@ void TestAccueil::sessionsRecentes()
              QDateTime::fromSecsSinceEpoch(1790200500).toLocalTime().toString(QStringLiteral("dd/MM/yyyy HH:mm")));
 }
 
-void TestAccueil::litLesTroisSourcesQuandLaPageEstAffichee()
+void TestAccueil::litLAccueilEtLesSessionsQuandLaPageEstAffichee()
 {
     Banc banc;
     banc.flux.demarrer();
-    QTRY_COMPARE(banc.serveur.compter("GET", kP + QStringLiteral("/projets")), 1); // sondage léger
+    QTRY_COMPARE(banc.serveur.compter("GET", kP + QStringLiteral("/accueil")), 1); // sondage léger (barre d'état)
     banc.accueil.setPageVisible(true);
     QTRY_VERIFY(banc.accueil.actif());
     QTRY_COMPARE(banc.accueil.sessions()->count(), 2);
-    QTRY_COMPARE(banc.accueil.carteProjets().value(QStringLiteral("actifs")).toString(), QStringLiteral("2"));
-    QTRY_COMPARE(banc.accueil.carteQuotas().value(QStringLiteral("connu")).toBool(), true);
-    QCOMPARE(banc.serveur.compter("GET", kP + QStringLiteral("/projets")), 2);
-    QCOMPARE(banc.serveur.compter("GET", kP + QStringLiteral("/quotas")), 1);
+    QTRY_VERIFY(banc.accueil.lue());
+    QCOMPARE(banc.accueil.carteATraiter().value(QStringLiteral("total")).toString(), QStringLiteral("1"));
+    QCOMPARE(banc.accueil.projetsEnCours()->count(), 1);
+    QCOMPARE(banc.serveur.compter("GET", kP + QStringLiteral("/accueil")), 2); // sondage léger + page
+    QCOMPARE(banc.serveur.compter("GET", kP + QStringLiteral("/quotas")), 0); // plus de lecture séparée
+    QCOMPARE(banc.serveur.compter("GET", kP + QStringLiteral("/projets")), 0);
+    // La barre d'état suit la lecture de la page.
+    QCOMPARE(banc.flux.aTraiter(), 1);
     const auto sessions = banc.serveur.filtrer("GET", QStringLiteral("/api/sessions"));
     QCOMPARE(sessions.size(), 1);
     QCOMPARE(sessions.first().requete.queryItemValue(QStringLiteral("limit")), QStringLiteral("5"));
@@ -278,19 +344,17 @@ void TestAccueil::litLesTroisSourcesQuandLaPageEstAffichee()
         QCOMPARE(requete.entete("authorization"), QByteArrayLiteral("Bearer jeton-a"));
         QVERIFY(!requete.aEntete("origin"));
     }
-    QVERIFY(banc.accueil.lectureProjets().startsWith(QStringLiteral("Lu à ")));
-    QCOMPARE(banc.accueil.erreurProjets(), QString());
-    // Le badge de la barre d'état suit la lecture de la page.
-    QCOMPARE(banc.flux.questionsOuvertes(), 1);
+    QVERIFY(banc.accueil.lectureAccueil().startsWith(QStringLiteral("Lu à ")));
+    QCOMPARE(banc.accueil.erreurAccueil(), QString());
 
-    // Page quittée : plus aucune lecture.
+    // Page quittée : plus aucune lecture de la page.
     banc.accueil.setPageVisible(false);
     QTRY_VERIFY(!banc.accueil.actif());
-    const int avant = static_cast<int>(banc.serveur.requetes.size());
+    const int avant = banc.serveur.compter("GET", kP + QStringLiteral("/accueil"));
     banc.flux.signalerLien(false);
     banc.flux.signalerLien(true); // retour du lien : la page cachée ne relit pas
     QTest::qWait(200);
-    QCOMPARE(static_cast<int>(banc.serveur.requetes.size()), avant + 1); // seul le sondage léger relit
+    QCOMPARE(banc.serveur.compter("GET", kP + QStringLiteral("/accueil")), avant + 1); // seul le sondage léger relit
 }
 
 void TestAccueil::neLitRienSansSessionNiHorsDeLaPage()
@@ -300,8 +364,9 @@ void TestAccueil::neLitRienSansSessionNiHorsDeLaPage()
     QTest::qWait(200);
     QVERIFY(!banc.accueil.actif());
     QVERIFY(banc.serveur.requetes.isEmpty()); // aucune session : rien ne part
-    QCOMPARE(banc.accueil.carteProjets().value(QStringLiteral("total")).toString(), QStringLiteral("Inconnu"));
-    QCOMPARE(banc.accueil.lectureProjets(), QStringLiteral("Jamais lu"));
+    QCOMPARE(banc.accueil.lue(), false);
+    QCOMPARE(banc.accueil.carteATraiter().value(QStringLiteral("total")).toString(), QStringLiteral("Inconnu"));
+    QCOMPARE(banc.accueil.lectureAccueil(), QStringLiteral("Jamais lu"));
 
     banc.flux.demarrer();
     QTRY_VERIFY(banc.accueil.actif());
@@ -309,20 +374,85 @@ void TestAccueil::neLitRienSansSessionNiHorsDeLaPage()
     QTRY_VERIFY(!banc.accueil.actif());
 }
 
+// Seconde relecture de P8b (constat desktop-8) : l'Accueil et le sondage léger lisaient /v1/accueil sans condition.
+// Face à un greffon de P5 ou P6 (verdict « Compatible »), la page n'affichait qu'un 404 et le badge restait « Inconnu ».
+// Détecté avant d'être lu : rien ne part sans l'annonce de l'étape P7 ; absente, la page et le badge le disent.
+void TestAccueil::accueilEtBadgeSeulementSurLAnnonceDeLEtapeP7()
+{
+    const QString kAccueil = kP + QStringLiteral("/accueil");
+    Banc banc(QStringLiteral("inconnu")); // /v1/meta pas encore lu
+    banc.flux.demarrer();
+    banc.accueil.setPageVisible(true);
+    QTRY_VERIFY(banc.accueil.actif());
+    QTRY_VERIFY(banc.accueil.sessionsLues()); // le reste de la page lit
+    banc.accueil.actualiser();
+    banc.flux.signalerLien(false);
+    banc.flux.signalerLien(true);
+    QTest::qWait(200);
+    QCOMPARE(banc.serveur.compter("GET", kAccueil), 0); // ni la page, ni le sondage léger, ni « Actualiser », ni le lien
+    QVERIFY(!banc.accueil.lue());
+    QCOMPARE(banc.accueil.disponibilite(), QStringLiteral("Accueil agrégé : Inconnu : /v1/meta n'a pas encore été lu."));
+    QCOMPARE(banc.flux.libelleATraiter(), QStringLiteral("À traiter par vous : Inconnu"));
+    QVERIFY2(banc.accueil.cadence().startsWith(QStringLiteral("Accueil agrégé non lu")), qPrintable(banc.accueil.cadence()));
+
+    // Verdict : étape annoncée. La page et le sondage léger lisent aussitôt.
+    banc.greffon.setEtapeP7(QStringLiteral("annonce"));
+    banc.flux.setEtapeP7(QStringLiteral("annonce"));
+    QTRY_VERIFY(banc.accueil.lue());
+    QTRY_COMPARE(banc.serveur.compter("GET", kAccueil), 2);
+    QCOMPARE(banc.accueil.disponibilite(), QString());
+    QTRY_COMPARE(banc.flux.aTraiter(), 1);
+
+    // Hermes redéployé avec un greffon antérieur à P7 : ce qui avait été lu est oublié, rien ne part plus, c'est dit.
+    banc.greffon.setEtapeP7(QStringLiteral("absent"));
+    banc.flux.setEtapeP7(QStringLiteral("absent"));
+    QVERIFY(!banc.accueil.lue());
+    QCOMPARE(banc.accueil.carteATraiter().value(QStringLiteral("total")).toString(), QStringLiteral("Inconnu"));
+    QCOMPARE(banc.accueil.projetsEnCours()->count(), 0);
+    QCOMPARE(banc.accueil.lectureAccueil(), QStringLiteral("Jamais lu"));
+    QCOMPARE(banc.accueil.erreurAccueil(), QString()); // jamais un 404 à la place de l'explication
+    QCOMPARE(banc.accueil.disponibilite(),
+             QStringLiteral("Accueil agrégé : Non disponible sur ce serveur : le greffon acp-poste n'annonce pas l'étape P7 "
+                            "(clé « accueil » absente de /v1/meta). Questions, projets, poste et quotas restent dans leurs pages."));
+    QCOMPARE(banc.flux.aTraiter(), -1);
+    banc.flux.noterAccueil(accueilPartage()); // aucune lecture de /v1/accueil n'existe sans l'annonce : ignorée
+    QCOMPARE(banc.flux.aTraiter(), -1);
+    QCOMPARE(banc.flux.libelleATraiter(), QStringLiteral("À traiter par vous : Non disponible sur ce serveur"));
+    QVERIFY2(banc.flux.etatSondage().startsWith(QStringLiteral("Arrêté : Non disponible sur ce serveur")),
+             qPrintable(banc.flux.etatSondage()));
+    const int lectures = banc.serveur.compter("GET", kAccueil);
+    banc.accueil.actualiser();
+    banc.flux.signalerLien(false);
+    banc.flux.signalerLien(true);
+    QTest::qWait(300);
+    QCOMPARE(banc.serveur.compter("GET", kAccueil), lectures);
+    QVERIFY(banc.accueil.sessionsLues()); // discussions récentes : route native de Hermes, toujours lues
+
+    // Greffon bloqué (404 de /v1/meta) : la raison du blocage, jamais « /v1/meta n'a pas encore été lu ».
+    const QString blocage = QStringLiteral("Greffon acp-poste absent de ce Hermes : seules la Discussion et les Diagnostics "
+                                           "restent disponibles.");
+    banc.greffon.bloquer(blocage);
+    banc.greffon.setEtapeP7(QStringLiteral("inconnu"));
+    banc.flux.setEtapeP7(QStringLiteral("inconnu"));
+    QCOMPARE(banc.accueil.disponibilite(), QStringLiteral("Accueil agrégé non lu : ") + blocage);
+    QCOMPARE(banc.flux.etatSondage(), QStringLiteral("Arrêté : ") + blocage);
+    QCOMPARE(banc.flux.libelleATraiter(), QStringLiteral("À traiter par vous : Inconnu"));
+}
+
 void TestAccueil::echecGardeLaDerniereValeur()
 {
     Banc banc;
     banc.flux.demarrer();
     banc.accueil.setPageVisible(true);
-    QTRY_COMPARE(banc.accueil.carteProjets().value(QStringLiteral("actifs")).toString(), QStringLiteral("2"));
-    const QString luA = banc.accueil.lectureProjets();
+    QTRY_COMPARE(banc.accueil.carteATraiter().value(QStringLiteral("total")).toString(), QStringLiteral("1"));
+    const QString luA = banc.accueil.lectureAccueil();
 
-    banc.statutProjets = 404;
+    banc.statutAccueil = 404;
     banc.accueil.actualiser();
-    QTRY_VERIFY(!banc.accueil.erreurProjets().isEmpty());
-    QCOMPARE(banc.accueil.carteProjets().value(QStringLiteral("actifs")).toString(), QStringLiteral("2"));
-    QCOMPARE(banc.accueil.cartePoste().value(QStringLiteral("etat")).toString(), QStringLiteral("En ligne"));
-    QCOMPARE(banc.accueil.lectureProjets(), luA);
+    QTRY_VERIFY(!banc.accueil.erreurAccueil().isEmpty());
+    QCOMPARE(banc.accueil.carteATraiter().value(QStringLiteral("total")).toString(), QStringLiteral("1"));
+    QCOMPARE(banc.accueil.carteExecutant().value(QStringLiteral("etat")).toString(), QStringLiteral("En ligne"));
+    QCOMPARE(banc.accueil.lectureAccueil(), luA);
 }
 
 void TestAccueil::pauseGeneraleCorpsExactEtRefusTelQuel()
@@ -360,6 +490,39 @@ void TestAccueil::pauseGeneraleCorpsExactEtRefusTelQuel()
     QTRY_VERIFY(!banc.accueil.gesteEnCours());
     QVERIFY(banc.accueil.erreurGeste().contains(QStringLiteral("200 caractères")));
     QCOMPARE(banc.serveur.filtrer("POST", kP + QStringLiteral("/pause")).size(), 2);
+}
+
+void TestAccueil::notificationDeTestSeulementAvecUnCanal()
+{
+    Banc banc;
+    banc.flux.demarrer();
+    banc.accueil.setPageVisible(true);
+    QTRY_VERIFY(banc.accueil.lue());
+    QCOMPARE(banc.accueil.carteNotifications().value(QStringLiteral("configure")).toBool(), true);
+    banc.accueil.envoyerNotificationDeTest();
+    QTRY_VERIFY(!banc.accueil.gesteEnCours());
+    QCOMPARE(banc.accueil.messageGeste(), QStringLiteral("Notification de test mise en file : la passerelle l'envoie à sa prochaine passe."));
+    const auto envois = banc.serveur.filtrer("POST", kP + QStringLiteral("/notifications/test"));
+    QCOMPARE(envois.size(), 1);
+    QCOMPARE(envois.first().json(), QJsonObject{});
+    QCOMPARE(envois.first().entete("content-type"), QByteArrayLiteral("application/json"));
+
+    // 409 du greffon (canal retiré entre-temps) : son message tel quel.
+    const QString message = QStringLiteral("Notifications non configurées : posez les variables du canal dans Railway.");
+    banc.reponseTest = ReponseFaux::json(409, QJsonObject{{QStringLiteral("detail"), QJsonObject{
+        {QStringLiteral("code"), QStringLiteral("notifications")}, {QStringLiteral("message"), message}}}});
+    banc.accueil.envoyerNotificationDeTest();
+    QTRY_VERIFY(!banc.accueil.gesteEnCours());
+    QCOMPARE(banc.accueil.erreurGeste(), message);
+
+    // Canal lu non configuré : rien n'est envoyé.
+    banc.document.insert(QStringLiteral("notifications"), QJsonObject{
+        {QStringLiteral("canal"), QStringLiteral("aucune")}, {QStringLiteral("configure"), false}, {QStringLiteral("connu"), true}});
+    banc.accueil.actualiser();
+    QTRY_VERIFY(!banc.accueil.carteNotifications().value(QStringLiteral("configure")).toBool());
+    banc.accueil.envoyerNotificationDeTest();
+    QCOMPARE(banc.accueil.erreurGeste(), QStringLiteral("Aucun canal de notifications configuré : rien n'est envoyé."));
+    QCOMPARE(banc.serveur.filtrer("POST", kP + QStringLiteral("/notifications/test")).size(), 2);
 }
 
 // Constat de relecture P8 : la carte « Hermes » (version, verdict, alertes) n'était relue ni
@@ -409,6 +572,140 @@ void TestAccueil::carteHermesRelueAvecLaPage()
     QTRY_COMPARE(compatibilite.etat(), CompatibilityStatus::GreffonAbsent);
     QVERIFY(banc.greffon.bloque());
     banc.accueil.setPageVisible(false);
+}
+
+QJsonObject tache(const QJsonObject &champs)
+{
+    // Forme d'une tâche de Hermes (cron/jobs.py) : seuls les champs lus par la carte, plus les champs du bilan.
+    QJsonObject t{{QStringLiteral("id"), QStringLiteral("j1")}, {QStringLiteral("name"), QStringLiteral("Bilan ACP")},
+                  {QStringLiteral("script"), QStringLiteral("acp-bilan.py")}, {QStringLiteral("no_agent"), true},
+                  {QStringLiteral("enabled"), true}, {QStringLiteral("state"), QStringLiteral("scheduled")},
+                  {QStringLiteral("next_run_at"), QStringLiteral("2026-10-09T06:00:00+00:00")},
+                  {QStringLiteral("last_run_at"), QJsonValue::Null}, {QStringLiteral("last_status"), QJsonValue::Null}};
+    for (auto it = champs.begin(); it != champs.end(); ++it) {
+        t.insert(it.key(), it.value());
+    }
+    return t;
+}
+
+void TestAccueil::carteBilanCommeLaPageWeb()
+{
+    // Tâche du bilan : sans agent, 8 h, livrée en local (accueil-api.ts, TACHE_BILAN).
+    QCOMPARE(AccueilViewModel::tacheBilan(),
+             (QJsonObject{{QStringLiteral("name"), QStringLiteral("Bilan ACP")}, {QStringLiteral("schedule"), QStringLiteral("0 8 * * *")},
+                          {QStringLiteral("prompt"), QString()}, {QStringLiteral("no_agent"), true},
+                          {QStringLiteral("script"), QStringLiteral("acp-bilan.py")}, {QStringLiteral("deliver"), QStringLiteral("local")}}));
+    // Seules les tâches du script de l'image, SANS agent ; liste nue ou `{jobs}` ; autre forme : illisible.
+    const QJsonArray melange{tache({}), tache({{QStringLiteral("no_agent"), false}}),
+                             tache({{QStringLiteral("script"), QStringLiteral("autre.py")}})};
+    QCOMPARE(AccueilViewModel::tachesDuBilan(melange)->size(), 1);
+    QCOMPARE(AccueilViewModel::tachesDuBilan(QJsonObject{{QStringLiteral("jobs"), melange}})->size(), 1);
+    QVERIFY(!AccueilViewModel::tachesDuBilan(QJsonObject{{QStringLiteral("taches"), melange}}).has_value());
+
+    QJsonObject accueil = accueilPartage();
+    // Rien de lu : ni état ni geste ; lecture en échec : dit, jamais « Non créé ».
+    QVariantMap carte = AccueilViewModel::construireCarteBilan(std::nullopt, accueil, QString());
+    QCOMPARE(carte.value(QStringLiteral("lu")).toBool(), false);
+    QCOMPARE(carte.value(QStringLiteral("peutCreer")).toBool(), false);
+    QCOMPARE(carte.value(QStringLiteral("illisible")).toString(), QString());
+    carte = AccueilViewModel::construireCarteBilan(std::nullopt, accueil, QStringLiteral("Hermes injoignable"));
+    QCOMPARE(carte.value(QStringLiteral("illisible")).toString(),
+             QStringLiteral("État du bilan inconnu : la liste des tâches cron de Hermes ne répond pas."));
+    QCOMPARE(carte.value(QStringLiteral("peutCreer")).toBool(), false);
+
+    carte = AccueilViewModel::construireCarteBilan(QJsonArray{}, accueil, QString());
+    QCOMPARE(carte.value(QStringLiteral("etat")).toString(), QStringLiteral("Non créé"));
+    QCOMPARE(carte.value(QStringLiteral("peutCreer")).toBool(), true);
+    QVERIFY(carte.value(QStringLiteral("explication")).toString().startsWith(QStringLiteral("Une notification par jour, à 8 h")));
+
+    carte = AccueilViewModel::construireCarteBilan(QJsonArray{tache({})}, accueil, QString());
+    QCOMPARE(carte.value(QStringLiteral("etat")).toString(), QStringLiteral("Actif"));
+    QCOMPARE(carte.value(QStringLiteral("cle")).toString(), QStringLiteral("succeeded"));
+    QCOMPARE(carte.value(QStringLiteral("prochaine")).toString(), localDepuisIso(QStringLiteral("2026-10-09T06:00:00+00:00")));
+    QCOMPARE(carte.value(QStringLiteral("derniere")).toString(), QStringLiteral("Jamais"));
+    QCOMPARE(carte.value(QStringLiteral("alerte")).toString(), QString());
+    QCOMPARE(carte.value(QStringLiteral("peutCreer")).toBool(), false);
+
+    // Exécutée sans issue publiée : jamais un échec supposé (relecture finale de P7, produit-2).
+    carte = AccueilViewModel::construireCarteBilan(
+        QJsonArray{tache({{QStringLiteral("last_run_at"), QStringLiteral("2026-10-08T06:00:01+00:00")}})}, accueil, QString());
+    QCOMPARE(carte.value(QStringLiteral("alerte")).toString(), QString());
+    QCOMPARE(carte.value(QStringLiteral("derniere")).toString(), localDepuisIso(QStringLiteral("2026-10-08T06:00:01+00:00")));
+    // Issue publiée autre que « ok » : alerte, avec l'issue et le message de Hermes.
+    carte = AccueilViewModel::construireCarteBilan(
+        QJsonArray{tache({{QStringLiteral("last_run_at"), QStringLiteral("2026-10-08T06:00:01+00:00")},
+                          {QStringLiteral("last_status"), QStringLiteral("error")},
+                          {QStringLiteral("last_error"), QStringLiteral("script exited with status 1")}})},
+        accueil, QString());
+    QVERIFY(carte.value(QStringLiteral("alerte")).toString().startsWith(QStringLiteral("Dernière exécution en échec")));
+    QCOMPARE(carte.value(QStringLiteral("statut")).toString(), QStringLiteral("error"));
+    QCOMPARE(carte.value(QStringLiteral("message")).toString(), QStringLiteral("script exited with status 1"));
+    // En pause : ni prochaine exécution ni alerte ; en erreur : alerte de la tâche.
+    carte = AccueilViewModel::construireCarteBilan(QJsonArray{tache({{QStringLiteral("enabled"), false}})}, accueil, QString());
+    QCOMPARE(carte.value(QStringLiteral("etat")).toString(), QStringLiteral("En pause"));
+    QCOMPARE(carte.value(QStringLiteral("prochaine")).toString(), QString());
+    carte = AccueilViewModel::construireCarteBilan(QJsonArray{tache({{QStringLiteral("state"), QStringLiteral("error")}})}, accueil, QString());
+    QCOMPARE(carte.value(QStringLiteral("etat")).toString(), QStringLiteral("En erreur"));
+    QVERIFY(carte.value(QStringLiteral("alerte")).toString().startsWith(QStringLiteral("Hermes a mis la tâche en erreur")));
+    // Deux tâches : dit.
+    carte = AccueilViewModel::construireCarteBilan(QJsonArray{tache({}), tache({})}, accueil, QString());
+    QCOMPARE(carte.value(QStringLiteral("plusieurs")).toString(),
+             QStringLiteral("Plusieurs tâches du bilan existent : gardez-en une depuis la page Cron."));
+    // Canal non configuré (bloc `notifications` de /v1/accueil) : le bilan ne partira pas, et c'est dit.
+    QJsonObject sansCanal = accueil;
+    sansCanal.insert(QStringLiteral("notifications"), QJsonObject{{QStringLiteral("connu"), true}, {QStringLiteral("configure"), false}});
+    QCOMPARE(AccueilViewModel::construireCarteBilan(QJsonArray{tache({})}, sansCanal, QString()).value(QStringLiteral("sansCanal")).toString(),
+             QStringLiteral("Le bilan ne partira pas : notifications non configurées."));
+    QJsonObject inconnu = accueil;
+    inconnu.insert(QStringLiteral("notifications"), QJsonObject{{QStringLiteral("connu"), false}});
+    QCOMPARE(AccueilViewModel::construireCarteBilan(QJsonArray{tache({})}, inconnu, QString()).value(QStringLiteral("sansCanal")).toString(),
+             QString());
+}
+
+void TestAccueil::creerLeBilanQuotidienEtOuvrirCron()
+{
+    Banc banc;
+    QList<QUrl> ouvertes;
+    banc.accueil.setOuvreur([&ouvertes](const QUrl &url) {
+        ouvertes.append(url);
+        return true;
+    });
+    banc.flux.demarrer();
+    banc.accueil.setPageVisible(true);
+    QTRY_VERIFY(banc.accueil.carteBilan().value(QStringLiteral("lu")).toBool());
+    QCOMPARE(banc.accueil.carteBilan().value(QStringLiteral("etat")).toString(), QStringLiteral("Non créé"));
+    QCOMPARE(banc.serveur.filtrer("GET", QStringLiteral("/api/cron/jobs")).first().entete("authorization"),
+             QByteArrayLiteral("Bearer jeton-a"));
+
+    // Création : corps EXACT, message, relecture (la tâche existe alors : plus de bouton).
+    banc.taches = QJsonArray{tache({})};
+    banc.accueil.creerBilanQuotidien();
+    QTRY_VERIFY(!banc.accueil.gesteEnCours());
+    QCOMPARE(banc.accueil.messageGeste(), QStringLiteral("Bilan quotidien créé."));
+    const auto envois = banc.serveur.filtrer("POST", QStringLiteral("/api/cron/jobs"));
+    QCOMPARE(envois.size(), 1);
+    QCOMPARE(envois.first().json(), AccueilViewModel::tacheBilan());
+    QTRY_COMPARE(banc.accueil.carteBilan().value(QStringLiteral("etat")).toString(), QStringLiteral("Actif"));
+    // Le bilan existe : jamais un doublon, rien n'est émis.
+    banc.accueil.creerBilanQuotidien();
+    QCOMPARE(banc.accueil.erreurGeste(), QStringLiteral("Le bilan quotidien existe déjà : rien n'est créé."));
+    QCOMPARE(banc.serveur.filtrer("POST", QStringLiteral("/api/cron/jobs")).size(), 1);
+
+    // Refus de la route native (anglais) : dit en français, détail à la suite.
+    banc.taches = QJsonArray{};
+    banc.accueil.actualiser();
+    QTRY_COMPARE(banc.accueil.carteBilan().value(QStringLiteral("etat")).toString(), QStringLiteral("Non créé"));
+    banc.reponseCreation = ReponseFaux::json(400, QJsonObject{{QStringLiteral("detail"), QStringLiteral("script does not exist")}});
+    banc.accueil.creerBilanQuotidien();
+    QTRY_VERIFY(!banc.accueil.gesteEnCours());
+    QVERIFY2(banc.accueil.erreurGeste().startsWith(QStringLiteral("Le bilan n'a pas été créé : Hermes a refusé la tâche (")),
+             qPrintable(banc.accueil.erreurGeste()));
+
+    // Page Cron de Hermes : dans le navigateur, sous le préfixe du serveur.
+    QVERIFY(banc.accueil.ouvrirCron());
+    QCOMPARE(ouvertes.size(), 1);
+    QCOMPARE(ouvertes.first(), banc.client.resolve(QStringLiteral("/cron")));
+    QCOMPARE(banc.accueil.messageGeste(), QStringLiteral("Page Cron de Hermes ouverte dans le navigateur."));
 }
 
 QTEST_MAIN(TestAccueil)

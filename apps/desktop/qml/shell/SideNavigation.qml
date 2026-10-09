@@ -148,8 +148,9 @@ Rectangle {
                         label: modelData.label; iconName: modelData.icon
                         selected: Navigation.currentRoute === modelData.route
                         actionable: Navigation.isNavigable(modelData.route)
-                        compteur: modelData.route === "questions" ? Streams.questionsOuvertes : 0
-                        compteurDescription: modelData.route === "questions" ? qsTr("questions ouvertes") : ""
+                        compteur: modelData.route === "questions" ? Streams.aTraiter : 0
+                        // Le nom accessible dit ce que le total compte : discussions comprises quand elles sont lues.
+                        compteurDescription: modelData.route === "questions" ? Streams.descriptionATraiter : ""
                         explanation: actionable ? "" : Navigation.detailFor(modelData.route)
                         onActivated: Navigation.setCurrentRoute(modelData.route)
                     }

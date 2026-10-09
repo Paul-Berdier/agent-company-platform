@@ -1,24 +1,31 @@
-// Temps réel de la station : ce qui existe vraiment à `refonte/hermes` b3faac0, et seulement
-// cela (cahier P8 § 6).
+// Temps réel de la station : ce qui existe vraiment (cahier P8 § 6 ; étape P7 pour le flux).
 //
 // | Source                                   | Rôle dans la station                                   |
 // |------------------------------------------|--------------------------------------------------------|
 // | passerelle `/api/ws` (GatewayClient)     | Discussion ; `sessions.changed` relit les sessions     |
 // | kanban `/api/plugins/kanban/events`      | signal d'invalidation du projet affiché (VeilleKanban) |
-// | routes REST du greffon                   | vérité de toutes les pages, par sondage (Sondage)      |
-// | flux SSE du greffon                      | N'EXISTE PAS : rien n'est ouvert ni supposé            |
+// | flux SSE du greffon `GET /v1/flux`       | signal d'invalidation par sujet (FluxInvalidation) :   |
+// |                                          | ouvert seulement s'il est annoncé par /v1/meta         |
+// | routes REST du greffon                   | vérité de toutes les pages, relues sur signal du flux  |
+// |                                          | et par sondage (Sondage, repli et relecture de sûreté) |
 //
 // Ce service :
-//  - porte le sondage LÉGER de `GET /v1/projets` (60 s, session établie) qui alimente la barre
-//    d'état et le badge des questions, même hors des pages ; une page qui vient de lire
-//    `/v1/projets` le lui signale (noterProjets) pour que le badge suive sans attendre ;
+//  - porte le sondage LÉGER de `GET /v1/accueil` (60 s, session établie ; Accueil agrégé de
+//    l'étape P7) qui alimente la barre d'état et le badge de la file Questions, même hors des
+//    pages : le badge compte « À traiter par vous » (compteurs du greffon : questions à vous,
+//    décisions, revues, cartes arrêtées ; plus les discussions en attente lues par la passerelle,
+//    DiscussionsEnAttente, et le libellé dit quand elles n'ont pas pu l'être). L'Accueil qui vient
+//    de lire `/v1/accueil` le lui signale
+//    (noterAccueil) ; la page Projets, qui lit `/v1/projets`, met à jour le poste et la pause
+//    seulement (noterProjets), jamais le compteur, qui n'a qu'une source ;
 //  - dit aux pages si elles peuvent sonder (`pagesActives` : session établie ET fenêtre non
 //    réduite) et quand relire (`lienRetabli`, `sessionsChangees`, `tableauChange`) ;
+//  - ouvre le flux d'invalidation quand une page peut lire et que /v1/meta l'annonce
+//    (setAnnonceFlux) ; le sondage léger le suit pour tous les sujets ;
+//  - relaie aux pages l'état de l'étape P7 lu dans /v1/meta (setEtapeP7, clé `accueil`) : le
+//    sondage léger ne lit `/v1/accueil` que sur l'annonce ; sinon le badge dit « Non disponible
+//    sur ce serveur » ou « Inconnu », jamais un compteur ;
 //  - publie l'état de chaque source, sans secret, pour les diagnostics.
-//
-// Flux SSE du greffon : il « viendra en P7 » (sondage.ts de l'interface web) ; tant que son
-// contrat n'est pas fusionné dans `refonte/hermes`, la station n'ouvre rien et l'écrit :
-// « Non disponible sur ce serveur ».
 
 #pragma once
 
@@ -32,6 +39,8 @@ namespace acp {
 
 class ApiClient;
 class ClientGreffonPoste;
+class DiscussionsEnAttente;
+class FluxInvalidation;
 class GatewayClient;
 class Sondage;
 class VeilleKanban;
@@ -41,9 +50,11 @@ class EventStreamService : public QObject
     Q_OBJECT
     Q_PROPERTY(bool fenetreActive READ fenetreActive WRITE setFenetreActive NOTIFY fenetreActiveChange)
     Q_PROPERTY(bool pagesActives READ pagesActives NOTIFY pagesActivesChange)
+    Q_PROPERTY(QString etapeP7 READ etapeP7 NOTIFY etapeP7Change)
     // Résumé du sondage léger (barre d'état, badge de navigation).
-    Q_PROPERTY(int questionsOuvertes READ questionsOuvertes NOTIFY resumeChange)
-    Q_PROPERTY(QString libelleQuestions READ libelleQuestions NOTIFY resumeChange)
+    Q_PROPERTY(int aTraiter READ aTraiter NOTIFY resumeChange)
+    Q_PROPERTY(QString libelleATraiter READ libelleATraiter NOTIFY resumeChange)
+    Q_PROPERTY(QString descriptionATraiter READ descriptionATraiter NOTIFY resumeChange)
     Q_PROPERTY(QString libellePoste READ libellePoste NOTIFY resumeChange)
     Q_PROPERTY(QString clePoste READ clePoste NOTIFY resumeChange)
     Q_PROPERTY(int pauseGenerale READ pauseGenerale NOTIFY resumeChange)
@@ -52,6 +63,10 @@ class EventStreamService : public QObject
     Q_PROPERTY(QString etatPasserelle READ etatPasserelle NOTIFY sourcesChange)
     Q_PROPERTY(QString etatVeille READ etatVeille NOTIFY sourcesChange)
     Q_PROPERTY(QString etatSondage READ etatSondage NOTIFY sourcesChange)
+    // Flux d'invalidation du greffon (barre d'état, diagnostics).
+    Q_PROPERTY(bool tempsReel READ tempsReel NOTIFY sourcesChange)
+    Q_PROPERTY(QString libelleTempsReel READ libelleTempsReel NOTIFY sourcesChange)
+    Q_PROPERTY(QString etatFlux READ etatFlux NOTIFY sourcesChange)
 
 public:
     //! Valeur de `pauseGenerale` quand l'état n'a pas encore été lu.
@@ -64,6 +79,20 @@ public:
 
     [[nodiscard]] VeilleKanban *veille() const { return m_veille; }
     [[nodiscard]] Sondage *sondageFond() const { return m_fond; }
+    [[nodiscard]] FluxInvalidation *invalidation() const { return m_invalidation; }
+    /*! Discussions en attente (`session.active_list`), partagées par le badge, l'Accueil et la file Questions. */
+    [[nodiscard]] DiscussionsEnAttente *discussions() const { return m_discussions; }
+    /*! Annonce du flux lue dans /v1/meta (CompatibiliteHermes::etatFlux et annonceFlux). */
+    void setAnnonceFlux(const QString &etat, const QJsonObject &annonce);
+    /*!
+        État de l'étape P7 lu dans /v1/meta (CompatibiliteHermes::etatEtapeP7) : « annonce », « absent »,
+        « illisible » ou « inconnu ». Hors annonce, le sondage léger s'arrête et oublie ce qu'il avait lu.
+        `etapeP7Change` est émis à chaque changement de l'état OU du blocage du greffon (les pages en
+        tirent ce qu'elles disent).
+    */
+    void setEtapeP7(const QString &etat);
+    [[nodiscard]] const QString &etapeP7() const { return m_etapeP7; }
+    [[nodiscard]] bool etapeP7Annoncee() const { return m_etapeP7 == QLatin1String("annonce"); }
     void setIntervalleFond(std::chrono::milliseconds intervalle);
 
     // --- Cycle de vie (Application) -------------------------------------------------
@@ -79,15 +108,23 @@ public:
     [[nodiscard]] bool sessionOuverte() const { return m_sessionOuverte; }
     [[nodiscard]] bool pagesActives() const { return m_sessionOuverte && m_fenetreActive; }
 
-    /*! Une page vient de lire `GET /v1/projets` : le résumé suit sans attendre. */
+    /*! L'Accueil vient de lire `GET /v1/accueil` : le résumé suit sans attendre. */
+    void noterAccueil(const QJsonObject &accueil);
+    /*! La page Projets vient de lire `GET /v1/projets` : poste et pause suivent (jamais le compteur). */
     void noterProjets(const QJsonObject &liste);
     /*! Le résumé redevient « Inconnu » (session perdue, serveur changé, greffon bloqué). */
     void oublierResume();
 
     // --- Résumé ----------------------------------------------------------------------
-    /*! Nombre de questions ouvertes, ou -1 si inconnu. */
-    [[nodiscard]] int questionsOuvertes() const { return m_questionsOuvertes; }
-    [[nodiscard]] QString libelleQuestions() const;
+    /*! « À traiter par vous » (discussions en attente comprises quand elles sont connues), ou -1 si inconnu. */
+    [[nodiscard]] int aTraiter() const;
+    [[nodiscard]] QString libelleATraiter() const;
+    /*!
+        Ce que compte `aTraiter`, pour le nom accessible de la pastille de la file Questions :
+        « demandes à traiter par vous », suivi de « (discussions non comptées) » seulement quand
+        les discussions en attente ne sont pas lues (relecture de P8b, constat desktop-5).
+    */
+    [[nodiscard]] QString descriptionATraiter() const;
     [[nodiscard]] const QString &libellePoste() const { return m_libellePoste; }
     [[nodiscard]] const QString &clePoste() const { return m_clePoste; }
     /*! 1 engagée, 0 levée, -1 inconnue. */
@@ -98,12 +135,14 @@ public:
     [[nodiscard]] QString etatPasserelle() const;
     [[nodiscard]] QString etatVeille() const;
     [[nodiscard]] QString etatSondage() const;
+    /*! État du flux d'invalidation (FluxInvalidation::libelleEtat). */
+    [[nodiscard]] QString etatFlux() const;
+    [[nodiscard]] bool tempsReel() const;
     /*!
-        Ce que la station dit du flux d'invalidation du greffon, d'après `etatFlux` de l'évaluation de
-        /v1/meta (« annonce », « absent », « illisible », « inconnu ») : elle ne l'ouvre pas et relit ses
-        pages par sondage (relecture finale de P7 : jamais « n'annonce aucun flux » devant une annonce).
+        Libellé court de la barre d'état (« Temps réel », « Sondage (aucun flux) », « Aucun flux (greffon
+        bloqué) »…), vide hors session.
     */
-    [[nodiscard]] static QString etatFluxGreffon(const QString &etatFlux);
+    [[nodiscard]] QString libelleTempsReel() const;
 
 signals:
     void fenetreActiveChange();
@@ -116,19 +155,28 @@ signals:
     void sessionsChangees();
     /*! Le kanban du tableau surveillé a bougé (après regroupement). */
     void tableauChange(const QString &tableau);
+    /*! L'état de l'étape P7 (ou le blocage du greffon) a changé : voir setEtapeP7. */
+    void etapeP7Change();
 
 private:
-    void lireResume(const QJsonObject &liste);
+    void lireResume(const QJsonObject &accueil);
+    void lirePosteEtPause(const QJsonValue &etatPoste, const QJsonValue &pause, bool pauseIllisible);
+    //! Le sondage léger lit seulement session ouverte ET étape P7 annoncée.
+    void majFond();
 
     ClientGreffonPoste *m_greffon = nullptr;
     GatewayClient *m_passerelle = nullptr;
     VeilleKanban *m_veille = nullptr;
+    FluxInvalidation *m_invalidation = nullptr;
+    DiscussionsEnAttente *m_discussions = nullptr;
     Sondage *m_fond = nullptr;
     bool m_fenetreActive = true;
     bool m_sessionOuverte = false;
     bool m_lienEnLigne = false;
     bool m_lienConnu = false;
-    int m_questionsOuvertes = -1;
+    QString m_etapeP7 = QStringLiteral("inconnu");
+    bool m_greffonBloque = false; //!< blocage vu au dernier setEtapeP7
+    int m_aTraiterGreffon = -1;
     QString m_libellePoste;
     QString m_clePoste;
     int m_pauseGenerale = kInconnu;

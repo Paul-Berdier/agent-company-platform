@@ -2,10 +2,14 @@
 
 #include "api/ApiClient.h"
 #include "api/ClientGreffonPoste.h"
+#include "events/FluxInvalidation.h"
 #include "events/Sondage.h"
 #include "events/VeilleKanban.h"
+#include "gateway/DiscussionsEnAttente.h"
 #include "gateway/GatewayClient.h"
 #include "viewmodels/Libelles.h"
+
+#include <algorithm>
 
 namespace acp {
 
@@ -15,15 +19,30 @@ EventStreamService::EventStreamService(ApiClient *client, ClientGreffonPoste *gr
     , m_greffon(greffon)
     , m_passerelle(passerelle)
     , m_veille(new VeilleKanban(client, this))
-    , m_fond(new Sondage([this] { return m_greffon->projets(); }, kIntervalleFond, this))
+    , m_invalidation(new FluxInvalidation(greffon, this))
+    , m_discussions(new DiscussionsEnAttente(passerelle, this))
+    , m_fond(new Sondage([this] { return m_greffon->accueil(); }, kIntervalleFond, this))
 {
     oublierResume();
-    connect(m_fond, &Sondage::lu, this, [this](const ApiResponse &reponse) { lireResume(reponse.json.object()); });
+    // Le badge et la barre d'état suivent tous les sujets (l'Accueil agrégé les couvre tous).
+    m_fond->suivre(m_invalidation, FluxInvalidation::sujets());
+    connect(m_invalidation, &FluxInvalidation::etatChange, this, &EventStreamService::sourcesChange);
+    connect(m_discussions, &DiscussionsEnAttente::change, this, &EventStreamService::resumeChange);
+    connect(m_fond, &Sondage::lu, this, [this](const ApiResponse &reponse) {
+        lireResume(reponse.json.object());
+        m_discussions->lire(); // le badge compte aussi les discussions en attente, comme la page web
+    });
     connect(m_fond, &Sondage::etatChange, this, &EventStreamService::sourcesChange);
     connect(m_veille, &VeilleKanban::etatChange, this, &EventStreamService::sourcesChange);
     connect(m_veille, &VeilleKanban::changement, this, &EventStreamService::tableauChange);
     if (m_passerelle) {
         connect(m_passerelle, &GatewayClient::etatChange, this, &EventStreamService::sourcesChange);
+        // Passerelle prête (après le premier sondage, ou après une coupure) : les discussions se relisent.
+        connect(m_passerelle, &GatewayClient::prete, this, [this] {
+            if (m_sessionOuverte) {
+                m_discussions->lire();
+            }
+        });
         connect(m_passerelle, &GatewayClient::evenement, this,
                 [this](const QString &type, const QString &, qint64, const QJsonValue &) {
                     if (type == QLatin1String("sessions.changed")) {
@@ -40,6 +59,40 @@ void EventStreamService::setIntervalleFond(std::chrono::milliseconds intervalle)
     m_fond->setIntervalle(intervalle);
 }
 
+void EventStreamService::setAnnonceFlux(const QString &etat, const QJsonObject &annonce)
+{
+    m_invalidation->setAnnonce(etat, annonce);
+}
+
+void EventStreamService::setEtapeP7(const QString &etat)
+{
+    const bool bloque = m_greffon && m_greffon->bloque();
+    if (etat == m_etapeP7 && bloque == m_greffonBloque) {
+        return;
+    }
+    const bool etaitAnnoncee = etapeP7Annoncee();
+    m_etapeP7 = etat;
+    m_greffonBloque = bloque;
+    if (etaitAnnoncee && !etapeP7Annoncee()) {
+        // Ce que le sondage léger avait lu de /v1/accueil n'est plus celui de ce greffon : rien n'en reste.
+        m_fond->setActif(false);
+        m_fond->oublier();
+        oublierResume();
+    } else if (!etapeP7Annoncee()) {
+        m_aTraiterGreffon = -1; // ce compteur ne vient que de /v1/accueil (poste et pause, aussi de /v1/projets)
+    }
+    majFond();
+    emit etapeP7Change();
+    emit resumeChange();
+    emit sourcesChange();
+}
+
+void EventStreamService::majFond()
+{
+    // Détecté avant d'être lu (décision P8b-2) : /v1/accueil ne part que sur l'annonce de /v1/meta.
+    m_fond->setActif(m_sessionOuverte && etapeP7Annoncee());
+}
+
 void EventStreamService::demarrer()
 {
     if (m_sessionOuverte) {
@@ -47,7 +100,8 @@ void EventStreamService::demarrer()
     }
     const bool avant = pagesActives();
     m_sessionOuverte = true;
-    m_fond->setActif(true);
+    majFond();
+    m_invalidation->setActif(pagesActives());
     if (avant != pagesActives()) {
         emit pagesActivesChange();
     }
@@ -59,7 +113,10 @@ void EventStreamService::arreter()
     const bool avant = pagesActives();
     m_sessionOuverte = false;
     m_fond->setActif(false);
+    m_invalidation->setActif(false);
+    m_invalidation->oublierRepli(); // le repli (401, échecs) était celui de la session perdue
     m_veille->arreter();
+    m_discussions->oublier();
     oublierResume();
     if (avant != pagesActives()) {
         emit pagesActivesChange();
@@ -73,7 +130,10 @@ void EventStreamService::signalerLien(bool enLigne)
     m_lienConnu = true;
     m_lienEnLigne = enLigne;
     if (retour && m_sessionOuverte) {
-        m_fond->lireMaintenant();
+        if (m_fond->actif()) {
+            m_fond->lireMaintenant(); // jamais sans l'annonce de l'étape P7
+        }
+        m_invalidation->relancer();
         emit lienRetabli();
     }
 }
@@ -85,54 +145,86 @@ void EventStreamService::setFenetreActive(bool active)
     }
     const bool avant = pagesActives();
     m_fenetreActive = active;
+    // Fenêtre réduite : flux fermé, comme une page web cachée ; rouverte : il se rouvre.
+    m_invalidation->setActif(pagesActives());
     emit fenetreActiveChange();
     if (avant != pagesActives()) {
         emit pagesActivesChange();
     }
 }
 
-void EventStreamService::noterProjets(const QJsonObject &liste)
+void EventStreamService::noterAccueil(const QJsonObject &accueil)
 {
-    if (m_sessionOuverte) {
-        lireResume(liste);
+    if (m_sessionOuverte && etapeP7Annoncee()) { // une lecture de /v1/accueil n'existe que sur l'annonce
+        lireResume(accueil);
     }
 }
 
-void EventStreamService::lireResume(const QJsonObject &liste)
+void EventStreamService::noterProjets(const QJsonObject &liste)
 {
-    const QJsonValue questions = liste.value(QStringLiteral("questions_ouvertes"));
-    m_questionsOuvertes = libelles::estNombre(questions) ? static_cast<int>(questions.toInteger()) : -1;
+    if (m_sessionOuverte) {
+        lirePosteEtPause(liste.value(QStringLiteral("poste")).toObject().value(QStringLiteral("etat")),
+                         liste.value(QStringLiteral("pause_generale")), false);
+        emit resumeChange();
+    }
+}
 
-    const QJsonObject poste = liste.value(QStringLiteral("poste")).toObject();
-    const libelles::Libelle etat = libelles::etatPoste(poste.value(QStringLiteral("etat")));
+void EventStreamService::lirePosteEtPause(const QJsonValue &etatPoste, const QJsonValue &pause, bool pauseIllisible)
+{
+    const libelles::Libelle etat = libelles::etatPoste(etatPoste);
     m_libellePoste = etat.connu() ? etat.texte : libelles::kInconnu;
     m_clePoste = etat.connu() ? etat.cle : QStringLiteral("unknown");
+    // pause_generale : objet présent = engagée, null = levée — sauf bloc dit illisible par le greffon ; absente ou
+    // d'un autre type = inconnue.
+    m_pauseGenerale = pauseIllisible ? kInconnu : pause.isObject() ? 1 : pause.isNull() ? 0 : kInconnu;
+}
 
-    // pause_generale : objet présent = engagée, null = levée ; absente ou d'un autre type = inconnue.
-    const QJsonValue pause = liste.value(QStringLiteral("pause_generale"));
-    m_pauseGenerale = pause.isObject() ? 1 : pause.isNull() ? 0 : kInconnu;
+void EventStreamService::lireResume(const QJsonObject &accueil)
+{
+    // Accueil agrégé (noyau/accueil.construire) : un bloc illisible vaut `null`, sa raison est dans `illisibles`.
+    const QJsonValue total = accueil.value(QStringLiteral("a_traiter")).toObject().value(QStringLiteral("total"));
+    m_aTraiterGreffon = libelles::estNombre(total) ? static_cast<int>(total.toInteger()) : -1;
+    const bool pauseIllisible = accueil.value(QStringLiteral("illisibles")).toObject().contains(QStringLiteral("pause_generale"));
+    lirePosteEtPause(accueil.value(QStringLiteral("executant")).toObject().value(QStringLiteral("etat")),
+                     accueil.value(QStringLiteral("pause_generale")), pauseIllisible);
     emit resumeChange();
 }
 
 void EventStreamService::oublierResume()
 {
-    m_questionsOuvertes = -1;
+    m_aTraiterGreffon = -1;
+    m_discussions->oublier();
     m_libellePoste = libelles::kInconnu;
     m_clePoste = QStringLiteral("unknown");
     m_pauseGenerale = kInconnu;
     emit resumeChange();
 }
 
-QString EventStreamService::libelleQuestions() const
+int EventStreamService::aTraiter() const
 {
-    if (m_questionsOuvertes < 0) {
-        return libelles::kInconnu;
+    if (m_aTraiterGreffon < 0) {
+        return -1;
     }
-    if (m_questionsOuvertes == 0) {
-        return QStringLiteral("Aucune question ouverte");
+    return m_aTraiterGreffon + std::max(0, m_discussions->nombre());
+}
+
+QString EventStreamService::libelleATraiter() const
+{
+    if (m_aTraiterGreffon < 0) {
+        // Seconde relecture de P8b (constat desktop-8) : un greffon sans l'étape P7 n'a pas ce compteur ; le dire.
+        return m_etapeP7 == QLatin1String("absent") && !m_greffonBloque
+            ? QStringLiteral("À traiter par vous : Non disponible sur ce serveur")
+            : QStringLiteral("À traiter par vous : Inconnu");
     }
-    return m_questionsOuvertes == 1 ? QStringLiteral("1 question ouverte")
-                                    : QStringLiteral("%1 questions ouvertes").arg(m_questionsOuvertes);
+    // Discussions en attente illisibles (passerelle indisponible, refus) : le libellé le dit, jamais zéro deviné.
+    return m_discussions->connues() ? QStringLiteral("À traiter par vous : %1").arg(aTraiter())
+                                    : QStringLiteral("À traiter par vous : %1 (discussions non comptées)").arg(aTraiter());
+}
+
+QString EventStreamService::descriptionATraiter() const
+{
+    return m_discussions->connues() ? QStringLiteral("demandes à traiter par vous")
+                                    : QStringLiteral("demandes à traiter par vous (discussions non comptées)");
 }
 
 QString EventStreamService::libelleResume() const
@@ -144,7 +236,7 @@ QString EventStreamService::libelleResume() const
     if (m_pauseGenerale == 1) {
         pause = QStringLiteral(" · Pause générale engagée");
     }
-    return QStringLiteral("Poste : %1 · %2%3").arg(m_libellePoste, libelleQuestions(), pause);
+    return QStringLiteral("Poste : %1 · %2%3").arg(m_libellePoste, libelleATraiter(), pause);
 }
 
 QString EventStreamService::etatPasserelle() const
@@ -174,8 +266,12 @@ QString EventStreamService::etatSondage() const
     if (!m_sessionOuverte) {
         return QStringLiteral("Arrêté (aucune session)");
     }
+    if (!etapeP7Annoncee()) {
+        return QStringLiteral("Arrêté : %1").arg(m_greffonBloque ? m_greffon->raisonBlocage()
+                                                                   : ClientGreffonPoste::libelleEtapeP7(m_etapeP7));
+    }
     QString texte = QStringLiteral("Toutes les %1 s · %2")
-                        .arg(m_fond->intervalle().count() / 1000)
+                        .arg(m_fond->intervalleEffectif().count() / 1000)
                         .arg(m_fond->libelleLuA());
     if (!m_fond->derniereErreur().isEmpty()) {
         texte += QStringLiteral(" · Dernière lecture impossible : ") + m_fond->derniereErreur();
@@ -183,20 +279,19 @@ QString EventStreamService::etatSondage() const
     return texte;
 }
 
-QString EventStreamService::etatFluxGreffon(const QString &etatFlux)
+QString EventStreamService::etatFlux() const
 {
-    if (etatFlux == QLatin1String("annonce")) {
-        return QStringLiteral("Annoncé par le serveur ; non utilisé par cette station : les pages sont relues par "
-                              "sondage (le navigateur, lui, l'emploie).");
-    }
-    if (etatFlux == QLatin1String("absent")) {
-        return QStringLiteral("Non disponible sur ce serveur : le greffon acp-poste n'annonce aucun flux "
-                              "d'événements ; les pages sont relues par sondage.");
-    }
-    if (etatFlux == QLatin1String("illisible")) {
-        return QStringLiteral("Annonce illisible dans /v1/meta ; les pages sont relues par sondage.");
-    }
-    return QStringLiteral("Inconnu : /v1/meta n'a pas encore été lu ; les pages sont relues par sondage.");
+    return m_invalidation->libelleEtat();
+}
+
+bool EventStreamService::tempsReel() const
+{
+    return m_invalidation->tempsReel();
+}
+
+QString EventStreamService::libelleTempsReel() const
+{
+    return m_sessionOuverte ? m_invalidation->libelleCourt() : QString();
 }
 
 } // namespace acp

@@ -1,23 +1,41 @@
-// Page Questions de la station (cahier P8 § 7.3), sur `GET /v1/questions` du greffon, relu
-// toutes les 15 s tant que la page est affichée.
+// Page Questions de la station (cahier P8 § 7.3 ; file à cinq sections de l'étape P7, cahier P7
+// § 3), sur `GET /v1/questions` du greffon, relu toutes les 15 s tant que la page est affichée.
+// Mêmes sections, mêmes gestes et mêmes messages que la page web (apps/interface/src/projets/
+// Questions.tsx), dans le même ordre :
 //
-//  - Questions ouvertes ou escaladées : texte, contexte, projet, carte, motif d'escalade, date ;
-//    « Répondre » → `POST /v1/questions/{q}/reponse {reponse}` (1 à 4 000 caractères). Le
-//    message de réussite suit la RÉPONSE du greffon (`carte_debloquee`, `reprise_differee`),
-//    jamais une supposition ; une question fermée entre-temps (409) est dite, puis relue.
-//  - Cartes en triage : les gestes sont construits DEPUIS `actions` rendues par le greffon
-//    (« Prolonger », « Relancer la planification », « Reprendre » → `/reprendre` avec une
-//    consigne facultative ; « Conclure le projet » → `/conclure`), jamais une liste fixe ; un
-//    geste qui n'est pas offert pour cette carte est refusé par la station.
-//  - Cartes bloquées ou abandonnées : lecture seule (relancer relève de P7).
-//  - Revues des fichiers de pilotage (P6) : affichées SEULEMENT si la clé `revues` existe, en
-//    lecture seule tant que leur contrat n'est pas fusionné dans `refonte/hermes` ; elles se
-//    traitent dans le navigateur.
-//  - Tableaux illisibles : signalés tels quels.
-//  - Brouillons : le texte d'une réponse (« q:<question> ») ou d'une consigne de triage
-//    (« t:<tableau>/<carte> ») est gardé ici à chaque frappe, pas dans le champ seul : il survit
-//    aux relectures, à un envoi refusé et à un changement de page ; il n'est effacé qu'après la
-//    réussite du geste (signal brouillonEfface).
+//  0. « À traiter par vous » et « Chez Hermes » : `compteurs` servis par le greffon (questions à
+//     vous, décisions, revues, cartes arrêtées), plus les discussions en attente quand elles ont
+//     pu être lues ; sinon le total le dit, jamais zéro par défaut.
+//  1. Questions ouvertes ou escaladées : texte, contexte, projet, carte, QUI y répond (`chez`,
+//     règle unique du greffon), motif d'escalade, date ; « Répondre » →
+//     `POST /v1/questions/{q}/reponse {reponse}` (1 à 4 000 caractères). Le message suit la RÉPONSE
+//     du greffon (`carte_debloquee`, `reprise_differee`), jamais une supposition ; une question
+//     fermée entre-temps (409) est dite, puis relue.
+//  2. Décisions (cartes en triage) : gestes construits DEPUIS `actions` rendues par le greffon
+//     (« Prolonger », « Relancer la planification », « Reprendre » → `/reprendre` avec une consigne
+//     facultative ; « Conclure le projet » → `/conclure`), jamais une liste fixe ; un geste non offert
+//     est refusé par la station.
+//  3. Revues des fichiers de pilotage (P6) : « Accepter » → `/v1/revues/{t}/{c}/accepter`,
+//     « Refuser » avec un motif (1 à 1 000 caractères) → `/refuser` ; affichées seulement si la
+//     clé `revues` existe.
+//  4. Cartes arrêtées (bloquées ou abandonnées) : « Relancer » → `/v1/cartes/{t}/{c}/relancer`
+//     avec une consigne facultative (1 à 4 000 caractères ; jamais pour une carte d'intégration),
+//     seulement si le greffon la dit `relancable` ; sinon la raison du refus (`refus_relance`).
+//     Message d'après la réponse (`relancee`, `session_neuve`, `branche_neuve`, `statut_apres`).
+//  5. Discussions en attente : lues par la passerelle (`session.active_list`, DiscussionsEnAttente),
+//     en lecture seule : titre, activité, aperçu, session ; « Ouvrir la discussion » reprend la
+//     session dans la page Discussion. Illisibles : « état inconnu », avec le compteur du tableau
+//     de bord (`discussions` de la file) s'il le publie.
+//  Tableaux illisibles : signalés tels quels.
+//
+// Une réponse rendue sans effet (carte non relancée, non reprise) est une ALERTE, pas une
+// réussite : la page la montre comme telle (alerteGeste).
+//
+// Brouillons : le texte d'une réponse (« q:<question> »), d'une consigne de triage
+// (« t:<tableau>/<carte> »), d'une consigne de relance (« r:<tableau>/<carte> ») ou d'un motif de
+// refus (« m:<tableau>/<carte> ») est gardé ici à chaque frappe, pas dans le champ seul : il
+// survit aux relectures, à un envoi refusé et à un changement de page ; il n'est effacé qu'après
+// la réussite du geste (signal brouillonEfface).
 
 #pragma once
 
@@ -28,10 +46,10 @@
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QStringList>
-#include <QUrl>
+#include <QVariantMap>
 
 #include <chrono>
-#include <functional>
+#include <optional>
 
 namespace acp {
 
@@ -49,6 +67,8 @@ class QuestionsViewModel : public PageViewModel
     Q_PROPERTY(bool lue READ lue NOTIFY listeChange)
     Q_PROPERTY(bool revuesPresentes READ revuesPresentes NOTIFY listeChange)
     Q_PROPERTY(QStringList tableauxIllisibles READ tableauxIllisibles NOTIFY listeChange)
+    Q_PROPERTY(QVariantMap resume READ resume NOTIFY listeChange)
+    Q_PROPERTY(QVariantMap discussions READ discussions NOTIFY listeChange)
     Q_PROPERTY(QString lecture READ lecture NOTIFY lectureChange)
     Q_PROPERTY(QString erreur READ erreur NOTIFY lectureChange)
 
@@ -57,8 +77,6 @@ public:
                        QObject *parent = nullptr);
     ~QuestionsViewModel() override;
 
-    using Ouvreur = std::function<bool(const QUrl &)>;
-    void setOuvreur(Ouvreur ouvreur) { m_ouvreur = std::move(ouvreur); }
     /*! Intervalle du sondage de la page (15 s ; réglable pour les tests). */
     void setIntervalle(std::chrono::milliseconds intervalle);
 
@@ -69,6 +87,8 @@ public:
     [[nodiscard]] bool lue() const { return m_lue; }
     [[nodiscard]] bool revuesPresentes() const { return m_revuesPresentes; }
     [[nodiscard]] const QStringList &tableauxIllisibles() const { return m_illisibles; }
+    [[nodiscard]] const QVariantMap &resume() const { return m_resume; }
+    [[nodiscard]] const QVariantMap &discussions() const { return m_discussions; }
     [[nodiscard]] QString lecture() const;
     [[nodiscard]] QString erreur() const;
 
@@ -81,10 +101,14 @@ public:
     */
     Q_INVOKABLE void agirTriage(const QString &tableau, const QString &carte, const QString &geste,
                                 const QString &consigne);
-    /*! Ouvre la page Questions du tableau de bord (revues de P6) dans le navigateur. */
-    Q_INVOKABLE bool traiterDansLeNavigateur();
+    /*! « Relancer » une carte arrêtée que le greffon dit relançable ; consigne facultative. */
+    Q_INVOKABLE void relancer(const QString &tableau, const QString &carte, const QString &consigne);
+    /*! « Accepter » une revue des fichiers de pilotage. */
+    Q_INVOKABLE void accepterRevue(const QString &tableau, const QString &carte);
+    /*! « Refuser » une revue, avec un motif (1 à 1 000 caractères). */
+    Q_INVOKABLE void refuserRevue(const QString &tableau, const QString &carte, const QString &motif);
 
-    /*! Brouillon gardé pour « q:<question> » ou « t:<tableau>/<carte> » (vide s'il n'y en a pas). */
+    /*! Brouillon gardé pour sa clé (vide s'il n'y en a pas). */
     Q_INVOKABLE QString brouillon(const QString &cle) const { return m_brouillons.value(cle); }
     /*! Mémorise le texte en cours de frappe ; un texte vide retire le brouillon. */
     Q_INVOKABLE void setBrouillon(const QString &cle, const QString &texte);
@@ -95,8 +119,22 @@ public:
     [[nodiscard]] static QJsonObject construireTriage(const QJsonObject &carte);
     [[nodiscard]] static QJsonObject construireBloquee(const QJsonObject &carte);
     [[nodiscard]] static QJsonObject construireRevue(const QJsonObject &revue);
+    /*!
+        « À traiter par vous » : `compteurs` du greffon, plus les `discussions` en attente quand elles
+        sont connues (-1 : inconnues, le total le dit).
+    */
+    [[nodiscard]] static QVariantMap construireResume(const QJsonObject &liste, int discussions = -1);
+    /*!
+        Section « Discussions en attente » : les `sessions` lues par la passerelle
+        (DiscussionsEnAttente::sessionsEnAttente) ; `nullopt` : inconnues, avec le compteur du
+        tableau de bord (`serveur`, section `discussions` de la file) ou ce qui en est su.
+    */
+    [[nodiscard]] static QVariantMap construireDiscussions(const QJsonValue &serveur,
+                                                           const std::optional<QJsonArray> &sessions = std::nullopt);
     [[nodiscard]] static QString messageReponse(const QJsonObject &resultat);
     [[nodiscard]] static QString messageTriage(const QJsonObject &resultat);
+    /*! Message d'une relance, d'après la réponse du greffon (`integration` : carte sans agent). */
+    [[nodiscard]] static QString messageRelance(const QJsonObject &resultat, bool integration);
     /*! Gestes offerts : `actions` lisibles, sinon « reprendre » (comme la page web). */
     [[nodiscard]] static QStringList gestesOfferts(const QJsonObject &carte);
 
@@ -116,6 +154,8 @@ private:
     void apresGeste();
     void effacerBrouillon(const QString &cle);
 
+    void majDiscussions();
+
     ClientGreffonPoste *m_greffon = nullptr;
     ApiClient *m_client = nullptr;
     Sondage *m_sondage = nullptr;
@@ -123,12 +163,16 @@ private:
     JsonListModel *m_triage = nullptr;
     JsonListModel *m_bloquees = nullptr;
     JsonListModel *m_revues = nullptr;
-    Ouvreur m_ouvreur;
     bool m_lue = false;
     bool m_revuesPresentes = false;
     QStringList m_illisibles;
-    QHash<QString, QStringList> m_gestes; //!< « tableau/carte » → gestes offerts par le greffon.
-    QHash<QString, QString> m_brouillons; //!< « q:<question> » ou « t:<tableau>/<carte> » → texte.
+    QVariantMap m_resume;
+    QVariantMap m_discussions;
+    QJsonObject m_derniereListe;
+    QHash<QString, QStringList> m_gestes;   //!< « tableau/carte » → gestes offerts par le greffon.
+    QHash<QString, bool> m_relancables;     //!< « tableau/carte » → carte d'intégration ?
+    QHash<QString, bool> m_revuesOuvertes;  //!< « tableau/carte » des revues servies.
+    QHash<QString, QString> m_brouillons;   //!< clé de brouillon → texte.
 };
 
 } // namespace acp

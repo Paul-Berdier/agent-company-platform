@@ -241,7 +241,7 @@ QUrl ApiClient::resolve(const QString &path, const QUrlQuery &query) const
 }
 
 QNetworkReply *ApiClient::ouvrirFlux(const QString &path, const QUrlQuery &query, ApiError *refus,
-                                     const QByteArray &accept)
+                                     const QByteArray &accept, const QList<QPair<QByteArray, QByteArray>> &entetes)
 {
     const QUrl url = resolve(path, query);
     if (url.isEmpty()) {
@@ -263,6 +263,13 @@ QNetworkReply *ApiClient::ouvrirFlux(const QString &path, const QUrlQuery &query
     networkRequest.setRawHeader(QByteArrayLiteral("Accept"), accept);
     if (!m_userAgent.isEmpty()) {
         networkRequest.setRawHeader(QByteArrayLiteral("User-Agent"), m_userAgent);
+    }
+    for (const auto &[nom, valeur] : entetes) {
+        const QByteArray minuscule = nom.toLower();
+        if (minuscule == "authorization" || minuscule == "cookie" || minuscule == "origin") {
+            continue; // jamais par cette voie : le porteur est posé ci-dessous, le reste est interdit
+        }
+        networkRequest.setRawHeader(nom, valeur);
     }
     networkRequest.setRawHeader(QByteArrayLiteral("Authorization"), QByteArrayLiteral("Bearer ") + token);
     CredentialVault::wipe(token);

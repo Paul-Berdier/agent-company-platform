@@ -2,10 +2,26 @@
 
 #include "api/ApiError.h"
 #include "events/EventStreamService.h"
+#include "events/Sondage.h"
 
 #include <QTimer>
 
 namespace acp {
+
+QString PageViewModel::cadence() const
+{
+    return m_sondageCadence ? m_sondageCadence->libelleCadence() : QString();
+}
+
+void PageViewModel::suivreCadence(Sondage *sondage)
+{
+    if (m_sondageCadence || !sondage) {
+        return;
+    }
+    m_sondageCadence = sondage;
+    connect(sondage, &Sondage::cadenceChange, this, &PageViewModel::cadenceChange);
+    emit cadenceChange();
+}
 
 PageViewModel::PageViewModel(EventStreamService *flux, QObject *parent)
     : QObject(parent)
@@ -54,6 +70,7 @@ void PageViewModel::effacerGeste()
         return;
     }
     m_messageGeste.clear();
+    m_alerteGeste = false;
     m_erreurGeste.clear();
     emit gesteChange();
 }
@@ -62,14 +79,16 @@ void PageViewModel::debuterGeste()
 {
     m_gesteEnCours = true;
     m_messageGeste.clear();
+    m_alerteGeste = false;
     m_erreurGeste.clear();
     emit gesteChange();
 }
 
-void PageViewModel::terminerGeste(const QString &message)
+void PageViewModel::terminerGeste(const QString &message, bool alerte)
 {
     m_gesteEnCours = false;
     m_messageGeste = message;
+    m_alerteGeste = alerte;
     m_erreurGeste.clear();
     emit gesteChange();
 }
@@ -94,6 +113,7 @@ void PageViewModel::echouerGeste(const QString &message)
 {
     m_gesteEnCours = false;
     m_messageGeste.clear();
+    m_alerteGeste = false;
     m_erreurGeste = message;
     emit gesteChange();
 }

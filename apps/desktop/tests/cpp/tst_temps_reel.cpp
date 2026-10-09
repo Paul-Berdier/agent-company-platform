@@ -8,8 +8,9 @@
 //    le cahier tenait pour supposé), une rafale de lots ⇒ une seule invalidation après
 //    regroupement, reprise au dernier curseur après coupure, refus après deux poignées
 //    refusées, tableau inconnu refusé, silence après l'arrêt ;
-//  - EventStreamService : résumé de `/v1/projets` (questions, poste, pause), aucun flux SSE
-//    ouvert (aucun n'est annoncé à cette base), pages actives = session ET fenêtre,
+//  - EventStreamService : résumé de `/v1/accueil` (à traiter par vous, poste, pause ; fixture
+//    partagée avec le greffon), la page Projets ne met à jour que le poste et la pause, aucun flux
+//    SSE ouvert (aucun n'est annoncé à cette base), pages actives = session ET fenêtre,
 //    `sessions.changed` relayé, retour du lien signalé.
 
 #include "api/ApiClient.h"
@@ -19,6 +20,7 @@
 #include "events/VeilleKanban.h"
 #include "gateway/GatewayClient.h"
 #include "support/FauxHermes.h"
+#include "support/Fixtures.h"
 
 #include <QJsonArray>
 #include <QJsonObject>
@@ -33,6 +35,7 @@ using namespace acp::test;
 namespace {
 
 const QString kProjets = QStringLiteral("/api/plugins/acp-poste/v1/projets");
+const QString kAccueil = QStringLiteral("/api/plugins/acp-poste/v1/accueil");
 const QString kTableau = QStringLiteral("acp-outil-3dd5");
 
 struct Banc
@@ -69,6 +72,9 @@ struct Banc
                 : ReponseFaux::json(statutProjets, QJsonObject{{QStringLiteral("detail"), QStringLiteral("Not Found")}});
             reponse.delaiMs = delaiProjets;
             return reponse;
+        });
+        serveur.route("GET", kAccueil, [](const RequeteRecue &) {
+            return ReponseFaux::json(200, fixturePartagee(QStringLiteral("fixtures_accueil/accueil.json")).object());
         });
     }
 
@@ -310,44 +316,60 @@ void TestTempsReel::serviceResumeSansFluxSse()
     Banc banc;
     EventStreamService flux(&banc.client, &banc.greffon, nullptr);
     flux.setIntervalleFond(std::chrono::milliseconds(60));
-    QCOMPARE(flux.questionsOuvertes(), -1);
+    flux.setEtapeP7(QStringLiteral("annonce")); // greffon de l'étape P7 : /v1/meta annonce `accueil`
+    QCOMPARE(flux.aTraiter(), -1);
+    QCOMPARE(flux.libelleATraiter(), QStringLiteral("À traiter par vous : Inconnu"));
     QCOMPARE(flux.libellePoste(), QStringLiteral("Inconnu"));
     QCOMPARE(flux.pauseGenerale(), EventStreamService::kInconnu);
     QTest::qWait(150);
-    QCOMPARE(banc.serveur.compter("GET", kProjets), 0); // aucune session : rien ne part
+    QCOMPARE(banc.serveur.compter("GET", kAccueil), 0); // aucune session : rien ne part
 
     flux.demarrer();
-    QTRY_COMPARE(flux.questionsOuvertes(), 1);
+    QTRY_COMPARE(flux.aTraiter(), 1); // a_traiter.total de la fixture partagée
     QCOMPARE(flux.libellePoste(), QStringLiteral("En ligne"));
     QCOMPARE(flux.clePoste(), QStringLiteral("succeeded"));
     QCOMPARE(flux.pauseGenerale(), 0);
-    QCOMPARE(flux.libelleQuestions(), QStringLiteral("1 question ouverte"));
-    QTRY_VERIFY(banc.serveur.compter("GET", kProjets) >= 2);
+    // Jamais « rien à traiter » : les discussions en attente ne sont pas comptées, et le libellé le dit.
+    QCOMPARE(flux.libelleATraiter(), QStringLiteral("À traiter par vous : 1 (discussions non comptées)"));
+    QTRY_VERIFY(banc.serveur.compter("GET", kAccueil) >= 2);
 
     // Aucun flux SSE n'est annoncé à cette base : rien d'autre n'est ouvert, et l'état le dit.
     for (const RequeteRecue &requete : std::as_const(banc.serveur.requetes)) {
-        QCOMPARE(requete.chemin, kProjets);
+        QCOMPARE(requete.chemin, kAccueil);
         QVERIFY(requete.entete("accept") != QByteArrayLiteral("text/event-stream"));
     }
-    QVERIFY(EventStreamService::etatFluxGreffon(QStringLiteral("absent"))
-                .startsWith(QStringLiteral("Non disponible sur ce serveur")));
+    // /v1/meta non lu par ce banc : le flux n'est pas ouvert, et l'état le dit (« Inconnu », jamais deviné).
+    QVERIFY(flux.etatFlux().startsWith(QStringLiteral("Inconnu : /v1/meta n'a pas encore été lu")));
 
-    // Une page qui lit /v1/projets met le résumé à jour sans attendre.
+    // La page Projets (GET /v1/projets) met à jour le poste et la pause, jamais le compteur (une seule source).
     QJsonObject pause = Banc::liste();
     pause.insert(QStringLiteral("pause_generale"), QJsonObject{{QStringLiteral("reason"), QStringLiteral("ACP : pause du propriétaire")}});
     pause.insert(QStringLiteral("questions_ouvertes"), 3);
     flux.noterProjets(pause);
     QCOMPARE(flux.pauseGenerale(), 1);
-    QCOMPARE(flux.questionsOuvertes(), 3);
+    QCOMPARE(flux.aTraiter(), 1);
     QVERIFY(flux.libelleResume().contains(QStringLiteral("Pause générale engagée")));
 
+    // L'Accueil (GET /v1/accueil) met tout à jour sans attendre ; un bloc de pause illisible n'est pas « levée ».
+    QJsonObject accueil = fixturePartagee(QStringLiteral("fixtures_accueil/accueil.json")).object();
+    QJsonObject aTraiter = accueil.value(QStringLiteral("a_traiter")).toObject();
+    aTraiter.insert(QStringLiteral("total"), 4);
+    accueil.insert(QStringLiteral("a_traiter"), aTraiter);
+    accueil.insert(QStringLiteral("illisibles"), QJsonObject{{QStringLiteral("pause_generale"), QStringLiteral("bloc illisible")}});
+    flux.noterAccueil(accueil);
+    QCOMPARE(flux.aTraiter(), 4);
+    QCOMPARE(flux.pauseGenerale(), EventStreamService::kInconnu);
+    accueil.insert(QStringLiteral("a_traiter"), QJsonValue::Null);
+    flux.noterAccueil(accueil);
+    QCOMPARE(flux.aTraiter(), -1);
+
     flux.arreter();
-    QCOMPARE(flux.questionsOuvertes(), -1);
+    QCOMPARE(flux.aTraiter(), -1);
     QCOMPARE(flux.pauseGenerale(), EventStreamService::kInconnu);
     QTRY_VERIFY(!flux.sondageFond()->enCours());
-    const int arret = banc.serveur.compter("GET", kProjets);
+    const int arret = banc.serveur.compter("GET", kAccueil);
     QTest::qWait(200);
-    QCOMPARE(banc.serveur.compter("GET", kProjets), arret);
+    QCOMPARE(banc.serveur.compter("GET", kAccueil), arret);
 }
 
 void TestTempsReel::servicePagesActivesEtLien()

@@ -3,18 +3,31 @@
 Public : développeur du client natif C++23 / Qt 6 / Qt Quick (`apps/desktop`).
 Version du produit : `0.11.0` (fichier `VERSION` à la racine), refonte « Hermes au
 centre », étape **P8** : la station parle à Hermes (connexion native RFC 8252, porteur,
-JSON-RPC `/api/ws`, greffon `acp-poste`). État de ce document : 2 octobre 2026. Les
+JSON-RPC `/api/ws`, greffon `acp-poste`) ; étape **P8b** : alignée sur P7. État de ce
+document : 9 octobre 2026 (le bout en bout du § 12 date de P8, 2 octobre 2026). Les
 relevés de l'ancien client (0.10.0, ancienne API ACP) restent sous l'étiquette
 `archive/acp-0.10.0-avant-hermes`.
 
 ## État des preuves
 
-Sur la branche `refonte/hermes-p8` : compilation Release (`/W4 /WX`) et **34 suites**
-déclarées à CTest (31 avant les corrections de la relecture, 34 depuis), totaux Qt relevés sans échec ni test ignoré, localement et par la
-**Desktop CI** sur `windows-2022` (identifiants des runs dans
-[`reprise-poste.md`](reprise-poste.md), § 6 decies). Un **bout en bout local** contre la
-pile de test (vrai Authelia, Hermes de test, bord TLS factice) a réussi (§ 12). Ni
-Railway, ni une vraie passkey, ni une installation sur un Windows propre ne sont prouvés.
+Sur la branche `refonte/hermes-p8b` (étape P8b, 8 et 9 octobre 2026) : compilation Release
+(`/W4 /WX`) et **36 suites** déclarées à CTest (31 avant les corrections de la relecture de
+P8, 34 après, 36 depuis P8b). **Localement** (construction incrémentale, chaque exécutable
+lancé avec `-o <rapport>,txt`), les totaux de Qt Test sont relevés sans échec ni test
+ignoré : 36 rapports, 513 tests passés, 0 échec, 0 ignoré sur `ac31836` (relevé hors du
+dépôt). La **Desktop CI** sur `windows-2022` ne relève, elle, que le compte de CTest
+(« 100% tests passed, 0 tests failed out of 36 »), qui range un test ignoré par `QSKIP`
+parmi les réussites : elle prouve 36 suites sur 36 sans échec, pas l'absence de test
+ignoré (`tst_flux_natif`, `tst_jetons_coffre` et `tst_sauvegarde` contiennent un `QSKIP`
+conditionnel, voir § 5). Runs : `37833794335` sur `4e51efc` (fin de P8b), `37839494684`
+sur `2bce7b8` et `37841198696` sur `9bec3e5` (corrections de la relecture), `37842321240`
+sur `662435a`, `37875463386` sur `afa4f8f` et `37876255274` sur `ac31836` (seconde
+relecture) ; tous les runs de P8b sont listés dans
+[`refonte/desktop.md`](refonte/desktop.md), § « P8b ». Ceux de P8 (34 suites) sont dans
+[`reprise-poste.md`](reprise-poste.md), § 6 decies. Le **bout en bout local** contre la pile
+de test (vrai Authelia, Hermes de test, bord TLS factice) a réussi pour **P8**, le
+2 octobre 2026 (§ 12) ; il n'a **pas été rejoué** sur P8b (§ 11, point 5). Ni Railway, ni
+une vraie passkey, ni une installation sur un Windows propre ne sont prouvés.
 
 ## 1. Prérequis
 
@@ -136,20 +149,21 @@ Qt Test et Qt Quick Test sont ceux que le préréglage de test déclare. Un test
 échec fait échouer le script avec le code `5`. Aucun résultat n'est converti en
 avertissement, aucune suite n'est ignorée silencieusement.
 
-Depuis P8 et ses corrections après relecture, 34 suites :
+Depuis P8b (station alignée sur P7), 36 suites :
 
 | Domaine | Suites |
 |---|---|
 | Connexion et coffre | `tst_pkce`, `tst_flux_natif`, `tst_session_hermes`, `tst_jetons_coffre`, `tst_instance_unique`, `tst_reglages_sans_secret` |
 | Transport, compatibilité, santé | `tst_api_porteur`, `tst_api_errors`, `tst_client_greffon`, `tst_compatibilite_hermes`, `tst_sante` |
-| JSON-RPC et temps réel | `tst_canal_jsonrpc`, `tst_client_passerelle`, `tst_openrpc_conformite`, `tst_temps_reel`, `tst_sse_parser`, `tst_backoff` |
+| JSON-RPC et temps réel | `tst_canal_jsonrpc`, `tst_client_passerelle`, `tst_openrpc_conformite`, `tst_temps_reel`, `tst_flux_invalidation` (flux d'invalidation du greffon, trames partagées), `tst_discussions_attente` (`session.active_list`), `tst_sse_parser`, `tst_backoff` |
 | Pages | `tst_accueil`, `tst_projets`, `tst_questions`, `tst_discussion`, `tst_poste`, `tst_quotas`, `tst_routage`, `tst_sauvegarde`, `tst_diagnostics`, `tst_pages_bureau` |
-| Gestes réels et oubli | `tst_pages_interactions` (frappes et clics de souris sur les vrais contrôles QML : réponse à une question, consigne, message de la discussion, raccourcis de la palette, dialogue des réglages), `tst_oubli_local` (session perdue, changement de serveur, greffon bloqué), `tst_modele_liste` (mise à jour des listes par identifiant) |
+| Gestes réels et oubli | `tst_pages_interactions` (frappes et clics de souris sur les vrais contrôles QML : réponse à une question, consigne, relance, refus de revue, qui répond, clôture, exécutant grisé, relecture au signal du flux, ouverture d'une discussion en attente, message de la discussion, raccourcis de la palette, dialogue des réglages), `tst_oubli_local` (session perdue, changement de serveur, greffon bloqué), `tst_modele_liste` (mise à jour des listes par identifiant) |
 | Socle | `tst_command_registry`, `tst_redaction`, `tst_updates`, `tst_qml_shell` (Qt Quick Test) |
 
 CTest compte « Passed » un test ignoré par `QSKIP` : lire les totaux de Qt Test
 (`Totals: N passed, 0 failed, 0 skipped`) en lançant chaque exécutable avec
-`-o <rapport-absolu>,txt`. `tst_jetons_coffre` et `tst_sauvegarde` font un aller-retour
+`-o <rapport-absolu>,txt`. La Desktop CI ne le fait pas : son journal ne porte que le
+compte de CTest. `tst_jetons_coffre` et `tst_sauvegarde` font un aller-retour
 réel dans le coffre Windows et DPAPI (ignorés, avec la raison, hors Windows).
 
 ## 6. Développer
@@ -242,8 +256,9 @@ Premiers contrôles historiques du 18 septembre 2026, avant installation des out
 
 Depuis ce premier relevé, CMake, CTest, `windeployqt` et Inno Setup ont été
 exécutés, en local et en CI. Pour P8 : la suite complète (34 suites) et le bout en bout
-local (§ 12). `signtool` avec un certificat de production, l'installation sur un
-Windows propre et Railway restent non prouvés.
+local (§ 12). Pour P8b : la suite complète (36 suites), en construction incrémentale
+locale et en Desktop CI ; pas de bout en bout. `signtool` avec un certificat de
+production, l'installation sur un Windows propre et Railway restent non prouvés.
 
 Pour diagnostiquer un test Qt silencieux sur ce poste, lancer son exécutable avec
 `-o <rapport-absolu>,txt` et lire le rapport. Les exécutables résident directement
@@ -281,11 +296,17 @@ elles ne bénéficient pas de la maintenance d'un CRT installé centralement.
    risque sans le supprimer.
 4. Les préréglages MSVC actuels utilisent Ninja. Leur contrat, le filtre CTest et
    les chemins doivent rester cohérents si ce générateur change.
+5. Le bout en bout local du § 12 date de l'étape P8 (2 octobre 2026, images `:p8` et
+   `:rv8p6`). Il n'a pas été rejoué sur P8b (aucune commande Docker sur ce chantier) :
+   le flux d'invalidation réel derrière uvicorn, la relance, la clôture, les revues, les
+   discussions en attente et le bilan quotidien ne sont prouvés que contre le faux Hermes
+   des tests natifs et les fixtures partagées avec le greffon.
 
 ## 12. Bout en bout local (jamais en CI)
 
 Les exécuteurs Windows de GitHub ne font pas tourner de conteneurs Linux : ce parcours se
-lance sur un poste avec Docker Desktop, contre la pile de test des greffons.
+lance sur un poste avec Docker Desktop, contre la pile de test des greffons. Dernier
+relevé : étape P8 (2 octobre 2026) ; non rejoué sur P8b (§ 11, point 5).
 
 ```powershell
 docker build -f hermes/image/Dockerfile -t acp-hermes:p8 hermes

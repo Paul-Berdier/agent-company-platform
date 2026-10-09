@@ -29,5 +29,6 @@
   "interface": {},
   "projets": {"base": "ok"},
   "machine": {"fournisseur": "enregistre"},
+  "accueil": true,
   "alertes": []
 }

@@ -156,6 +156,13 @@ void TestPagesBureau::pagesAlimenteesPuisRacine()
                   [](const RequeteRecue &) { return ReponseFaux::json(200, fixture(QStringLiteral("meta.json"))); });
     serveur.route("GET", kP + QStringLiteral("/catalogue"),
                   [](const RequeteRecue &) { return ReponseFaux::json(200, fixture(QStringLiteral("catalogue-profils.json"))); });
+    // Route NATIVE de Hermes : la tâche du bilan quotidien, active (carte « Bilan quotidien » de l'Accueil).
+    serveur.route("GET", QStringLiteral("/api/cron/jobs"), [](const RequeteRecue &) {
+        return ReponseFaux::json(200, QJsonArray{QJsonObject{
+            {QStringLiteral("id"), QStringLiteral("j1")}, {QStringLiteral("script"), QStringLiteral("acp-bilan.py")},
+            {QStringLiteral("no_agent"), true}, {QStringLiteral("enabled"), true}, {QStringLiteral("state"), QStringLiteral("scheduled")},
+            {QStringLiteral("next_run_at"), QStringLiteral("2026-10-09T06:00:00+00:00")}}});
+    });
     QJsonObject poste = fixture(QStringLiteral("poste-releve.json"));
     serveur.route("GET", kP + QStringLiteral("/poste"), [&poste](const RequeteRecue &) { return ReponseFaux::json(200, poste); });
     serveur.route("POST", kP + QStringLiteral("/poste/enrolement"), [](const RequeteRecue &) {
@@ -189,6 +196,10 @@ void TestPagesBureau::pagesAlimenteesPuisRacine()
                   [&questions](const RequeteRecue &) { return ReponseFaux::json(200, questions); });
     serveur.route("GET", QStringLiteral("/api/sessions"),
                   [](const RequeteRecue &) { return ReponseFaux::json(200, fixture(QStringLiteral("sessions.json"))); });
+    // Accueil agrégé (étape P7) : la fixture partagée avec le greffon et la page web.
+    serveur.route("GET", kP + QStringLiteral("/accueil"), [](const RequeteRecue &) {
+        return ReponseFaux::json(200, fixturePartagee(QStringLiteral("fixtures_accueil/accueil.json")).object());
+    });
     serveur.route("GET", QStringLiteral("/api/plugins/kanban/board"), [](const RequeteRecue &) {
         return ReponseFaux::json(200, QJsonObject{{QStringLiteral("latest_event_id"), 1}, {QStringLiteral("columns"), QJsonArray{}}});
     });
@@ -265,20 +276,43 @@ void TestPagesBureau::pagesAlimenteesPuisRacine()
         const QString fautes_ = examiner(objet, etape);                                                            \
         QVERIFY2(fautes_.isEmpty(), qPrintable(fautes_));                                                          \
     } while (false)
+    // Relecture de P8b (constat desktop-4) : la page affiche la cadence RÉELLE de sa relecture (propriété `cadence` de
+    // son ViewModel), jamais un « toutes les 15 secondes » écrit en dur. Ici, aucun flux annoncé : sondage habituel.
+#define VERIFIER_CADENCE(objet, modele, attendue)                                                                  \
+    do {                                                                                                           \
+        const QString cadence_ = (modele)->property("cadence").toString();                                        \
+        QCOMPARE(cadence_, QString(attendue));                                                                     \
+        QVERIFY2(contientTexte(qobject_cast<QQuickItem *>(objet), cadence_), qPrintable(cadence_));                \
+    } while (false)
+    const QString kCadencePage = QStringLiteral("Sans temps réel : page relue toutes les 15 secondes tant qu'elle est affichée.");
 
     // --- Accueil alimenté ------------------------------------------------------------------
     {
         auto page = charger(QStringLiteral("Acp.Pages"), QStringLiteral("HomePage"));
         QVERIFY(page);
-        QTRY_VERIFY_WITH_TIMEOUT(accueil->carteProjets().value(QStringLiteral("lisible")).toBool(), 5000);
+        QTRY_VERIFY_WITH_TIMEOUT(accueil->lue(), 5000);
         QTRY_COMPARE_WITH_TIMEOUT(accueil->sessions()->count(), 2, 5000);
-        QTRY_VERIFY_WITH_TIMEOUT(accueil->carteQuotas().value(QStringLiteral("connu")).toBool(), 5000);
         QTRY_VERIFY_WITH_TIMEOUT(application.findChild<CompatibiliteHermes *>()->lecture().startsWith(QStringLiteral("Lu à")), 5000);
         VERIFIER(page.get(), QStringLiteral("Accueil"));
+        VERIFIER_CADENCE(page.get(), accueil,
+                         QStringLiteral("Sans temps réel : Accueil, bilan quotidien, discussions récentes et carte Hermes "
+                                        "relus toutes les 15 secondes tant que la page est affichée."));
         auto *item = qobject_cast<QQuickItem *>(page.get());
-        QVERIFY(contientTexte(item, QStringLiteral("Plan posé : deux recherches.")));
-        QVERIFY(contientTexte(item, QStringLiteral("poste-simule")));
+        // Les cartes de l'Accueil agrégé, dans l'ordre du navigateur.
+        QVERIFY(contientTexte(item, QStringLiteral("À traiter par vous")));
+        QVERIFY(contientTexte(item, QStringLiteral("Question : Exploration du dépôt « jetable » · Outil jetable")));
+        QVERIFY(contientTexte(item, QStringLiteral("0 sur 2 cartes faites")));
+        QVERIFY(contientTexte(item, QStringLiteral("Exécutant Railway")));
+        QVERIFY(contientTexte(item, QStringLiteral("Même enveloppe que Codex (déclaré dans poste.toml)")));
+        QVERIFY(contientTexte(item, QStringLiteral("Configurées")));
         QVERIFY(contientTexte(item, QStringLiteral("Sans titre"))); // session s2 sans titre
+        // Étape P8b : bilan quotidien (tâche cron native de Hermes), comme la carte du navigateur.
+        QTRY_VERIFY_WITH_TIMEOUT(accueil->carteBilan().value(QStringLiteral("lu")).toBool(), 5000);
+        QTest::qWait(50);
+        VERIFIER(page.get(), QStringLiteral("Accueil, bilan quotidien"));
+        QVERIFY(contientTexte(item, QStringLiteral("Bilan quotidien")));
+        QVERIFY(contientTexte(item, QStringLiteral("Prochaine exécution")));
+        QVERIFY(contientTexte(item, QStringLiteral("Pause et suppression : page Cron")));
     }
     QTRY_VERIFY(!accueil->actif());
 
@@ -289,12 +323,17 @@ void TestPagesBureau::pagesAlimenteesPuisRacine()
         auto *item = qobject_cast<QQuickItem *>(page.get());
         QTRY_COMPARE_WITH_TIMEOUT(pageProjets->projets()->count(), 2, 5000);
         VERIFIER(page.get(), QStringLiteral("Projets, liste"));
+        VERIFIER_CADENCE(page.get(), pageProjets, kCadencePage);
         QVERIFY(contientTexte(item, QStringLiteral("Veille LLM")));
 
         pageProjets->ouvrirProjet(kId);
         QTRY_VERIFY_WITH_TIMEOUT(pageProjets->detailLu(), 5000);
         VERIFIER(page.get(), QStringLiteral("Projets, détail"));
         QVERIFY(contientTexte(item, QStringLiteral("Écrire outil.py.")));
+        // Étape P7 : « Qui répond » se lit « Vous » ; les gestes « Changer qui répond » et « Clore le projet ».
+        QVERIFY(contientTexte(item, QStringLiteral("Vous")));
+        QVERIFY(contientTexte(item, QStringLiteral("Changer qui répond")));
+        QVERIFY(contientTexte(item, QStringLiteral("Clore le projet")));
         QVERIFY(contientTexte(item, QStringLiteral("Quelle version de Python viser ?")));
 
         pageProjets->afficherNouveau();
@@ -321,9 +360,13 @@ void TestPagesBureau::pagesAlimenteesPuisRacine()
         auto *item = qobject_cast<QQuickItem *>(page.get());
         QTRY_VERIFY_WITH_TIMEOUT(pageQuestions->lue(), 5000);
         VERIFIER(page.get(), QStringLiteral("Questions"));
+        VERIFIER_CADENCE(page.get(), pageQuestions, kCadencePage);
         QVERIFY(contientTexte(item, QStringLiteral("Quelle version de Python viser ?")));
         QVERIFY(contientTexte(item, QStringLiteral("3 tours planifiés")));
-        QVERIFY(contientTexte(item, QStringLiteral("Lecture seule")));
+        // Étape P7 : compteurs du greffon, raison d'une carte non relançable, discussions en attente.
+        QVERIFY(contientTexte(item, QStringLiteral("À traiter par vous")));
+        QVERIFY(contientTexte(item, QStringLiteral("Relance impossible : Carte non émise par ACP : ACP ne la relance pas.")));
+        QVERIFY(contientTexte(item, QStringLiteral("Requêtes ouvertes dans le tableau de bord : 0")));
 
         questions = QJsonObject{{QStringLiteral("questions"), QJsonArray{}}, {QStringLiteral("triage"), QJsonArray{}},
                                 {QStringLiteral("bloquees"), QJsonArray{}}, {QStringLiteral("tableaux_illisibles"), QJsonArray{}}};
@@ -343,10 +386,27 @@ void TestPagesBureau::pagesAlimenteesPuisRacine()
         auto *item = qobject_cast<QQuickItem *>(page.get());
         QTRY_VERIFY_WITH_TIMEOUT(pagePoste->lue() && pagePoste->peutRelever(), 5000);
         VERIFIER(page.get(), QStringLiteral("Poste en ligne"));
+        VERIFIER_CADENCE(page.get(), pagePoste, kCadencePage);
         QVERIFY(contientTexte(item, QStringLiteral("Compte dédié acp-poste")));
         // /v1/meta lu par l'accueil, sans `machine.executant` (Hermes sans l'étape P6).
         QVERIFY(contientTexte(item, QStringLiteral("Exécutant : non disponible sur ce serveur (étape P6).")));
         QVERIFY(contientTexte(item, QStringLiteral("Aucun ordre en attente.")));
+        // Avant P7 (aucune mesure servie) : le dépôt de l'inventaire, jamais dit privé.
+        QVERIFY(contientTexte(item, QStringLiteral("Jamais mesurée par l'exécutant (Codex fermé)")));
+
+        // Étape P7 (partie E) : visibilité mesurée et voies par dépôt, fixture PARTAGÉE avec le greffon et le web.
+        poste.insert(QStringLiteral("executant"), QJsonObject{
+            {QStringLiteral("connu"), true},
+            {QStringLiteral("depots"), fixturePartagee(QStringLiteral("fixtures_poste/depots.json")).array()}});
+        pagePoste->actualiser();
+        QTRY_COMPARE_WITH_TIMEOUT(pagePoste->depots().size(), 2, 5000);
+        QTest::qWait(50);
+        VERIFIER(page.get(), QStringLiteral("Poste, dépôts mesurés"));
+        QVERIFY(contientTexte(item, QStringLiteral("Poste (Codex) : Fermée — dépôt « demo » non prouvé privé (visibilité mesurée : public)")));
+        QVERIFY(contientTexte(item, QStringLiteral("Poste (Codex) : Ouverte")));
+        QVERIFY(contientTexte(item, QStringLiteral("Privé")));
+        QVERIFY(contientTexte(item, QStringLiteral("Public")));
+        QVERIFY(contientTexte(item, QStringLiteral("Codex ne travaille que sur un dépôt prouvé privé (D83)")));
 
         poste = fixture(QStringLiteral("poste-non-configure.json"));
         pagePoste->actualiser();
@@ -368,6 +428,8 @@ void TestPagesBureau::pagesAlimenteesPuisRacine()
         auto *item = qobject_cast<QQuickItem *>(page.get());
         QTRY_VERIFY_WITH_TIMEOUT(pageQuotas->lue(), 5000);
         VERIFIER(page.get(), QStringLiteral("Quotas"));
+        VERIFIER_CADENCE(page.get(), pageQuotas,
+                         QStringLiteral("Sans temps réel : page relue toutes les 60 secondes tant qu'elle est affichée."));
         QVERIFY(contientTexte(item, QStringLiteral("Fenêtre primary · 300 min")));
         QVERIFY(contientTexte(item, QStringLiteral("Aucun compteur relevé.")));
     }
