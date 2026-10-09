@@ -486,7 +486,12 @@ def test_ecrire_refuse_une_structure_inattendue_sans_rien_ecrire(depot, amont):
 # =========================================================================== refus
 
 
-@pytest.mark.parametrize("etiquette", ["latest", "main", "2026.9.24", "v2026.9", "v2026.9.24-desktop", "v26.9.24"])
+# « v26.9.24 » figurait ici tant que seule la forme calendaire était admise : c'est désormais une étiquette de
+# version (vX.Y.Z, forme de l'amont depuis v0.21.6), acceptée. Les formes réelles de l'amont qui ne sont pas des
+# releases (candidates, canaris, variantes d'image) restent refusées.
+@pytest.mark.parametrize("etiquette", ["latest", "main", "2026.9.24", "v2026.9", "v2026.9.24-desktop", "v0.21",
+                                       "v0.21.6.1", "v0.21.6-desktop", "v0.21.6-amd64", "rc.5-v0.21.7",
+                                       "abandoned-rc.1-v0.21.6", "v0.21.6+canary.20261009T070410Z", "stable"])
 def test_les_etiquettes_hors_release_sont_refusees(depot, amont, etiquette, capsys):
     assert mh.main(["verifier", "--etiquette", etiquette], racine=depot, executer=amont) == 2
     assert "Refus : Étiquette" in capsys.readouterr().err
@@ -813,6 +818,92 @@ def test_derniere_refuse_une_api_illisible(depot, amont):
 
     with pytest.raises(mh.Refus, match="Docker Hub illisible"):
         mh.derniere(depot, amont, illisible, sortie=lambda _l: None)
+
+
+# =========================================================================== étiquettes de version (relecture finale)
+
+# Étiquettes réelles de l'amont relevées le 9 octobre 2026 (git ls-remote --tags, API de Docker Hub « name=v ») :
+# après v2026.9.24 (Hermes 0.21.5), l'amont publie ses releases sous la forme vX.Y.Z (v0.21.6, le 8 octobre 2026) ;
+# ses candidates (rc.N-vX.Y.Z, abandoned-rc.N-vX.Y.Z), ses canaris (vX.Y.Z+canary.<horodatage>, en git seulement) et
+# les variantes d'image (-desktop, -amd64, sur Docker Hub seulement) ne sont pas des releases.
+TAGS_GIT_0910 = ["v2026.9.21", "v2026.9.24", "v0.21.6", "rc.5-v0.21.7", "rc.4-v0.21.6", "abandoned-rc.1-v0.21.6",
+                 "v0.21.5+canary.20261008T070449Z", "v0.21.6+canary.20261009T070410Z", "inputs-0",
+                 "backup/opentui-prestrip-20260616-1950", "premerge-oh-god"]
+TAGS_HUB_0910 = ["v2026.9.21", "v2026.9.24", "v2026.9.24-desktop", "v0.21.6", "v0.21.6-amd64", "v0.21.6-desktop",
+                 "rc.5-v0.21.7", "rc.5-v0.21.7-arm64", "rc.4-v0.21.6"]
+
+
+def _page_unique(noms: Sequence[str]):
+    return lambda _url: json.dumps({"results": [{"name": n} for n in noms], "next": None}).encode()
+
+
+def test_derniere_voit_une_release_a_etiquette_de_version(depot, amont):
+    """Relecture finale P9 (preuves-1) : v0.21.6, publiée le 8 octobre 2026 (git, Docker Hub, release GitHub), était
+    écartée en silence (seule la forme vAAAA.M.J était retenue) et « derniere » concluait « Aucune release plus
+    récente que celle épinglée »."""
+    amont.tags_git = TAGS_GIT_0910
+    code, journal = _lancer(mh.derniere, depot, amont, _page_unique(TAGS_HUB_0910))
+    assert code == 0, journal
+    assert "Dernière release publiée (git et Docker Hub) : v0.21.6." in journal
+    assert "Release épinglée : v2026.9.24 (Hermes 0.21.5)." in journal
+    assert "Une release plus récente existe : préparer la PR de montée (ecrire v0.21.6)." in journal
+    assert "Aucune release plus récente" not in journal
+    assert "Candidate plus récente que toute release (jamais épinglée) : rc.5-v0.21.7." in journal
+
+
+def test_derniere_une_etiquette_de_version_se_compare_a_la_version_epinglee(depot, amont):
+    """HERMES_VERSION fait foi face à une étiquette de version : v0.21.5 (la version de v2026.9.24) n'est pas une
+    montée, v0.21.4 non plus."""
+    tags = ["v2026.9.24", "v0.21.5", "v0.21.4"]
+    amont.tags_git = tags
+    code, journal = _lancer(mh.derniere, depot, amont, _page_unique(tags))
+    assert code == 0, journal
+    assert "Dernière release publiée (git et Docker Hub) : v0.21.5." in journal
+    assert "Aucune release plus récente que celle épinglée." in journal
+
+
+def test_derniere_range_les_etiquettes_de_version_par_nombres(depot, amont):
+    tags = ["v2026.9.24", "v0.21.9", "v0.21.10", "v0.3.0", "v2026.12.31"]
+    amont.tags_git = tags
+    code, journal = _lancer(mh.derniere, depot, amont, _page_unique(tags))
+    assert code == 0, journal
+    assert "Dernière release publiée (git et Docker Hub) : v0.21.10." in journal
+
+
+@pytest.mark.parametrize("inconnue", ["hermes-v0.22.0", "v0.22", "v2026.10", "release-v1"])
+def test_derniere_refuse_une_forme_d_etiquette_inconnue_publiee(depot, amont, inconnue):
+    """Une étiquette publiée à la fois en git et sur Docker Hub qui n'est ni une release (vAAAA.M.J[.N], vX.Y.Z), ni
+    une candidate, ni un canari est un refus nommé, jamais un oubli silencieux : une nouvelle forme de release de
+    l'amont passerait sinon inaperçue, comme v0.21.6."""
+    tags = ["v2026.9.24", "v0.21.6", inconnue]
+    amont.tags_git = tags
+    with pytest.raises(mh.Refus, match=rf"forme inconnue : {re.escape(inconnue)}\b"):
+        mh.derniere(depot, amont, _page_unique(tags), sortie=lambda _l: None)
+
+
+@pytest.mark.parametrize("etiquette", ["v0.21.6", "v1.0.0", "v0.21.10", "v2026.9.24", "v2026.8.16.2"])
+def test_les_deux_formes_de_release_de_l_amont_sont_acceptees(etiquette):
+    assert mh.valider_etiquette(etiquette) == etiquette
+
+
+def test_verifier_et_ecrire_une_release_a_etiquette_de_version(depot, amont):
+    """Relecture finale P9 (preuves-1) : « verifier --etiquette v0.21.6 » et « ecrire v0.21.6 » refusaient la forme
+    de version (« hors format : attendu vAAAA.M.J »). Une étiquette de version ne porte pas la date de release que
+    « hermes --version » affiche : c'est un écart nommé (deux tests la tirent de HERMES_TAG), pas un refus."""
+    suivante = _release_suivante(amont)
+    suivante.valeurs = replace(suivante.valeurs, etiquette="v0.22.0")
+    suivante.version_affichee = f"Hermes Agent v0.22.0 (2026.10.15) · upstream {suivante.valeurs.commit[:8]}"
+    code, journal = _lancer(mh.verifier, depot, suivante, "v0.22.0")
+    assert code == 1, journal
+    assert ("- étiquette v0.22.0 sans date de release : « hermes --version » affiche (2026.10.15) ; "
+            "hermes/tests/contrat/test_contrat_image.py et scripts/tests/test_epingles_hermes.py tirent cette date "
+            "de HERMES_TAG") in journal
+    code, journal = _lancer(mh.ecrire, depot, suivante, "v0.22.0", date="15 octobre 2026")
+    assert code == 0, journal
+    assert "ATTENTION : étiquette v0.22.0 sans date de release" in journal
+    assert mh.lire_epingle(depot).valeurs.etiquette == "v0.22.0"
+    dockerfile = (depot / mh.DOCKERFILE).read_text(encoding="utf-8")
+    assert f"FROM nousresearch/hermes-agent:v0.22.0@{suivante.valeurs.index}\n" in dockerfile
 
 
 # =========================================================================== intégration continue

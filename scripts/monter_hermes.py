@@ -3,14 +3,14 @@
 
 Source unique de l'épinglage : ``hermes/contrat/HERMES_VERSION``. Sous-commandes :
 
-``verifier [--etiquette vAAAA.M.J]``
+``verifier [--etiquette vAAAA.M.J | vX.Y.Z]``
     Relève, SANS RIEN ÉCRIRE, ce que publie l'amont pour l'étiquette (par défaut celle épinglée) : condensat
     d'index et par plate-forme (``docker buildx imagetools inspect``), commit de l'étiquette (``git ls-remote``),
     puis, dans l'image tirée PAR CONDENSAT : ``hermes --version``, provenance de l'image, OpenRPC de la passerelle,
     ``LICENSE`` et noms des skills livrées. Rend ensuite chaque épingle forte à partir de ce relevé et la compare,
     octet pour octet, au fichier du dépôt : c'est la répétition à blanc de la montée (« Aucun écart » sur la
     version épinglée prouve que ``ecrire`` ne changerait rien).
-``ecrire vAAAA.M.J [--date "2 octobre 2026"]``
+``ecrire vAAAA.M.J | vX.Y.Z [--date "2 octobre 2026"]``
     Refuse si un fichier cible porte des changements non committés ; contrôle tout ce qu'il lit, puis réécrit les
     épingles fortes (liste ``EPINGLES_FORTES``) en LF, tout ou rien (fichiers temporaires, puis remplacements) ;
     rapporte les méthodes OpenRPC ajoutées et retirées, le changement
@@ -24,8 +24,10 @@ Source unique de l'épinglage : ``hermes/contrat/HERMES_VERSION``. Sous-commande
     (commentaires « Hermes 0.21.5 … fichier:ligne », à revérifier dans la PR de montée), documentation
     (historique, jamais réécrite).
 ``derniere``
-    Dernière release publiée à la fois en étiquette git amont et en étiquette Docker Hub (API publique), au
-    format ``vAAAA.M.J[.N]`` ; n'écrit rien (veille mensuelle).
+    Dernière release publiée à la fois en étiquette git amont et en étiquette Docker Hub (API publique), sous l'une
+    des deux formes de release de l'amont (``vAAAA.M.J[.N]`` jusqu'à v2026.9.24, ``vX.Y.Z`` depuis v0.21.6) ;
+    candidates et canaris écartés ; toute autre forme publiée est un refus nommé, jamais un oubli silencieux.
+    N'écrit rien (veille mensuelle).
 
 Toute valeur (lue dans HERMES_VERSION, relevée chez l'amont, ou passée par ``--date``) est validée dans sa forme
 AVANT d'être passée à ``docker`` ou ``git`` ou d'être écrite ; un fichier absent, non UTF-8 ou un JSON abîmé est un
@@ -73,7 +75,18 @@ PYTHON_IMAGE = "/opt/hermes/.venv/bin/python"
 
 # Formes exigées AVANT tout usage d'une valeur (argument de docker ou de git, ou texte réécrit dans un fichier) :
 # chiffres ASCII seulement (re.ASCII), aucun espace, aucun saut de ligne, jamais de tiret en tête.
-FORME_ETIQUETTE = re.compile(r"v(\d{4})\.(\d{1,2})\.(\d{1,2})(?:\.(\d+))?", re.ASCII)
+# Deux formes de release chez l'amont (relevé du 9 octobre 2026 : git ls-remote --tags, API de Docker Hub, releases
+# GitHub) : calendaire ``vAAAA.M.J[.N]`` jusqu'à v2026.9.24 (Hermes 0.21.5), puis de version ``vX.Y.Z`` depuis
+# v0.21.6 (8 octobre 2026). Elles ne se recouvrent pas : année sur 4 chiffres, majeure sur 3 au plus.
+FORME_ETIQUETTE_CALENDAIRE = re.compile(r"v(\d{4})\.(\d{1,2})\.(\d{1,2})(?:\.(\d+))?", re.ASCII)
+FORME_ETIQUETTE_VERSION = re.compile(r"v(\d{1,3})\.(\d+)\.(\d+)", re.ASCII)
+FORME_ETIQUETTE = re.compile(f"(?:{FORME_ETIQUETTE_CALENDAIRE.pattern})|(?:{FORME_ETIQUETTE_VERSION.pattern})",
+                             re.ASCII)
+# Étiquettes publiées qui ne sont jamais des releases (même relevé) : candidates « rc.N-vX.Y.Z » et
+# « abandoned-rc.N-vX.Y.Z » (git et Docker Hub), canaris « vX.Y.Z+canary.<horodatage> » (git seulement : « + » est
+# interdit dans une étiquette Docker).
+FORME_CANDIDATE = re.compile(r"(?:abandoned-)?rc\.(\d+)-v(\d+)\.(\d+)\.(\d+)", re.ASCII)
+FORME_CANARI = re.compile(r"v\d+\.\d+\.\d+\+canary\.[0-9A-Za-z.]+", re.ASCII)
 FORME_VERSION = re.compile(r"\d+\.\d+\.\d+", re.ASCII)
 FORME_CONDENSAT = re.compile(r"sha256:[0-9a-f]{64}")
 FORME_COMMIT = re.compile(r"[0-9a-f]{40}")
@@ -219,17 +232,33 @@ class Releve:
 
 def valider_etiquette(etiquette: str) -> str:
     if etiquette in ("latest", "main") or etiquette.startswith(("latest", "main")):
-        raise Refus(f"Étiquette « {etiquette} » refusée : jamais :latest ni main, seulement une release vAAAA.M.J.")
+        raise Refus(f"Étiquette « {etiquette} » refusée : jamais :latest ni main, seulement une release vAAAA.M.J ou "
+                    "vX.Y.Z.")
     if not FORME_ETIQUETTE.fullmatch(etiquette):
-        raise Refus(f"Étiquette « {etiquette} » hors format : attendu vAAAA.M.J ou vAAAA.M.J.N (release publiée).")
+        raise Refus(f"Étiquette « {etiquette} » hors format : attendu vAAAA.M.J, vAAAA.M.J.N ou vX.Y.Z (release "
+                    "publiée ; ni candidate rc.N-…, ni canari, ni variante d'image).")
     return etiquette
 
 
 def cle_etiquette(etiquette: str) -> Tuple[int, ...]:
-    m = FORME_ETIQUETTE.fullmatch(etiquette)
-    if m is None:
-        raise Refus(f"Étiquette « {etiquette} » hors format : attendu vAAAA.M.J ou vAAAA.M.J.N.")
-    return tuple(int(g or 0) for g in m.groups())
+    """Rang d'une release : toute étiquette de version suit toute étiquette calendaire (l'amont a quitté la forme
+    calendaire après v2026.9.24) ; dans chaque forme, ordre des nombres (v0.21.10 après v0.21.9)."""
+    m = FORME_ETIQUETTE_CALENDAIRE.fullmatch(etiquette)
+    if m is not None:
+        return (0, *(int(g or 0) for g in m.groups()))
+    m = FORME_ETIQUETTE_VERSION.fullmatch(etiquette)
+    if m is not None:
+        return (1, *(int(g) for g in m.groups()))
+    raise Refus(f"Étiquette « {etiquette} » hors format : attendu vAAAA.M.J, vAAAA.M.J.N ou vX.Y.Z.")
+
+
+def plus_recente_que_l_epinglee(etiquette: str, epinglee: "Valeurs") -> bool:
+    """Une étiquette de version se compare à la version épinglée (HERMES_VERSION fait foi : v0.21.5 n'est pas une
+    montée depuis v2026.9.24, qui est Hermes 0.21.5) ; une étiquette calendaire, à l'étiquette épinglée."""
+    m = FORME_ETIQUETTE_VERSION.fullmatch(etiquette)
+    if m is not None:
+        return tuple(int(g) for g in m.groups()) > _version_tuple(epinglee.version)
+    return cle_etiquette(etiquette) > cle_etiquette(epinglee.etiquette)
 
 
 def valider_date(date: str) -> str:
@@ -374,8 +403,13 @@ def relever(etiquette: str, executer: Executeur, image: str = IMAGE) -> Releve:
         raise Refus(f"Version de Hermes « {version} » hors format X.Y.Z.")
     remarques: List[str] = []
     # Les tests de contrat tirent la date affichée de HERMES_TAG (test_contrat_image.py) : une autre convention
-    # de l'amont est un écart à traiter, pas un refus.
-    if m.group("date") != etiquette.removeprefix("v"):
+    # de l'amont est un écart à traiter, pas un refus. Une étiquette de version (vX.Y.Z) ne porte aucune date.
+    if FORME_ETIQUETTE_VERSION.fullmatch(etiquette):
+        remarques.append(f"étiquette {etiquette} sans date de release : « hermes --version » affiche "
+                         f"({m.group('date')}) ; hermes/tests/contrat/test_contrat_image.py et "
+                         "scripts/tests/test_epingles_hermes.py tirent cette date de HERMES_TAG (forme vAAAA.M.J) : "
+                         "à adapter dans la PR de montée")
+    elif m.group("date") != etiquette.removeprefix("v"):
         remarques.append(f"date de release affichée par « hermes --version » ({m.group('date')}) différente de "
                          f"l'étiquette {etiquette} (hermes/tests/contrat/test_contrat_image.py la tire de HERMES_TAG)")
     provenance = _docker_dans_image(executer, reference, CHEMIN_PROVENANCE_IMAGE)
@@ -817,7 +851,7 @@ def inventaire(racine: Path, executer: Executeur, sortie: Callable[[str], None] 
 
 
 def derniere(racine: Path, executer: Executeur, lire_url: LecteurUrl, sortie: Callable[[str], None] = print) -> int:
-    epinglee = lire_epingle(racine).valeurs.etiquette
+    epinglee = lire_epingle(racine).valeurs
     distant = executer(["git", "ls-remote", "--tags", DEPOT_AMONT], 120)
     if distant.code != 0:
         raise Refus(f"git ls-remote --tags {DEPOT_AMONT} a échoué (code {distant.code}).")
@@ -842,16 +876,33 @@ def derniere(racine: Path, executer: Executeur, lire_url: LecteurUrl, sortie: Ca
         pages += 1
     if url:
         raise Refus("API de Docker Hub : plus de 20 pages d'étiquettes, liste incomplète ; rien n'est conclu.")
-    releases = sorted((t for t in git & hub if FORME_ETIQUETTE.fullmatch(t)), key=cle_etiquette)
+    communes = git & hub
+    # Relecture finale P9 : v0.21.6 (forme vX.Y.Z) était écartée en silence par un filtre sur la seule forme
+    # calendaire. Toute étiquette publiée des deux côtés est désormais classée : release, candidate, canari, ou refus.
+    inconnues = sorted(t for t in communes if not FORME_ETIQUETTE.fullmatch(t) and not FORME_CANDIDATE.fullmatch(t)
+                       and not FORME_CANARI.fullmatch(t))
+    if inconnues:
+        raise Refus(f"Étiquettes publiées en git et sur Docker Hub de forme inconnue : {', '.join(inconnues)} ; ni "
+                    "release (vAAAA.M.J[.N], vX.Y.Z), ni candidate (rc.N-vX.Y.Z), ni canari : l'outil doit apprendre "
+                    "cette forme (scripts/monter_hermes.py) avant de conclure ; rien n'est conclu.")
+    releases = sorted((t for t in communes if FORME_ETIQUETTE.fullmatch(t)), key=cle_etiquette)
     if not releases:
-        raise Refus("Aucune release vAAAA.M.J publiée à la fois en étiquette git et sur Docker Hub.")
+        raise Refus("Aucune release (vAAAA.M.J[.N] ou vX.Y.Z) publiée à la fois en étiquette git et sur Docker Hub.")
     plus_recente = releases[-1]
     sortie(f"Dernière release publiée (git et Docker Hub) : {plus_recente}.")
-    sortie(f"Release épinglée : {epinglee}.")
+    sortie(f"Release épinglée : {epinglee.etiquette} (Hermes {epinglee.version}).")
     seulement_git = sorted((t for t in git - hub if FORME_ETIQUETTE.fullmatch(t)), key=cle_etiquette)
     if seulement_git and cle_etiquette(seulement_git[-1]) > cle_etiquette(plus_recente):
         sortie(f"Étiquette git sans image sur Docker Hub (ignorée) : {seulement_git[-1]}.")
-    if cle_etiquette(plus_recente) > cle_etiquette(epinglee):
+    # Candidate annoncée au-delà de toute release connue : information de veille, jamais une cible de montée.
+    versions_connues = [_version_tuple(epinglee.version)] + [
+        tuple(int(g) for g in m.groups()) for m in map(FORME_ETIQUETTE_VERSION.fullmatch, releases) if m]
+    candidates = [(tuple(int(g) for g in m.groups()[1:]), int(m.group(1)), t)
+                  for t, m in ((t, FORME_CANDIDATE.fullmatch(t)) for t in communes)
+                  if m and not t.startswith("abandoned-")]
+    if candidates and max(candidates)[0] > max(versions_connues):
+        sortie(f"Candidate plus récente que toute release (jamais épinglée) : {max(candidates)[2]}.")
+    if plus_recente_que_l_epinglee(plus_recente, epinglee):
         sortie(f"Une release plus récente existe : préparer la PR de montée (ecrire {plus_recente}).")
     else:
         sortie("Aucune release plus récente que celle épinglée.")
