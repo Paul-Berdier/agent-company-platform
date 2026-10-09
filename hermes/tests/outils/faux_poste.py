@@ -43,7 +43,7 @@ JOURNAL = DOSSIER / "journal.jsonl"
 FIXTURES = Path("/opt/acp-tests/outils/fixtures_machine")
 HOTE, PORT = "127.0.0.1", 9119
 ENTETES = {"Content-Type": "application/json", "Accept": "application/json",
-           "User-Agent": "acp-poste/0.11.0 (acp-machine/1) faux-poste-de-test", "X-ACP-Protocole": contrat.PROTOCOLE}
+           "User-Agent": "acp-poste/1.0.0 (acp-machine/1) faux-poste-de-test", "X-ACP-Protocole": contrat.PROTOCOLE}
 
 
 def _sortie(objet, code: int = 0) -> int:

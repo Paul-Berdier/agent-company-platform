@@ -94,7 +94,7 @@ def test_lanceur_isole_sans_venv(tmp_path):
                             text=True, cwd=tmp_path, env={"PYTHONPATH": "ne-doit-pas-servir", "SYSTEMROOT": __import__(
                                 "os").environ.get("SYSTEMROOT", "")}, timeout=60)
     assert sortie.returncode == 0, sortie.stderr
-    assert sortie.stdout.strip() == "acp-poste 0.11.0"
+    assert sortie.stdout.strip() == "acp-poste 1.0.0"
     # Écrivain de la ligne d'état (vos sessions Claude Code) : même disposition ; entrée illisible, code 0, rien écrit.
     shutil.copy(PAQUET / "ligne_etat.py", poste / "ligne_etat.py")
     cible = tmp_path / "quotas" / "claude-code.json"

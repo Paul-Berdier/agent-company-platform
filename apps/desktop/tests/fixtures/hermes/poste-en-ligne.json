@@ -8,7 +8,7 @@
       "etat": "actif",
       "empreinte": "6093-5536",
       "protocole": "acp-machine/1",
-      "version_poste": "0.11.0",
+      "version_poste": "1.0.0",
       "cree_le": 1790451615,
       "confirme_le": 1790451615,
       "revoque_le": null,
@@ -31,7 +31,7 @@
       "etat": "actif",
       "empreinte": "6093-5536",
       "protocole": "acp-machine/1",
-      "version_poste": "0.11.0",
+      "version_poste": "1.0.0",
       "cree_le": 1790451615,
       "confirme_le": 1790451615,
       "revoque_le": null,
@@ -109,7 +109,7 @@
         "poste-claude": 2,
         "poste-codex": 1
       },
-      "version_poste": "0.11.0",
+      "version_poste": "1.0.0",
       "versions": {
         "claude": {
           "conforme": true,

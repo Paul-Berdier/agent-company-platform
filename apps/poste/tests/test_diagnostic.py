@@ -72,7 +72,7 @@ def test_commande_diagnostic(poste, capsys):
     poste.ecrire_politique()
     assert main(["diagnostic"], contexte=poste.contexte()) == 0
     rapport = json.loads(capsys.readouterr().out)
-    assert rapport["version_poste"] == "0.11.0" and rapport["protocole"] == "acp-machine/1"
+    assert rapport["version_poste"] == "1.0.0" and rapport["protocole"] == "acp-machine/1"
     assert rapport["service"]["verrou"] == "libre"
 
 

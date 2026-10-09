@@ -68,7 +68,7 @@ struct Banc
     SystemAppearance apparence{&reglages};
     DiagnosticsViewModel diagnostics{&client,   &session,  &compatibilite, &passerelle,
                                      &sante,    &reglages, &apparence,     &coffre,
-                                     QStringLiteral("0.11.0"), QStringLiteral("essai")};
+                                     QStringLiteral("1.0.0"), QStringLiteral("essai")};
 
     Banc() { diagnostics.setFlux(&flux); }
     ~Banc() { reglages.clear(); }

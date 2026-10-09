@@ -492,7 +492,7 @@ def poste_confirme(noyau, conn, *, nom: str = "Poste Windows"):
 
     code = noyau.machines.creer_code(conn, "proprietaire:test")["code"]
     with noyau.base.transaction(conn):
-        reponse = noyau.machines.enroler_dans(conn, empreinte_jeton(code), nom=nom, version_poste="0.11.0",
+        reponse = noyau.machines.enroler_dans(conn, empreinte_jeton(code), nom=nom, version_poste="1.0.0",
                                               protocole=PROTOCOLE)
     noyau.machines.confirmer(conn, reponse["machine_id"], reponse["empreinte"], "proprietaire:test")
     return reponse["machine_id"], reponse["jeton"]

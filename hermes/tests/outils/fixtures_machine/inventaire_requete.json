@@ -1,6 +1,6 @@
 {
   "protocole": "acp-machine/1",
-  "version_poste": "0.11.0",
+  "version_poste": "1.0.0",
   "releve_le": "2026-09-26T09:14:04Z",
   "poste": {
     "nom": "Poste Windows",

@@ -23,7 +23,7 @@ PLAN = {"resume": "Une étape.", "etapes": [
 def _poste_actif(pile):
     with pile.noyau.base.connexion() as conn:
         code = pile.noyau.machines.creer_code(conn, "proprietaire:test")["code"]
-    corps = {"protocole": "acp-machine/1", "version_poste": "0.11.0", "nom": "Exécutant Railway"}
+    corps = {"protocole": "acp-machine/1", "version_poste": "1.0.0", "nom": "Exécutant Railway"}
     reponse = pile.post(f"{M}/enrolement", corps, jeton=code).json()
     with pile.noyau.base.connexion() as conn:
         pile.noyau.machines.confirmer(conn, reponse["machine_id"], reponse["empreinte"], "proprietaire:test")
@@ -37,7 +37,7 @@ class Executant:
         self.pile, self.machine, self.jeton = pile, machine, jeton
 
     def reclamer(self, voies=("poste-claude",), *, en_cours=None, peut_executer=True, attente=5):
-        corps = {"protocole": "acp-machine/1", "version_poste": "0.11.0", "peut_executer": peut_executer,
+        corps = {"protocole": "acp-machine/1", "version_poste": "1.0.0", "peut_executer": peut_executer,
                  "ordres_acquittes": [], "attente_max_s": attente, "politique_valide": True,
                  "voies_disponibles": list(voies) if peut_executer else [], "carte_en_cours": en_cours,
                  "espace_libre_mio": 3120}
@@ -119,7 +119,7 @@ def test_reclamer_peut_executer_faux_jamais_de_carte(pile_machine, executant, pr
     assert _tache(pile_machine, projet["tableau"], projet["cartes"]["exploration"]).status == "ready"
     # Aucune voie annoncée : rien non plus.
     assert executant.reclamer(voies=()).carte is None
-    incoherent = {"protocole": "acp-machine/1", "version_poste": "0.11.0", "peut_executer": False,
+    incoherent = {"protocole": "acp-machine/1", "version_poste": "1.0.0", "peut_executer": False,
                   "ordres_acquittes": [], "attente_max_s": 5, "politique_valide": True,
                   "voies_disponibles": ["poste-claude"]}
     reponse = pile_machine.post(f"{M}/reclamer", incoherent, jeton=executant.jeton)

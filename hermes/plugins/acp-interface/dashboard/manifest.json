@@ -3,7 +3,7 @@
   "label": "Accueil",
   "description": "Interface d'ACP : Accueil (remplace la page « / »), logotype, bannière d'alertes et verrou du français. Aucune route serveur : l'état vient du greffon acp-poste.",
   "icon": "Sparkles",
-  "version": "0.11.0",
+  "version": "1.0.0",
   "tab": {
     "path": "/acp",
     "position": "end",

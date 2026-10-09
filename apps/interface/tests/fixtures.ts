@@ -3,7 +3,7 @@
 // /v1/catalogue (docs/refonte/interface.md).
 export const META = {
   contrat: "acp-poste/1",
-  greffon: { nom: "acp-poste", version: "0.11.0" },
+  greffon: { nom: "acp-poste", version: "1.0.0" },
   hermes: { version: "0.21.5", version_testee: "0.21.5", conforme: true, etiquette: "v2026.9.24", commit: "f97608f" },
   image: {
     base: "nousresearch/hermes-agent:v2026.9.24",

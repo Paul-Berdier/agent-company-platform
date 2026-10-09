@@ -168,7 +168,7 @@ def test_aucune_transaction_imbriquee(noyau, conn):
     code = noyau.machines.creer_code(conn, "proprietaire:test")["code"]
     espion = _SansTransactionImbriquee(conn)
     with noyau.base.transaction(espion):
-        reponse = noyau.machines.enroler_dans(espion, empreinte_jeton(code), nom="Poste", version_poste="0.11.0",
+        reponse = noyau.machines.enroler_dans(espion, empreinte_jeton(code), nom="Poste", version_poste="1.0.0",
                                               protocole=PROTOCOLE)
     noyau.machines.confirmer(conn, reponse["machine_id"], reponse["empreinte"], "proprietaire:test")
     machine = reponse["machine_id"]

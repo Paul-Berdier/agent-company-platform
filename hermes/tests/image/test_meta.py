@@ -40,8 +40,8 @@ CATALOGUE_CONFORME = {"verrou_sha256": "0" * 64, "skills_actives": 16, "skills_a
 MACHINE_CONFORME = {"fournisseur": "enregistre", "chemins_a_jeton": {}, "fournisseurs_de_session": ["self-hosted"],
                     "base": "ok", "machines": {"a_confirmer": 0, "actif": 0, "revoque": 0}, "codes_utilisables": 0,
                     "dernier_inventaire": None}
-INTERFACE = {"greffons": {"acp-interface": "0.11.0", "acp-catalogue": "0.11.0", "acp-projets": "0.11.0",
-                          "acp-poste-vues": "0.11.0", "acp-discussion": "0.11.0"},
+INTERFACE = {"greffons": {"acp-interface": "1.0.0", "acp-catalogue": "1.0.0", "acp-projets": "1.0.0",
+                          "acp-poste-vues": "1.0.0", "acp-discussion": "1.0.0"},
              "sdk_attendu": "1.x"}
 
 
@@ -69,7 +69,7 @@ def _sources(tmp_path: Path, etat: object = None) -> "meta.SourcesMeta":
 def test_la_meta_decrit_le_contrat_et_les_versions(tmp_path):
     donnees = meta.construire_meta(_sources(tmp_path, {"soul": {"etat": "a_jour"}, "greffons_utilisateur": {}}))
     assert donnees["contrat"] == "acp-poste/1"
-    assert donnees["greffon"] == {"nom": "acp-poste", "version": "0.11.0"}
+    assert donnees["greffon"] == {"nom": "acp-poste", "version": "1.0.0"}
     assert donnees["hermes"]["version"] == EPINGLE["HERMES_VERSION"]
     assert donnees["hermes"]["version_testee"] == EPINGLE["HERMES_VERSION"]
     assert donnees["hermes"]["conforme"] is True

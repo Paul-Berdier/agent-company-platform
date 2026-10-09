@@ -286,7 +286,7 @@ def test_revocation_401_immediat(pile):
     assert delai < 3.0 and arret[0]["message"].startswith("Poste révoqué par le propriétaire le ")
     assert pile.sh("test -f /tmp/faux-poste/jeton", verifier=False).returncode != 0  # jeton effacé par le poste
     suivant = faux(pile, "appel", "reclamer", "--porteur", "fichier:/tmp/faux-poste/jeton-sauve",
-                   "--corps", json.dumps({"protocole": "acp-machine/1", "version_poste": "0.11.0",
+                   "--corps", json.dumps({"protocole": "acp-machine/1", "version_poste": "1.0.0",
                                           "peut_executer": False}))
     assert suivant["statut"] == 401 and suivant["corps"] == {"error": "unauthenticated", "detail": "Unauthorized"}
 
