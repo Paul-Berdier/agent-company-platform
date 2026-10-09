@@ -900,6 +900,16 @@ openai-codex, secrets et clé de signature d'Authelia), aux variables et aux she
   gardes, maintenance `sleep infinity` avec et sans `CMD` hérité, `diagnostiquer`) et
   [identite.md](identite.md) § 13 (gardes, OIDC à travers un bord factice, navigateur, mémoire).
 
+### Prouvé en intégration continue par l'étape P9 (8 et 9 octobre 2026)
+
+Sur des volumes Docker jetables, avec l'agent et les comptes factices du banc (jamais sur Railway) : restauration des
+trois volumes au même instant et à des instants différents (R1, R2 : identité des données, règle d'ordre de
+l'exécutant face à Hermes), reconnexion du propriétaire après la restauration de l'identité (R3), Hermes réimporté
+depuis son export sur un volume neuf vide et à root (R4) ; montée de données d'une version d'ACP à la suivante ;
+témoin d'une release antérieure de Hermes et répétition à blanc de la montée à chaque construction. Mesures et
+limites : [exploitation.md](../exploitation.md) § 4, § 6.6 et § 10 ; runs : [preuves-1.0.0.md](preuves-1.0.0.md) § 3.
+Ce qui ne se constate que sur Railway (point 5 ci-dessous) reste à la répétition du § 4.11 bis.
+
 ### Seulement sur Railway (non prouvé ici)
 
 1. **PID 1** : non documenté ; indice tiers seulement (PR mobius-os #1165 du 14/09/2026 : Railway
