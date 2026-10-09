@@ -234,6 +234,20 @@ describe("vue Routage", () => {
     expect(textesHorsCatalogue(r.racine, CATALOGUE)).toEqual([]);
   });
 
+  it("l'introduction dit l'ordre réel de la résolution : surcharge, choix explicite, puis la table", async () => {
+    // Relecture finale de P9 (constat produit-1) : « Chaque étape d'un projet part vers la première entrée admise de
+    // sa classe » était faux pour l'exploration lancée par « Nouveau projet », qui envoie toujours un choix explicite,
+    // résolu avant la table (hermes/plugins/acp-poste/noyau/routage.py, resoudre).
+    aller("?vue=routage");
+    installerSdk({ [ROUTE_ROUTAGE]: F.routage });
+    const r = await rendre(h(Poste, null));
+    const texte = r.texte();
+    expect(texte).toContain("sinon le choix explicite");
+    expect(texte).toContain("Nouveau projet");
+    expect(texte).not.toContain("Chaque étape d'un projet part vers la première entrée admise de sa classe");
+    expect(textesHorsCatalogue(r.racine, CATALOGUE)).toEqual([]);
+  });
+
   it("table refusée : les refus de l'API sont rendus tels quels, entrée par entrée", async () => {
     aller("?vue=routage");
     installerSdk({ [ROUTE_ROUTAGE]: F.routage,
