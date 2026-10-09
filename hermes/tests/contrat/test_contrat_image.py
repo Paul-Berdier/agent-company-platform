@@ -614,7 +614,8 @@ def test_une_injection_dans_opt_data_est_neutralisee_quand_l_agent_relance_le_ta
     # L'agent (uid hermes) peut relancer le tableau de bord ET la passerelle lui-même (la FIFO
     # supervise/control lui reste accessible) ; 05-acp ne tourne pas alors. La config.yaml et
     # le .env piégés ne portent aucune variable d'évasion, donc la garde de relance les laisse
-    # repartir ; c'est la managed scope, appliquée par-dessus, qui neutralise l'injection.
+    # repartir, après avoir retiré du .env les clés que la portée gérée épingle (SECU-1) ; la
+    # managed scope, appliquée par-dessus, neutralise le reste de l'injection.
     relance = pile.executer(["/command/s6-svc", "-r", "/run/service/dashboard"], utilisateur="hermes")
     assert relance.returncode == 0, relance.stderr
     relance_gw = pile.executer(["/command/s6-svc", "-r", "/run/service/gateway-default"], utilisateur="hermes")
