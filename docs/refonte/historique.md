@@ -1,7 +1,9 @@
 # Historique de la refonte « Hermes au centre » (P0 à P9)
 
-Document **figé**, créé le 8 octobre 2026 à l'étape P9 (part E, préparation de 1.0.0 ; décision D128). Il garde la
-trace détaillée de la refonte, que les notes de reprise et le journal des changements ne portent plus :
+Document créé le 8 octobre 2026 à l'étape P9 (part E, préparation de 1.0.0 ; décision D128) : ses parties B à D
+sont **figées** ; sa partie A, vue d'ensemble, est tenue à jour jusqu'à la publication de 1.0.0 (dernière mise à
+jour : 9 octobre 2026). Il garde la trace détaillée de la refonte, que les notes de reprise et le journal des
+changements ne portent plus :
 
 - **partie A** : vue d'ensemble, rédigée pour ce document : étapes, pull requests et fusions, décisions majeures, ce
   qui a été retiré de l'ancienne plateforme ;
@@ -25,8 +27,9 @@ le manuel du propriétaire dans [exploitation.md](../exploitation.md), les déci
 ## A.1 Étapes, pull requests et fusions
 
 Chaque étape a vécu sur sa branche `refonte/hermes-pN`, fusionnée dans `refonte/hermes` par une pull request et un
-commit de fusion, sans étiquette (partie D). Dates de fusion à l'heure de Paris, relevées le 8 octobre 2026 par
-`gh pr list --state all` ; commits de fusion vérifiés par `git log --first-parent origin/refonte/hermes`.
+commit de fusion, sans étiquette (partie D). Dates de fusion à l'heure de Paris, relevées les 8 et 9 octobre 2026
+par `gh pr list --state all` et `gh pr view` ; commits de fusion vérifiés par
+`git log --first-parent origin/refonte/hermes`.
 
 | Étape | Objet | Branche(s) | PR | Fusion dans `refonte/hermes` | Détail |
 |---|---|---|---|---|---|
@@ -39,11 +42,17 @@ commit de fusion, sans étiquette (partie D). Dates de fusion à l'heure de Pari
 | P6 | exécution autonome sur l'exécutant Railway | `refonte/hermes-p6` | #19 | `7697a1c`, 02/10/2026 | B, § 6 sexies à § 6 nonies ; C, « P6 » |
 | P8 | station de travail Qt rebranchée sur Hermes | `refonte/hermes-p8` | #20 | `b715edb`, 02/10/2026 | B, § 6 decies ; C, « P8 » |
 | P7 | questions, notifications, continuité ; dépôts réels | `refonte/hermes-p7`, réunion de `-p7`, `-p7e` et `-p7f` (D93) | #21 | `b9779f1`, 08/10/2026 | B, § 6 undecies ; C, « P7 » |
-| P9 | exploitation, montée de version, publication 1.0.0 | `refonte/hermes-p9` (parts A et D, relecture), `-p9bc` (part B, intégration, montée de données), `-p9c` (témoin `v2026.9.21`), `-p9e` (part E) | à ouvrir | non fusionnée au 8 octobre 2026 | [plan](plan.md) § 1, D122 à D155 ; [exploitation.md](../exploitation.md) |
+| SECU-TUI | correctif de sécurité : clés épinglées retirées des `.env` du volume, sources externes de secrets refusées (D156, D157) | `refonte/hermes-secu-tui` | #23 | `5026a70`, 09/10/2026 | [image.md](image.md) § 4.3 bis, § 4.3 ter, § 9 et § 10 |
+| P8b | station Qt alignée sur P7 : flux d'invalidation, Accueil agrégé, gestes de la file Questions (D158, D159) | `refonte/hermes-p8b` | #22 | `8583642`, 09/10/2026 | [desktop.md](desktop.md), « P8b » |
+| P9 | exploitation, montée de version, publication 1.0.0 | `refonte/hermes-p9` (parts A et D, relecture ; réunion des branches le 9 octobre 2026), `-p9bc` (part B, intégration, montée de données), `-p9c` (témoin `v2026.9.21`), `-p9e` (part E) | à ouvrir | non fusionnée au 9 octobre 2026 | [plan](plan.md) § 1, D122 à D155 et D160 ; [exploitation.md](../exploitation.md) ; [preuves](preuves-1.0.0.md) § 3 |
 
 P8 a été fusionnée avant P7, qui a duré du 1er au 8 octobre 2026 sur trois branches. L'arbre du commit de fusion de
 P7 (`b9779f1`) est identique à celui de la tête de P7 (`0a1ab98`, diff vide), que `refonte/hermes-p9bc` avait
-déjà fusionnée (`8fe6e21`). Les identifiants des runs de chaque PR et de chaque fusion sont relevés dans
+déjà fusionnée (`8fe6e21`). SECU-TUI (constat de la défense de P2 relevé pendant P9) et P8b ont été menés à côté de
+P9, chacun par sa PR ; les arbres de leurs commits de fusion (`5026a70`, `8583642`) sont identiques à ceux de leurs
+têtes testées (`6a37a8c`, `afcb8b3`). Le 9 octobre 2026, `refonte/hermes-p9` a réuni `-p9bc` (en avance rapide),
+`-p9e` (`916bf7a`) et `refonte/hermes` à `8583642` (`7b0d3d7`). Les identifiants des runs de chaque PR et de chaque
+fusion sont relevés dans
 `docs/refonte/preuves-1.0.0.md`.
 
 ## A.2 Décisions majeures
@@ -63,9 +72,11 @@ Décisions du propriétaire (elles priment sur le plan ; détail : [plan](plan.m
 - 27 septembre et 1er octobre 2026 : l'exécution principale passe sur un service Railway séparé, l'**exécutant**
   (D74), et le poste Windows devient facultatif ; le propriétaire **fournit les comptes** et laisse Hermes gérer
   l'exploitation : à partir de P6, les décisions de conception sont **appliquées** (D74 à D92, D93 à D121, D122 à
-  D155), alors que les choix par défaut de P3 à P5 (D1 à D73) restent **à confirmer** ;
+  D160), alors que les choix par défaut de P3 à P5 (D1 à D73) restent **à confirmer** ;
 - 8 octobre 2026 : plus aucune commande Docker ni Docker Desktop sur le poste de travail ; ce qui demande Docker se
-  prouve par l'intégration continue (D134).
+  prouve par l'intégration continue (D134) ; 9 octobre 2026 : Docker local de nouveau permis, avec sobriété (une
+  seule pile à la fois, ressources nommées et retirées), l'intégration continue restant la preuve qui fait foi
+  (D160, qui remplace D134).
 
 Choix de conception qui structurent le produit (numéros du [plan](plan.md) § 1) :
 - serveur MCP stdio ou hors catalogue dans le volume : refus de démarrer (D8) ;
@@ -79,7 +90,10 @@ Choix de conception qui structurent le produit (numéros du [plan](plan.md) § 1
   chaque commit non poussé (D118), retour avant P7 par retrait du script du bilan (D121) ;
 - P9 : répétition à blanc et témoin au lieu d'une montée réelle (D122), aucun environnement Railway éphémère (D123,
   D124), ordre de restauration mesuré (D136), import de l'export par un geste documenté (D137), engagement de
-  versionnage limité à nos interfaces (D130).
+  versionnage limité à nos interfaces (D130) ;
+- SECU-TUI : toute clé épinglée par la portée gérée retirée par root des `.env` du volume, au démarrage et à chaque
+  relance (D156) ; source externe de secrets du volume refusée (D157) ; P8b : 401 du flux jamais réessayé aussitôt
+  par la station (D158), étape P7 du greffon détectée avant d'être lue (D159).
 
 ## A.3 Retiré de l'ancienne plateforme
 

@@ -15,7 +15,8 @@
 >
 > Depuis le 25 septembre 2026, les phases **P4 à P8** sont **remplacées** par le plan
 > d'autonomie ([autonomie.md](autonomie.md)) : leur texte d'origine reste ci-dessous pour
-> mémoire, chacune précédée d'un renvoi (seul ajout aux sections 2 à 15).
+> mémoire, chacune précédée d'un renvoi. Seul autre ajout aux sections 2 à 15 : un état daté en tête de P8 et de P9
+> (§ 13).
 
 ## 1. Décisions du propriétaire (font foi)
 
@@ -306,11 +307,13 @@ numérotées à part, sont dans [desktop.md](desktop.md)). La documentation écr
 
 ### Étape P9 : décisions D122 à D155, **appliquées**
 
-État au 8 octobre 2026 (côté dépôt, rien de déployé, P9 non fusionnée) : manuel d'exploitation
+État au 9 octobre 2026 (côté dépôt, rien de déployé, P9 non fusionnée, 1.0.0 non ouverte) : manuel d'exploitation
 [exploitation.md](../exploitation.md) ; procédures de restauration et de montée de version dans [railway.md](railway.md)
-§ 4.11 bis, § 9, § 10 d et § 10 g ; parts A (outillage de version) et D (procédures) relues ; part B (test de
-restauration) et part C (témoin `v2026.9.21`, montée de données) exécutées par l'intégration continue, encore
-ouvertes ; part E (documentation finale) en préparation.
+§ 4.11 bis, § 9, § 10 d et § 10 g ; parts A (outillage de version) et D (procédures) relues ; parts B (test de
+restauration R1 à R4) et C (témoin `v2026.9.21`, montée de données) closes, exécutées par l'intégration continue,
+preuves relevées dans [preuves-1.0.0.md](preuves-1.0.0.md) § 3 ; part E (documentation finale) faite ; branches
+réunies sur `refonte/hermes-p9`. Restent : relecture indépendante de toute P9, ouverture 1.0.0 (D129) et journal
+daté, PR vers `refonte/hermes`, puis publication (part F, accord du propriétaire).
 
 Comme pour P6 et P7, le propriétaire **fournit les comptes** et laisse Hermes gérer l'exploitation : les
 recommandations du cahier de conception P9 (§ 12) sont **appliquées**, et non « à confirmer », de même que les
@@ -323,7 +326,8 @@ montées de version), décrits dans le manuel.
 **D(121 + n)** (D122 à D133), P9-B-n → **D(133 + n)** (D134 à D140), P9-C-n → **D(140 + n)** (D141 à D155). Une
 décision consignée après le 8 octobre 2026 (parts B et C encore ouvertes) prend le numéro suivant le dernier attribué
 (après D155), dans l'ordre de sa consignation. Les décisions des deux chantiers fusionnés dans `refonte/hermes` à côté de P9
-(correctif SECU-TUI, station P8b) prennent D156 à D159 (section suivante). Le code de P9 cite « P9-n » dans ses
+(correctif SECU-TUI, station P8b) prennent D156 à D159 (section suivante) ; la décision du 9 octobre 2026 sur Docker
+en local, consignée après leurs fusions, prend D160 (section qui suit celle-ci). Le code de P9 cite « P9-n » dans ses
 commentaires : la colonne « Remarque » donne la correspondance.
 
 | N° | Question | Choix appliqué en P9 | Autre option et conséquence | Remarque (origine) |
@@ -335,12 +339,12 @@ commentaires : la colonne « Remarque » donne la correspondance.
 | D126 | Instantané local des volumes | « À chaud » par `docker pause`, l'analogue local le plus proche d'un instantané copie-sur-écriture de Railway, plus un instantané froid | Copie sans gel : des fichiers d'instants différents dans un même volume | P9-5 du cahier ; cahier § 3.3 ; `hermes/tests/contrat/volumes.py` |
 | D127 | Ordre de restauration de l'exécutant face à Hermes | Fixé **par la mesure** R2b, jamais écrit sans elle ; tranché par D136 | Règle écrite sans mesure : une donnée inventée | P9-6 du cahier ; cahier § 3.4 |
 | D128 | Forme du journal 1.0.0 | Section 1.0.0 synthétique (six rubriques) ; journal par étape et notes de reprise déplacés sans modification dans `docs/refonte/historique.md` | Garder dans le journal les quelque 770 lignes des sections d'étape : journal illisible | P9-7 du cahier ; cahier § 7.1 et § 8.4 |
-| D129 | Place du commit d'ouverture 1.0.0 | Avant-dernier commit de P9, **une fois P9 prouvée** ; remplacements fichier par fichier, jamais global ; faux positif exclu : l'intervalle `^0.11.0` de `graphql` dans `.railway/package-lock.json` | Ouverture en tête de branche : `refonte/hermes` porterait 1.0.0 sans ses preuves | P9-8 du cahier ; cahier § 6 ; **pas encore fait** au 8 octobre 2026 (`VERSION` : 0.11.0) |
+| D129 | Place du commit d'ouverture 1.0.0 | Avant-dernier commit de P9, **une fois P9 prouvée** ; remplacements fichier par fichier, jamais global ; faux positif exclu : l'intervalle `^0.11.0` de `graphql` dans `.railway/package-lock.json` | Ouverture en tête de branche : `refonte/hermes` porterait 1.0.0 sans ses preuves | P9-8 du cahier ; cahier § 6 ; **pas encore fait** au 9 octobre 2026 (`VERSION` : 0.11.0) |
 | D130 | Engagement de versionnage sémantique de 1.0.0 | Limité à **nos** interfaces : contrat `acp-poste/1` (routes `/api/plugins/acp-poste/v1/*`, dont `/v1/meta`), protocole `acp-machine/1`, format `ACPB1`, commandes `acp-poste`, formats de `poste.toml` et d'`executant.toml`, variables Railway documentées ([image.md](image.md) § 4) ; une rupture de l'une d'elles appelle 2.0.0 | Engager aussi les surfaces de Hermes (REST du tableau de bord, JSON-RPC, SDK des greffons) : elles ne nous appartiennent pas et suivent la version épinglée | P9-9 du cahier ; cahier § 6.4 |
 | D131 | `Desktop Release` à l'étiquette `v1.0.0` | Laissé tel quel : l'étiquette crée un **brouillon non signé** ; le publier est un geste du propriétaire seul | Désactiver le déclencheur pour 1.0.0 : le premier exercice du workflow serait perdu, alors que le brouillon n'est pas public et qu'un échec ne publie rien | P9-10 du cahier ; cahier § 9.3 |
 | D132 | Contrôle des décisions documentées | Numéros à trois chiffres, en citation comme en définition ; `docs/exploitation.md` ajouté aux sources contrôlées | Deux chiffres : D100 et au-delà n'étaient ni vus cités, ni vus définis | P9-11 du cahier ; `scripts/tests/test_decisions_documentees.py` ; fait en part A (`3c47033`) |
 | D133 | Veille de version de Hermes | **Manuelle et mensuelle** : `python scripts/monter_hermes.py derniere` ([exploitation.md](../exploitation.md) § 2 et § 6.2) | Workflow planifié : un run rouge se mêlerait à « Wait for CI » sur la branche déployée | P9-12 du cahier |
-| D134 | Docker sur le poste de travail | **Aucune commande Docker en local ni Docker Desktop** (souhait du propriétaire, 8 octobre 2026) : ce que le cahier faisait en local avec Docker (piles de contrat, restauration R1 à R4, témoin, montée de données) est exécuté par l'intégration continue seulement (job `restauration` sur push ; jobs `temoin` et `montee` sur `workflow_dispatch`) | Garder les piles locales : plusieurs piles Docker sur le poste, contraire au souhait du propriétaire. Conséquence acceptée : les tests de restauration ont été committés sans avoir tourné ; leur premier passage est le run `37760142007` | P9-B-1 du journal ; écart au cahier (§ 3, § 5.5, § 5.6) |
+| D134 | Docker sur le poste de travail | **Aucune commande Docker en local ni Docker Desktop** (souhait du propriétaire, 8 octobre 2026) : ce que le cahier faisait en local avec Docker (piles de contrat, restauration R1 à R4, témoin, montée de données) est exécuté par l'intégration continue seulement (job `restauration` sur push ; jobs `temoin` et `montee` sur `workflow_dispatch`) | Garder les piles locales : plusieurs piles Docker sur le poste, contraire au souhait du propriétaire. Conséquence acceptée : les tests de restauration ont été committés sans avoir tourné ; leur premier passage est le run `37760142007` | P9-B-1 du journal ; écart au cahier (§ 3, § 5.5, § 5.6) ; **remplacée par D160** le 9 octobre 2026 |
 | D135 | Échéance de la réclamation restaurée (R1) | Le test attend l'échéance de la réclamation restaurée (au plus 300 s après l'instantané sur le banc) : c'est le cas réel d'une sauvegarde quotidienne ; le chemin « réclamation encore valide » n'est mesuré que par le run `37760142007` | Redémarrer avant l'échéance : ne mesurer que le cas rare d'une restauration dans les minutes qui suivent la sauvegarde | P9-B-2 du journal |
 | D136 | Ordre de restauration de l'exécutant et de Hermes (tranche D127) | Exécutant restauré à un instant **antérieur ou égal** à celui de Hermes ; la règle « provisoire » du manuel devient définitive ([exploitation.md](../exploitation.md) § 4.3) | Exécutant plus récent que Hermes : l'agent refait le travail fait entre les deux instants (mesuré par R2b) | P9-B-3 du journal ; R2b mesuré par les runs `37763664941`, `37766187654` et `37768789724` |
 | D137 | Import de l'export de Hermes sur un volume neuf | Geste documenté, sans correctif de code : `chown 10000:10000 /opt/data`, puis `hermes import --force`, sortie contrôlée (restaurés plus gardés égalent l'archive, aucun « skipped »), puis `rm -f /opt/data/scripts/acp-bilan.py` en maintenance (la garde refuse le script importé sous l'utilisateur de Hermes) ; le geste du cahier (root, sans `chown`) échoue en silence (code 0, aucun fichier restauré) et n'est jamais à employer | Affaiblir la garde des `scripts/` pour admettre le script importé : exclu, elle protège de l'exécution de scripts déposés | P9-B-4 du journal ; mesure R4 ; [exploitation.md](../exploitation.md) § 4.5 |
@@ -382,6 +386,16 @@ les comptes, Hermes gère l'exploitation.
 | D158 | 401 du flux d'invalidation (`GET /v1/flux`) dans la station Qt | **Jamais réessayé aussitôt** : la station passe en sondage, le dit dans la barre d'état et les Diagnostics, et retente dans 5 min ; la perte de la session ferme le flux et oublie ce repli (la session suivante retente aussitôt). Raison : la station n'a pas de page à recharger, et ses lectures REST font tourner le jeton entre-temps, ou perdent la session et ferment tout | S'arrêter comme la page web, qui laisse sa lecture suivante renvoyer à la connexion : sans page à recharger, la station resterait sans flux jusqu'à une session neuve, alors que ses lectures REST peuvent encore réussir | P8b-1 de la station alignée sur P7 (PR #22) ; [desktop.md](desktop.md), § « P8b » ; prouvé contre le faux Hermes seulement ; code : `apps/desktop/src/events/FluxInvalidation.cpp` ; test : `tst_flux_invalidation` |
 | D159 | Étape P7 du greffon, vue par la station Qt | **Détectée avant d'être lue**, par la clé `accueil` de `/v1/meta`, née dans le même commit du greffon (`00bc069`) que les quatre routes qu'elle couvre (`GET /v1/accueil`, relance d'une carte, « qui répond », clôture) ; sans l'annonce, l'Accueil agrégé et le sondage léger ne lisent pas `/v1/accueil`, « Qui répond » et « Clore » ne sont pas offerts, le client du greffon refuse localement les quatre routes sans rien émettre, et la station dit « Non disponible sur ce serveur » ; « Relancer » reste offert d'après `relancable` de `/v1/questions`, né dans le même commit | Supposer l'étape P7 (P8b avant sa seconde relecture) : face à un greffon de P5 ou P6 (verdict « Compatible »), l'Accueil n'affichait qu'un 404, le badge restait « Inconnu », « Clore » et « Qui répond » étaient offerts puis refusés en 404 | P8b-2 de la station alignée sur P7 (PR #22), seconde relecture de P8b, constat desktop-8 ; [desktop.md](desktop.md), § « P8b » ; code : `apps/desktop/src/services/CompatibiliteHermes.h`, `apps/desktop/src/api/ClientGreffonPoste.h` (`setEtapeP7`), `apps/desktop/src/viewmodels/AccueilViewModel.h` ; commit `46d4226` |
 
+### Étape P9, décision du 9 octobre 2026 : D160, **appliquée**
+
+Consignée après la réunion des branches de P9 et les fusions de SECU-TUI et de P8b, elle prend la suite de D159
+(numérotation : section « Étape P9 » ci-dessus) et **remplace D134**. Appliquée, comme les autres décisions de P9 :
+elle vient d'une consigne du propriétaire.
+
+| N° | Question | Choix appliqué en P9 | Autre option et conséquence | Remarque (origine) |
+|---|---|---|---|---|
+| D160 | Docker sur le poste de travail (remplace D134) | **Docker local de nouveau permis**, depuis le 9 octobre 2026, **avec sobriété** : seuls les agents qui écrivent et le vérificateur final en lancent, jamais un relecteur ; **une seule pile à la fois** (verrou commun aux agents) ; conteneurs, volumes, réseaux et images nommés par un préfixe propre au chantier et retirés à la fin de chaque suite ; jamais les conteneurs d'autres projets. Il sert à itérer vite (images, contrat, restauration, bouts en bout) ; la **preuve qui fait foi reste l'intégration continue** (runs relevés dans les [preuves](preuves-1.0.0.md)) | Garder D134 : chaque essai d'image coûte un run d'`image.yml` (environ une heure), et les scripts locaux à Docker qu'aucun workflow n'appelle (bouts en bout du poste et de la station, témoins négatifs de P4 à P6, `scripts/lock_python.ps1`) ne tournent nulle part | Consigne du propriétaire du 9 octobre 2026 (« Docker OK ») ; journal de P9 (réunion des branches) ; premières suites locales : [preuves](preuves-1.0.0.md) § 3 ; ces scripts locaux à Docker n'ont pas encore été rejoués sur le code de P7 ni de P9 |
+
 ### Phases P4 à P8 remplacées par le plan d'autonomie
 
 Décision du 25 septembre 2026. Le plan complet, recopié tel quel, est dans
@@ -410,7 +424,18 @@ Décision du 25 septembre 2026. Le plan complet, recopié tel quel, est dans
   poste en lecture comme verrou, le tableau unique `poste`, l'ancienne P4 « Discussion mobile » comme
   étape autonome (liste complète : [autonomie.md](autonomie.md) § 9).
 
-### État d'avancement (25 septembre 2026)
+### État d'avancement (9 octobre 2026)
+
+- **P0 à P8, P7**, le correctif de sécurité **SECU-TUI** et la station alignée sur P7 (**P8b**) : fusionnés dans
+  `refonte/hermes` par les PR #13 à #23 (commits de fusion : [historique](historique.md), partie A ; runs de chaque PR
+  et de chaque fusion : [preuves](preuves-1.0.0.md) § 1). **Rien n'est déployé** : le premier déploiement est un
+  geste du propriétaire ([railway.md](railway.md) § 4).
+- **P9** : parts A à E faites côté dépôt et réunies sur `refonte/hermes-p9` (état ci-dessus, § 1, « Étape P9 ») ;
+  preuves : [preuves-1.0.0.md](preuves-1.0.0.md) § 3 ; manuel du propriétaire : [exploitation.md](../exploitation.md).
+  Restent la relecture indépendante de toute P9, l'ouverture 1.0.0 et le journal daté, la PR vers
+  `refonte/hermes`, puis la PR vers `main` et l'étiquette `v1.0.0`, après l'accord du propriétaire.
+
+### État d'avancement au 25 septembre 2026 (pour mémoire)
 
 - **P0** et **P1** : fusionnées dans `refonte/hermes` (PR #13 et #14, commits de fusion `29c95b5` et `21d13ee`).
 - **P2** : **réalisée côté dépôt** sur `refonte/hermes-p2` (image sans outil d'exécution, fournisseur
@@ -1308,6 +1333,13 @@ Autres preuves :
 - installeur non signé, dit explicitement, testé sur une VM Windows propre.
 
 ### P9 — Exploitation, montée de version et publication
+
+> **État du 9 octobre 2026** : parts A à E **faites côté dépôt** sur `refonte/hermes-p9` (non fusionnée ; 1.0.0 non
+> ouverte) : manuel [exploitation.md](../exploitation.md), restauration R1 à R4 et montée de données prouvées en
+> intégration continue, témoin `v2026.9.21`. Écarts à ce texte, décidés et dits : montée répétée à blanc et témoin
+> d'une release antérieure, faute de release suivante (D122) ; aucun environnement Railway éphémère (D123) ;
+> restauration répétée en production avant d'y mettre des données, et non dans un environnement jetable (D124).
+> Preuves et ce qui reste non prouvé : [preuves-1.0.0.md](preuves-1.0.0.md) § 3 et § 5.
 
 **Livrable**
 

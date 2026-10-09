@@ -24,10 +24,10 @@ remplacées par `docs/refonte/autonomie.md`.
 **Fin de la refonte « Hermes au centre » (en cours, étape P9).** Les étapes P0 à P8 ont été publiées une à une
 vers `refonte/hermes` (recette d'alors : `docs/refonte/historique.md`, partie D). Pour finir :
 
-1. P9 se termine sur `refonte/hermes-p9`, qui réunit ses parts (`refonte/hermes-p9bc`, `-p9c`, `-p9e`) par
-   commits de fusion (comme `-p9c` dans `-p9bc`, `b867810`), jamais par rebase d'une branche poussée : commits de
-   travail, suite complète verte avant chacun, CI verte, preuves de l'étape publiées dans la documentation,
-   relecture indépendante de toute P9.
+1. P9 se termine sur `refonte/hermes-p9`, qui a réuni ses parts (`refonte/hermes-p9bc`, `-p9c`, `-p9e`) et
+   `refonte/hermes` le 9 octobre 2026 par commits de fusion (comme `-p9c` dans `-p9bc`, `b867810`), jamais par
+   rebase d'une branche poussée : commits de travail, suite complète verte avant chacun, CI verte, preuves de
+   l'étape publiées dans la documentation, relecture indépendante de toute P9.
 2. Une fois P9 prouvée, sur `refonte/hermes-p9` et **avant** sa PR (D129) : commit d'ouverture
    `chore(release): open 1.0.0` (fichier `VERSION` et toutes les copies vérifiées par `scripts/check_version.py`,
    fichier par fichier), puis `chore(release): prepare 1.0.0 changelog` (section du journal datée, déjà préparée
@@ -114,10 +114,13 @@ lance Codex et Claude Code et ne pousse jamais ; le **client desktop natif** C++
 - Ne jamais pointer un test ou un parcours de vérification sur un Hermes, un volume
   ou une base contenant des données, ni sur un volume restauré : `HERMES_HOME` jetable et
   volume nommé jetable seulement.
-- Sur le poste de travail, **aucune commande Docker ni Docker Desktop** (souhait du propriétaire, 8 octobre 2026,
-  D134) : ce qui demande Docker (images, contrat, navigateur, restauration, montée) se prouve par la CI GitHub ;
-  les scripts locaux à Docker qu'aucun workflow n'appelle (bouts en bout du poste et de la station, témoins négatifs
-  de P4 à P6, `scripts/lock_python.ps1`) ne tournent plus nulle part (`docs/reprise-poste.md` § 4).
+- **Docker sur le poste de travail : permis avec sobriété** depuis le 9 octobre 2026 (« Docker OK » du
+  propriétaire, D160, qui remplace D134) : seuls les agents qui écrivent et le vérificateur final en lancent,
+  jamais un relecteur ; **une seule pile à la fois** ; conteneurs, volumes, réseaux et images nommés par un préfixe
+  propre au chantier et retirés à la fin de chaque suite ; jamais les conteneurs d'autres projets. La preuve qui
+  fait foi reste l'intégration continue GitHub. Les scripts locaux à Docker qu'aucun workflow n'appelle (bouts en
+  bout du poste et de la station, témoins négatifs de P4 à P6, `scripts/lock_python.ps1`) n'ont pas été rejoués
+  sur le code de P7 ni de P9 (`docs/reprise-poste.md` § 4).
 - Le checkout principal du dépôt porte un chantier Pixel Office non commité : ne rien
   y modifier depuis un worktree de la refonte.
 
@@ -125,10 +128,10 @@ lance Codex et Claude Code et ne pousse jamais ; le **client desktop natif** C++
 
 - `docs/reprise-poste.md` — état courant, chaîne d'outils, pièges connus.
 - `docs/exploitation.md` — manuel du propriétaire : sauvegardes, restauration, montée de version, incidents.
-- `docs/refonte/plan.md` — plan de la refonte et décisions du propriétaire (font foi), décisions D1 à D155.
+- `docs/refonte/plan.md` — plan de la refonte et décisions du propriétaire (font foi), décisions D1 à D160.
 - `docs/refonte/autonomie.md` — plan d'autonomie qui remplace les phases P4 à P8.
 - `docs/refonte/historique.md` — historique figé des étapes P0 à P9 (notes de reprise et journal par étape).
-- `docs/refonte/preuves-1.0.0.md` — preuves de 1.0.0 (PR, runs, relevés ; en préparation).
+- `docs/refonte/preuves-1.0.0.md` — preuves de 1.0.0 (PR, runs, relevés ; complétées après l'étiquette).
 - `docs/refonte/image.md` — image Hermes d'ACP : démarrage, variables Railway attendues
   et interdites, managed scope, agent sans outil d'exécution, greffon `acp-poste`, tests
   et limites.
