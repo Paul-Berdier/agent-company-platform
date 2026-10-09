@@ -32,7 +32,9 @@ L'ancienne plateforme reste entière sous l'étiquette annotée `archive/acp-0.1
   étape : [preuves de 1.0.0](refonte/preuves-1.0.0.md).
 - **Docker** : Docker Desktop est **arrêté** sur le poste de travail depuis le 8 octobre 2026 (souhait du
   propriétaire, D134). Aucune commande Docker en local : images, contrat, navigateur, restauration, témoin et montée
-  de données se prouvent par la CI GitHub (`gh workflow run <fichier> --ref <branche>` pour les jobs manuels).
+  de données se prouvent par la CI GitHub (`gh workflow run <fichier> --ref <branche>` pour les jobs manuels) ;
+  les scripts locaux à Docker (bouts en bout du poste et de la station, témoins négatifs de P4 à P6, recompilation
+  du verrou Python) ne tournent plus nulle part (§ 4).
 
 | Étape | Objet | État |
 |---|---|---|
@@ -137,12 +139,19 @@ npm ci --prefix apps/interface ; npm test --prefix apps/interface   # greffons d
 git diff --check
 ```
 
-Le verrou Python se recompile dans un conteneur `python:3.12-slim` (`scripts/lock_python.ps1`), jamais sur le
-poste ; il produit aussi le verrou d'exécution du poste (`requirements/poste-3.12.lock.txt`). Ce qui demande Docker
-(images, contrat, navigateur, bout en bout du poste et de la station, restauration, témoin, montée) passe par la CI
-(`image.yml`, `executant.yml`) ; les scripts locaux `scripts/e2e-poste-windows.ps1` et
-`scripts/e2e-desktop-windows.ps1` restent décrits dans l'[historique](refonte/historique.md), partie B, § 7, comme les
-témoins négatifs `scripts/temoins_negatifs_p4.sh` à `_p6.sh` (Docker requis).
+**Docker** : plus aucune commande sur le poste de travail depuis le 8 octobre 2026 (D134). Passent par la CI : les
+images, les tests dans l'image, de contrat et du navigateur, le bout en bout de l'exécutant (`image.yml`, avec ses
+jobs `restauration`, `temoin` et `montee`) et la suite du client en root (`executant.yml`). **Ne tournent nulle
+part depuis**, car ce sont des scripts locaux à Docker qu'aucun workflow n'appelle :
+- le bout en bout du poste Windows, `scripts/e2e-poste-windows.ps1` (« jamais en CI » ; dernier passage relevé :
+  étape P5) ;
+- celui de la station Qt, `scripts/e2e-desktop-windows.ps1` (« jamais en CI » ; dernier passage relevé : étape P8) ;
+  leur mode d'emploi est dans l'[historique](refonte/historique.md), partie B, § 7 ;
+- les témoins négatifs `scripts/temoins_negatifs_p4.sh` à `_p6.sh` ;
+- la recompilation du verrou Python : `scripts/lock_python.ps1` lance `docker run` sur `python:3.12-slim` (jamais
+  pip-tools sur le poste) et produit aussi le verrou d'exécution du poste (`requirements/poste-3.12.lock.txt`).
+
+Les relancer demande soit de revenir sur D134 (accord du propriétaire), soit un workflow qui n'existe pas encore.
 
 ## 5. Pièges connus
 

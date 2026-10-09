@@ -165,6 +165,9 @@ dans `docs/refonte/preuves-1.0.0.md`.
   runs relevés pendant P9. Non expliqué, non corrigé ; la garde `pre_tool_call` n'a pas été mesurée pour cette
   session dans ce run.
 - Binaires de la station **non signés** ; aucune installation sur un Windows propre.
+- Sans Docker sur le poste de travail (D134), les bouts en bout locaux du poste (dernier passage : P5) et de la
+  station (P8), les témoins négatifs de P4 à P6 et la recompilation du verrou Python ne tournent plus nulle part
+  (aucun workflow ne les appelle) ; les deux bouts en bout n'ont pas été rejoués sur le code de P7 ni de P9.
 - Cookies de Hermes sans `Secure` tant que `trusted_proxies` est vide ; jeton de rafraîchissement rejoué : 503
   persistant jusqu'à la déconnexion ou l'effacement des cookies (`docs/refonte/identite.md` § 12).
 - Pages natives de Hermes en partie en anglais ; rendu éprouvé dans Chromium seulement.

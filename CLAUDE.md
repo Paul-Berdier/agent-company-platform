@@ -115,7 +115,9 @@ lance Codex et Claude Code et ne pousse jamais ; le **client desktop natif** C++
   ou une base contenant des données, ni sur un volume restauré : `HERMES_HOME` jetable et
   volume nommé jetable seulement.
 - Sur le poste de travail, **aucune commande Docker ni Docker Desktop** (souhait du propriétaire, 8 octobre 2026,
-  D134) : ce qui demande Docker (images, contrat, navigateur, restauration, montée) se prouve par la CI GitHub.
+  D134) : ce qui demande Docker (images, contrat, navigateur, restauration, montée) se prouve par la CI GitHub ;
+  les scripts locaux à Docker qu'aucun workflow n'appelle (bouts en bout du poste et de la station, témoins négatifs
+  de P4 à P6, `scripts/lock_python.ps1`) ne tournent plus nulle part (`docs/reprise-poste.md` § 4).
 - Le checkout principal du dépôt porte un chantier Pixel Office non commité : ne rien
   y modifier depuis un worktree de la refonte.
 

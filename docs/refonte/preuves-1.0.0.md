@@ -117,6 +117,11 @@ D155 ([plan](plan.md) § 1). Les parts B et C sont **encore ouvertes** au 8 octo
 - Le premier run de `Desktop Release` tant que l'étiquette n'est pas posée ; un installeur réel sur un Windows
   propre ; binaires **non signés** (aucun certificat).
 - `preserve()` sur une variable jamais posée : supposé sans effet (D116).
+- Les bouts en bout locaux du poste Windows (`scripts/e2e-poste-windows.ps1`, dernier passage relevé : P5) et de la
+  station Qt (`scripts/e2e-desktop-windows.ps1`, dernier passage relevé : P8), et les témoins négatifs de P4 à P6
+  (`scripts/temoins_negatifs_p4.sh` à `_p6.sh`) : scripts à Docker local, appelés par aucun workflow ; depuis D134
+  ils ne tournent plus nulle part, et n'ont donc jamais été rejoués sur le code de P7 ni de P9. Le verrou Python ne
+  peut pas non plus être recompilé (`scripts/lock_python.ps1` lance Docker).
 - **Constat intermittent, à instruire avant la publication** : Image Hermes `37784838264` (`fdb41c9`), tentative 1,
   job `113336818423` rouge sur `hermes/tests/contrat/test_sans_shell_contrat.py::test_volume_piege_apres_relance` :
   après le redémarrage du conteneur sur un volume piégé, la session du tableau de bord (`/api/ws`) listait `terminal`,

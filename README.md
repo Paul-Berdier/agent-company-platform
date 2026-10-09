@@ -105,7 +105,10 @@ npm ci --prefix apps/interface ; npm test --prefix apps/interface
 ./scripts/test-desktop.ps1 -Configuration Release
 ```
 
-Ce qui demande Docker passe par l'intégration continue (GitHub Actions, dépôt public) :
+Docker ne tourne plus sur le poste de travail (D134) ; l'intégration continue (GitHub Actions, dépôt public) en
+reprend l'essentiel, ci-dessous. Ne tournent plus nulle part, faute de workflow : les bouts en bout locaux du poste
+Windows et de la station Qt, les témoins négatifs de P4 à P6 et la recompilation du verrou Python
+([notes de reprise](docs/reprise-poste.md) § 4).
 
 | Workflow | Ce qu'il prouve |
 |---|---|
