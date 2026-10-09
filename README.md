@@ -1,10 +1,10 @@
 # Agent Company Platform (ACP)
 
 Espace de travail personnel d'agents IA, bâti autour de **Hermes Agent** (Nous Research, licence MIT) : c'est la
-refonte « Hermes au centre ». **1.0.0 est préparée** (étape P9) ; sa fusion dans `main` et l'étiquette `v1.0.0`
-attendent l'accord du propriétaire : rien n'est encore publié ni **déployé**. L'ancienne plateforme (API FastAPI,
-base SQLite et PostgreSQL, interface web Vite, CLI `acp`, déploiement Railway multi-services) reste entière sous
-l'étiquette `archive/acp-0.10.0-avant-hermes`.
+refonte « Hermes au centre ». **1.0.0 est préparée** (étape P9) ; sa fusion dans `main` et l'étiquette `v1.0.0`,
+accordées par le propriétaire le 9 octobre 2026 (D164), suivent la PR vers `main` : rien n'est encore publié ni
+**déployé**. L'ancienne plateforme (API FastAPI, base SQLite et PostgreSQL, interface web Vite, CLI `acp`,
+déploiement Railway multi-services) reste entière sous l'étiquette `archive/acp-0.10.0-avant-hermes`.
 
 ## Ce que c'est
 
@@ -37,7 +37,7 @@ fait relire, pose ses questions et notifie. ACP n'a plus de backend propre ; il 
    [`docs/refonte/interface.md`](docs/refonte/interface.md), [`docs/refonte/questions.md`](docs/refonte/questions.md).
 
 L'infrastructure Railway (trois services, trois volumes) est déclarée en code dans
-[`.railway/railway.ts`](.railway/railway.ts) et appliquée par le propriétaire seul.
+[`.railway/railway.ts`](.railway/railway.ts) et appliquée par le propriétaire seul ; branche déployée : `main` (D164).
 
 ## État réel (9 octobre 2026)
 
@@ -45,12 +45,14 @@ L'infrastructure Railway (trois services, trois volumes) est déclarée en code 
   SECU-TUI (PR #23, `5026a70`) et la station Qt alignée sur P7 (P8b, PR #22, `8583642`). P9 (exploitation, montée
   de version, publication) est faite côté dépôt sur `refonte/hermes-p9` (parts A à E, branches réunies le
   9 octobre 2026), relue de bout en bout le 9 octobre 2026 ; la version 1.0.0 s'ouvre par les deux derniers commits
-  de cette branche (ouverture, puis journal daté) ; la fusion dans `main` et l'étiquette attendent l'accord du
-  propriétaire. Historique : [`docs/refonte/historique.md`](docs/refonte/historique.md).
+  de cette branche (ouverture, puis journal daté), précédés du passage de la branche déployée à `main` (D164) ; la
+  fusion dans `main` et l'étiquette, accordées par le propriétaire le 9 octobre 2026, suivent la PR vers `main`.
+  Historique : [`docs/refonte/historique.md`](docs/refonte/historique.md).
 - **Non déployé** : le premier déploiement est un geste du propriétaire
-  ([`docs/refonte/railway.md`](docs/refonte/railway.md) § 4). La branche que l'IaC déploie (`refonte/hermes`) porte
-  depuis le 9 octobre 2026 le correctif du constat de sécurité ci-dessous. Ce qui ne se prouve que sur Railway (bord,
-  sauvegardes, coût et notifications réels, sonde de l'exécutant) reste **non prouvé**.
+  ([`docs/refonte/railway.md`](docs/refonte/railway.md) § 4), après la fusion de 1.0.0. L'IaC déploie `main`
+  (décision du propriétaire du 9 octobre 2026, D164, qui remplace `refonte/hermes`) ; le correctif du constat de
+  sécurité ci-dessous y entre avec 1.0.0. Ce qui ne se prouve que sur Railway (bord, sauvegardes, coût et
+  notifications réels, sonde de l'exécutant) reste **non prouvé**.
 - Prouvé en local et en intégration continue : les images et leurs gardes, les tests de contrat de Hermes et de
   l'identité, les parcours dans un navigateur, l'exécutant de bout en bout avec des CLI factices, la station Qt ;
   et, depuis P9, la restauration des trois volumes (R1 à R4) et la montée de données d'une version d'ACP à la

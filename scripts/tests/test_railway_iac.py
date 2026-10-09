@@ -216,11 +216,49 @@ def test_reglages_declares(code, motif, nombre):
     assert len(re.findall(motif, code)) == nombre, f"« {motif} » attendu {nombre} fois dans railway.ts."
 
 
+# Branche déployée : décision du propriétaire du 9 octobre 2026 (D164), avec la fusion de 1.0.0 ; elle remplace celle
+# du 25 septembre 2026 (refonte/hermes).
+BRANCHE_DEPLOYEE = "main"
+
+
 def test_constantes(code):
     assert constante(code, "DEPOT") == "Paul-Berdier/agent-company-platform"
-    assert constante(code, "BRANCHE") == "refonte/hermes", "branche déployée : décision du propriétaire."
+    assert constante(code, "BRANCHE") == BRANCHE_DEPLOYEE, "branche déployée : décision du propriétaire (D164)."
     assert constante(code, "ENVIRONNEMENT") == "production"
     assert constante(code, "PROJET") == "acp"
+
+
+def test_le_verificateur_attend_la_meme_branche():
+    """verifier.mjs écrit ses valeurs attendues indépendamment de railway.ts (« modification consciente de l'un et de
+    l'autre, dans la même PR ») : un changement de branche déployée qui n'en toucherait qu'un est refusé ici, sans
+    Node, en plus de l'évaluation d'image.yml."""
+    trouves = re.findall(r'^const BRANCHE = "([^"\n]*)";$', lire(IAC / "verifier.mjs"), flags=re.M)
+    assert trouves == [BRANCHE_DEPLOYEE], f"verifier.mjs : branche attendue {trouves}, décidée {BRANCHE_DEPLOYEE!r}."
+
+
+def _branches_de_push(flux: str) -> list[str]:
+    """Branches du déclencheur ``push`` d'un workflow (bloc « ␣␣push: / ␣␣␣␣branches: », motifs entre guillemets ou
+    non), lues sans PyYAML."""
+    bloc = re.search(r"^  push:\n    branches:\n((?:      - .+\n)+)", flux, flags=re.M)
+    assert bloc, "déclencheur push sans liste de branches"
+    return [ligne.strip()[2:].strip().strip('"') for ligne in bloc.group(1).splitlines()]
+
+
+@pytest.mark.parametrize("workflow", ["ci.yml", "image.yml", "executant.yml", "desktop-ci.yml"])
+def test_les_workflows_qu_attend_railway_tournent_sur_la_branche_deployee(workflow):
+    """« Wait for CI » (railway.md § 9) attend les workflows GitHub Actions du commit poussé sur la branche déployée :
+    chacun doit donc se déclencher sur un push vers elle, nommée telle quelle (D164 : ``main``). Sans cela, Railway
+    déploierait un commit dont ce workflow n'a jamais rendu de verdict."""
+    branches = _branches_de_push(lire(RACINE / ".github" / "workflows" / workflow))
+    assert BRANCHE_DEPLOYEE in branches, f"{workflow} : push sur {branches}, sans la branche déployée."
+
+
+def test_branches_de_push_ne_lit_que_le_push():
+    """Témoin pur : la branche citée par ``pull_request`` seulement ne compte pas ; motifs entre guillemets lus."""
+    flux = ('"on":\n  pull_request:\n    branches:\n      - main\n  push:\n    branches:\n      - "refonte/**"\n'
+            '    paths:\n      - "VERSION"\n')
+    assert _branches_de_push(flux) == ["refonte/**"]
+    assert BRANCHE_DEPLOYEE not in _branches_de_push(flux)
 
 
 def test_garde_du_projet_lie(code):

@@ -29,14 +29,16 @@ vers `refonte/hermes` (recette d'alors : `docs/refonte/historique.md`, partie D)
    `refonte/hermes` (`7b0d3d7`) par commits de fusion, jamais par rebase d'une branche poussée : commits de travail,
    suite complète verte avant chacun, CI verte, preuves de l'étape publiées dans la documentation, relecture
    indépendante de toute P9.
-2. Une fois P9 prouvée, sur `refonte/hermes-p9` et **avant** sa PR (D129) : commit d'ouverture
-   `chore(release): open 1.0.0` (fichier `VERSION` et toutes les copies vérifiées par `scripts/check_version.py`,
-   fichier par fichier), puis `chore(release): prepare 1.0.0 changelog` (section du journal datée, déjà préparée
-   dans `CHANGELOG.md`) : ce sont les deux derniers commits de la branche. Les textes d'état sont déjà vrais après
+2. Une fois P9 prouvée, sur `refonte/hermes-p9` et **avant** sa PR (D129) : `chore(railway): deploy from main`
+   (branche déployée passée à `main`, D164), puis commit d'ouverture `chore(release): open 1.0.0` (fichier `VERSION`
+   et toutes les copies vérifiées par `scripts/check_version.py`, fichier par fichier), puis
+   `chore(release): prepare 1.0.0 changelog` (section du journal datée, déjà préparée dans `CHANGELOG.md`) : ce sont
+   les deux derniers commits de la branche. Les textes d'état sont déjà vrais après
    eux (D163) : l'ouverture reste mécanique ; le journal pose sa date et retire son encadré « Section préparée ».
 3. PR de `refonte/hermes-p9` vers `refonte/hermes`, quatre workflows verts, fusion par commit de fusion, **sans
    étiquette**.
-4. PR de `refonte/hermes` vers `main` ; fusion par commit de fusion **après l'accord explicite du propriétaire**,
+4. PR de `refonte/hermes` vers `main` ; fusion par commit de fusion **après l'accord explicite du propriétaire**
+   (donné le 9 octobre 2026 avec la branche déployée, D164 ; seulement quand les quatre workflows de la PR sont verts),
    puis étiquette annotée `v1.0.0` **sur le commit de fusion**, jamais avant ; preuves publiées dans
    `docs/refonte/preuves-1.0.0.md` par une PR de documentation seule.
 
@@ -134,7 +136,7 @@ lance Codex et Claude Code et ne pousse jamais ; le **client desktop natif** C++
 
 - `docs/reprise-poste.md` — état courant, chaîne d'outils, pièges connus.
 - `docs/exploitation.md` — manuel du propriétaire : sauvegardes, restauration, montée de version, incidents.
-- `docs/refonte/plan.md` — plan de la refonte et décisions du propriétaire (font foi), décisions D1 à D163.
+- `docs/refonte/plan.md` — plan de la refonte et décisions du propriétaire (font foi), décisions D1 à D164.
 - `docs/refonte/autonomie.md` — plan d'autonomie qui remplace les phases P4 à P8.
 - `docs/refonte/historique.md` — historique figé des étapes P0 à P9 (notes de reprise et journal par étape).
 - `docs/refonte/preuves-1.0.0.md` — preuves de 1.0.0 (PR, runs, relevés ; complétées après l'étiquette).

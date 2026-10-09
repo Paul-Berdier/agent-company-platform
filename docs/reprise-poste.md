@@ -15,20 +15,22 @@ L'ancienne plateforme reste entière sous l'étiquette annotée `archive/acp-0.1
 
 - **1.0.0 préparée** : relecture indépendante de toute P9 faite le 9 octobre 2026, constats traités
   ([preuves](refonte/preuves-1.0.0.md) § 3) ; la version s'ouvre par les deux derniers commits de
-  `refonte/hermes-p9`, commit d'ouverture puis journal daté (D129, D163 ; `VERSION` dit où on en est) ; la fusion dans
-  `main` et l'étiquette `v1.0.0` attendent l'accord du propriétaire.
+  `refonte/hermes-p9`, commit d'ouverture puis journal daté (D129, D163 ; `VERSION` dit où on en est), précédés du
+  passage de la branche déployée à `main` (D164) ; la fusion dans `main` et l'étiquette `v1.0.0`, accordées par le
+  propriétaire le 9 octobre 2026 (D164), suivent la PR vers `main`.
 - **Rien n'est déployé sur Railway**. Le chantier SECU-TUI, qui retenait le déploiement, est fusionné (PR #23,
-  `5026a70`, 9 octobre 2026) : la branche que l'IaC déploie porte son correctif (§ 6, n° 1). Le premier
-  déploiement est un geste du propriétaire ([railway.md](refonte/railway.md) § 4).
-- **Branches** : `main` = `60a49b6` (ancienne plateforme) ; `refonte/hermes`, branche d'intégration et branche
-  déployée par l'IaC, porte P0 à P8, P7, le correctif de sécurité SECU-TUI (PR #23, `5026a70`) et la station Qt
-  alignée sur P7 (P8b, PR #22, `8583642`, dernière fusion, 9 octobre 2026) ; P9 est **réunie** sur
-  `refonte/hermes-p9` depuis le 9 octobre 2026 : parts A et D, `refonte/hermes-p9bc` (parts B et C, tête `b6f2ada` ;
-  elle contient `refonte/hermes-p9c`, le témoin, fusionnée par `b867810`), `refonte/hermes-p9e` (part E,
-  documentation, tête `3d8d723`) et `refonte/hermes` (`8583642`), réunies le 9 octobre 2026 : `-p9bc` en avance
-  rapide, puis `-p9e` (`916bf7a`) et `refonte/hermes` (`7b0d3d7`) par commits de fusion, jamais par rebase ; sa PR
-  vers `refonte/hermes` suit les deux commits de version (`CLAUDE.md`). Les branches `refonte/hermes-p8b` et
-  `refonte/hermes-secu-tui` sont closes par leurs fusions.
+  `5026a70`, 9 octobre 2026) : son correctif entre dans `main`, branche que l'IaC déploie depuis D164, avec 1.0.0
+  (§ 6, n° 1). Le premier déploiement est un geste du propriétaire, après la fusion de 1.0.0
+  ([railway.md](refonte/railway.md) § 4).
+- **Branches** : `main` = `60a49b6` (ancienne plateforme), branche que l'IaC déploie depuis D164 (9 octobre 2026) ;
+  `refonte/hermes`, branche d'intégration (et branche que l'IaC déployait jusque-là), porte P0 à P8, P7, le correctif
+  de sécurité SECU-TUI (PR #23, `5026a70`) et la station Qt alignée sur P7 (P8b, PR #22, `8583642`, dernière fusion, 9
+  octobre 2026) ; P9 est **réunie** sur `refonte/hermes-p9` depuis le 9 octobre 2026 : parts A et D,
+  `refonte/hermes-p9bc` (parts B et C, tête `b6f2ada` ; elle contient `refonte/hermes-p9c`, le témoin, fusionnée par
+  `b867810`), `refonte/hermes-p9e` (part E, documentation, tête `3d8d723`) et `refonte/hermes` (`8583642`), réunies le
+  9 octobre 2026 : `-p9bc` en avance rapide, puis `-p9e` (`916bf7a`) et `refonte/hermes` (`7b0d3d7`) par commits de
+  fusion, jamais par rebase ; sa PR vers `refonte/hermes` suit les deux commits de version (`CLAUDE.md`). Les branches
+  `refonte/hermes-p8b` et `refonte/hermes-secu-tui` sont closes par leurs fusions.
 - **Étiquettes** : `v0.2.0` à `v0.9.0` et `archive/acp-0.10.0-avant-hermes` ; ni `v0.10.0` ni `v0.11.0` (jamais
   publiées) ; aucune `v1.0.0`.
 - **Intégration continue** sur `refonte/hermes` : après la fusion de P7 (`b9779f1`), CI `37795932683`, Image de
@@ -59,10 +61,10 @@ L'ancienne plateforme reste entière sous l'étiquette annotée `archive/acp-0.1
 | P7 | questions, notifications, continuité ; dépôts réels | fusionnée (PR #21, `b9779f1`) ; aucun dépôt réel ajouté |
 | SECU-TUI | correctif de sécurité : `.env` et sources de secrets du volume | fusionné (PR #23, `5026a70`) ; D156, D157 |
 | P8b | station Qt alignée sur P7 | fusionnée (PR #22, `8583642`) ; D158, D159 ; prouvée contre le faux Hermes seulement |
-| P9 | exploitation, montée de version, publication 1.0.0 | **parts A à E faites** : branches réunies sur `refonte/hermes-p9` (9 octobre 2026) ; A (outillage de version, montée de Hermes répétée à blanc à chaque construction) et D (procédures, manuel) relues ; B (test de restauration R1 à R4) et C (témoin `v2026.9.21`, montée de données) closes, prouvées en CI ([preuves](refonte/preuves-1.0.0.md) § 3) ; E (documentation finale) faite ; relecture indépendante de toute P9 faite (9 octobre 2026, D161 à D163) ; puis ouverture 1.0.0 et journal daté (deux derniers commits), PR vers `refonte/hermes` ; F (publication) après accord |
+| P9 | exploitation, montée de version, publication 1.0.0 | **parts A à E faites** : branches réunies sur `refonte/hermes-p9` (9 octobre 2026) ; A (outillage de version, montée de Hermes répétée à blanc à chaque construction) et D (procédures, manuel) relues ; B (test de restauration R1 à R4) et C (témoin `v2026.9.21`, montée de données) closes, prouvées en CI ([preuves](refonte/preuves-1.0.0.md) § 3) ; E (documentation finale) faite ; relecture indépendante de toute P9 faite (9 octobre 2026, D161 à D163) ; puis branche déployée passée à `main` (D164), ouverture 1.0.0 et journal daté (deux derniers commits), PR vers `refonte/hermes` ; F (publication) accordée le 9 octobre 2026 (D164) |
 
 Détail de chaque étape : [historique](refonte/historique.md), partie A (tableau des fusions) et partie B ; P9 :
-[plan](refonte/plan.md) § 1 (D122 à D155 et D160 à D163 ; D156 à D159 pour SECU-TUI et P8b) et
+[plan](refonte/plan.md) § 1 (D122 à D155 et D160 à D164 ; D156 à D159 pour SECU-TUI et P8b) et
 [manuel](exploitation.md).
 
 ## 2. Décisions du propriétaire
@@ -74,7 +76,8 @@ Elles priment sur le plan (détail et dates : [plan](refonte/plan.md) § 1).
   `identite`, un seul utilisateur, passkeys).
 - Cerveau de Hermes : abonnement **ChatGPT** (`openai-codex`). Approbations **manuelles**.
 - Railway **Hobby**, plafond dur de 30 $ par mois (alerte à 15 $), région Europe, sans domaine personnalisé ; IaC
-  `.railway/railway.ts` appliquée par le propriétaire seul ; branche déployée `refonte/hermes`.
+  `.railway/railway.ts` appliquée par le propriétaire seul ; branche déployée `main` depuis le 9 octobre 2026 (D164 ;
+  `refonte/hermes` avant).
 - **Aucun outil d'exécution pour l'agent sur Railway** (ni terminal, ni fichiers, ni code, ni navigateur, ni cron, ni
   délégation, ni connexions) ; écritures de l'agent en mémoire et dans les skills soumises à validation.
 - Phases P4 à P8 **remplacées** par le [plan d'autonomie](refonte/autonomie.md) : Hermes chef de projet autonome,
@@ -82,16 +85,16 @@ Elles priment sur le plan (détail et dates : [plan](refonte/plan.md) § 1).
   élargissement du périmètre).
 - Exécution principale sur un service Railway séparé, l'**exécutant** (D74) ; le poste Windows devient facultatif.
 - Le propriétaire **fournit les comptes**, Hermes gère l'exploitation : décisions de conception **appliquées** depuis
-  P6 (D74 à D163) ; les choix par défaut de P3 à P5 (D1 à D73) restent **à confirmer**. Ne lui sont soumis que les
+  P6 (D74 à D164) ; les choix par défaut de P3 à P5 (D1 à D73) restent **à confirmer**. Ne lui sont soumis que les
   comptes, la dépense et l'irréversible ; pour 1.0.0, une seule question : fusion dans `main`, étiquette et branche
-  déployée.
+  déployée, accordées le 9 octobre 2026 (D164).
 
 ## 3. Où trouver quoi
 
 | Besoin | Où |
 |---|---|
 | Règles de travail, recette de publication, interdits | `CLAUDE.md` |
-| Plan validé et décisions D1 à D163 | [refonte/plan.md](refonte/plan.md) ; plan d'autonomie : [refonte/autonomie.md](refonte/autonomie.md) |
+| Plan validé et décisions D1 à D164 | [refonte/plan.md](refonte/plan.md) ; plan d'autonomie : [refonte/autonomie.md](refonte/autonomie.md) |
 | Gestes du propriétaire : sauvegardes, restauration, montée de version, incidents | [exploitation.md](exploitation.md), puis [refonte/railway.md](refonte/railway.md) |
 | Image Hermes, variables Railway, managed scope | [refonte/image.md](refonte/image.md) |
 | Identité, interface, catalogue, projets, poste, exécutant, questions | [identite.md](refonte/identite.md), [interface.md](refonte/interface.md), [catalogue.md](refonte/catalogue.md), [projets.md](refonte/projets.md), [poste.md](refonte/poste.md), [executant.md](refonte/executant.md), [questions.md](refonte/questions.md) |
@@ -282,10 +285,12 @@ Datés par l'étape qui les a trouvés ; détail et contexte : [historique](refo
    preuves sont reprises dans les [preuves](refonte/preuves-1.0.0.md) (§ 1 et § 5) et le journal 1.0.0 préparé.
 2. Fin de P9 : fait le 9 octobre 2026, parts B et C closes (preuves relevées), manuel finalisé, décision D160
    (Docker de nouveau permis en local) écrite, relecture indépendante de toute P9 faite et ses constats traités
-   (D161 à D163). Puis : commit d'ouverture 1.0.0 et journal daté (les deux derniers commits de la branche), PR de
-   `refonte/hermes-p9` vers `refonte/hermes`, quatre workflows verts, fusion.
-3. PR de `refonte/hermes` vers `main` ; une seule question au propriétaire (fusion, étiquette `v1.0.0` sur le commit
-   de fusion, branche déployée) ; premier run de `Desktop Release` (brouillon non signé).
+   (D161 à D163). Puis : passage de la branche déployée à `main` (D164), commit d'ouverture 1.0.0 et journal daté
+   (les deux derniers commits de la branche), PR de `refonte/hermes-p9` vers `refonte/hermes`, quatre workflows
+   verts, fusion.
+3. PR de `refonte/hermes` vers `main`, quatre workflows verts ; fusion et étiquette `v1.0.0` sur le commit de fusion,
+   accordées par le propriétaire le 9 octobre 2026 avec la branche déployée (D164) ; premier run de `Desktop Release`
+   (brouillon non signé).
 4. Gestes du propriétaire sur Railway : sonde R0 de l'exécutant (railway.md § 13.2), **avant** le premier apply ;
    premier déploiement ([railway.md](refonte/railway.md) § 4) ; répétition de maintenance puis de restauration avant
    d'y mettre des données ([exploitation.md](exploitation.md) § 5) ; canal de notification et premier dépôt réel

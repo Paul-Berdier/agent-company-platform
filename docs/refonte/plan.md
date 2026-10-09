@@ -71,7 +71,8 @@
 - **Surfaces shell du tableau de bord** (terminal, fichiers, MCP, variables) gardées sous le seul
   OIDC en P2 ; leur filtrage relève d'une phase ultérieure. Le tableau de bord authentifié reste
   donc un shell du propriétaire.
-- **Railway** : branche déployée **`refonte/hermes`**, après la fusion de P2 ; IaC
+- **Railway** : branche déployée **`refonte/hermes`**, après la fusion de P2 (remplacée par `main` le 9 octobre 2026 :
+  D164) ; IaC
   `.railway/railway.ts`, SDK `railway@3.11.0` **isolé dans `.railway/`**, appliquée par le
   propriétaire **seul** ; constructeur Dockerfile, Serverless coupé, politique de redémarrage et
   limites déclarés dans `railway.ts`. Libellés des sous-domaines `*.up.railway.app` inconnus tant
@@ -307,21 +308,22 @@ numérotées à part, sont dans [desktop.md](desktop.md)). La documentation écr
 
 ### Étape P9 : décisions D122 à D155, **appliquées**
 
-État au 9 octobre 2026 (côté dépôt, rien de déployé ; 1.0.0 préparée, fusion dans `main` et étiquette en attente
-de l'accord du propriétaire) : manuel d'exploitation
+État au 9 octobre 2026 (côté dépôt, rien de déployé ; 1.0.0 préparée ; fusion dans `main`, étiquette et branche
+déployée `main` accordées par le propriétaire le 9 octobre 2026, D164, gestes postérieurs à la PR vers `main`) : manuel
+d'exploitation
 [exploitation.md](../exploitation.md) ; procédures de restauration et de montée de version dans [railway.md](railway.md)
 § 4.11 bis, § 9, § 10 d et § 10 g ; parts A (outillage de version) et D (procédures) relues ; parts B (test de
 restauration R1 à R4) et C (témoin `v2026.9.21`, montée de données) closes, exécutées par l'intégration continue,
 preuves relevées dans [preuves-1.0.0.md](preuves-1.0.0.md) § 3 ; part E (documentation finale) faite ; branches
 réunies sur `refonte/hermes-p9` ; relecture indépendante de toute P9 faite le 9 octobre 2026 (D161 à D163). Puis :
-ouverture 1.0.0 (D129) et journal daté, les deux derniers commits de la branche ; PR vers `refonte/hermes` ;
-publication (part F, accord du propriétaire).
+branche déployée passée à `main` (D164) ; ouverture 1.0.0 (D129) et journal daté, les deux derniers commits de la
+branche ; PR vers `refonte/hermes` ; publication (part F, accord du propriétaire donné le 9 octobre 2026, D164).
 
 Comme pour P6 et P7, le propriétaire **fournit les comptes** et laisse Hermes gérer l'exploitation : les
 recommandations du cahier de conception P9 (§ 12) sont **appliquées**, et non « à confirmer », de même que les
-décisions prises en cours de route et consignées au journal de P9. Seuls lui reviennent : la fusion dans `main` et
-l'étiquette `v1.0.0` (une seule question, à la fin), puis ses gestes sur Railway (répétition de restauration,
-montées de version), décrits dans le manuel.
+décisions prises en cours de route et consignées au journal de P9. Seuls lui reviennent : la fusion dans `main`,
+l'étiquette `v1.0.0` et la branche déployée (une seule question, à la fin, accordée le 9 octobre 2026 : D164), puis
+ses gestes sur Railway (répétition de restauration, montées de version), décrits dans le manuel.
 
 **Numérotation.** Le cahier P9 numérote ses décisions P9-1 à P9-12 ; le journal de P9 en a ajouté pour la part B
 (P9-B-1 à P9-B-7) et pour la part C (P9-C-1 à P9-C-15). Elles prennent la suite de D121, sans trou : P9-n →
@@ -329,8 +331,9 @@ montées de version), décrits dans le manuel.
 décision consignée après le 8 octobre 2026 (parts B et C encore ouvertes) prend le numéro suivant le dernier attribué
 (après D155), dans l'ordre de sa consignation. Les décisions des deux chantiers fusionnés dans `refonte/hermes` à côté de P9
 (correctif SECU-TUI, station P8b) prennent D156 à D159 (section suivante) ; la décision du 9 octobre 2026 sur Docker
-en local, consignée après leurs fusions, prend D160 (section qui suit celle-ci). Le code de P9 cite « P9-n » dans ses
-commentaires : la colonne « Remarque » donne la correspondance.
+en local, consignée après leurs fusions, prend D160 (section qui suit celle-ci) ; puis D161 à D163 (relecture finale de
+P9) et D164 (accord du propriétaire). Le code de P9 cite « P9-n » dans ses commentaires : la colonne « Remarque »
+donne la correspondance.
 
 | N° | Question | Choix appliqué en P9 | Autre option et conséquence | Remarque (origine) |
 |---|---|---|---|---|
@@ -407,8 +410,17 @@ l'exploitation.
 | N° | Question | Choix appliqué en P9 | Autre option et conséquence | Remarque (origine) |
 |---|---|---|---|---|
 | D161 | Montée de Hermes vers v0.21.6, publiée le 8 octobre 2026 sous une forme d'étiquette nouvelle (`vX.Y.Z`) | **1.0.0 reste sur Hermes 0.21.5** (`v2026.9.24`) ; ni branche de montée ni témoin vers v0.21.6 dans 1.0.0 ; `scripts/monter_hermes.py` apprend la forme `vX.Y.Z` (candidates `rc.N-…` et canaris écartés, forme inconnue publiée refusée). Raison : `verifier --etiquette v0.21.6` **refuse** (mesuré le 9 octobre 2026) : l'image `v0.21.6` de Docker Hub affiche « Hermes Agent v0.21.6 (2026.9.24) · upstream a28a5d03 » (commit de l'étiquette canari `v0.21.5+canary.20261008T070449Z`, provenance « 0.0.0 »), alors que l'étiquette git `v0.21.6` désigne `818c13be`, 39 commits plus loin ; épingler cette image, ce serait épingler un code qui n'est pas celui de la release | Mener le témoin vers v0.21.6, comme D122 le prévoyait pour une release parue avant la part C : l'outil refuse son image, et cette release, parue pendant la part C, n'a été vue qu'à la relecture finale (le filtre de `derniere` l'écartait) ; épingler le commit de l'image : contraire à « épinglé sur une release » | Constat preuves-1 de la relecture finale ; relevés `derniere` et `verifier --etiquette v0.21.6` du 9 octobre 2026 (journal de P9) ; comparaison `a28a5d03…818c13be` de l'API GitHub ; correctif de l'outil `6ee8871` ; la première montée après 1.0.0 est un lot (D162), ouvert quand une release concorde |
-| D162 | Place d'une montée de version après 1.0.0 (Hermes, Authelia, binaires de l'exécutant) | **Un lot** au sens de `CLAUDE.md` (« Après 1.0.0, pour chaque lot ») : branche ouverte depuis `main`, commit d'ouverture d'une version de correctif 1.0.x (une montée ne change aucune interface engagée par D130 ; une rupture de l'une d'elles appellerait 2.0.0), journal, PR vers `main`, étiquette annotée sur le commit de fusion ; procédure, gestes et retour arrière : [exploitation.md](../exploitation.md) § 6. Elle suppose que Railway déploie `main` (question posée au propriétaire avec la fusion de 1.0.0) ; tant que la branche déployée reste `refonte/hermes`, la place d'une montée entre les deux branches n'est pas tranchée : elle le sera par la PR de la première montée | Une PR de montée hors recette (sans version, journal ni étiquette) : l'image livrée changerait sans que `VERSION`, le journal ni une étiquette le disent | Constat docs-7 de la relecture finale |
+| D162 | Place d'une montée de version après 1.0.0 (Hermes, Authelia, binaires de l'exécutant) | **Un lot** au sens de `CLAUDE.md` (« Après 1.0.0, pour chaque lot ») : branche ouverte depuis `main`, commit d'ouverture d'une version de correctif 1.0.x (une montée ne change aucune interface engagée par D130 ; une rupture de l'une d'elles appellerait 2.0.0), journal, PR vers `main`, étiquette annotée sur le commit de fusion ; procédure, gestes et retour arrière : [exploitation.md](../exploitation.md) § 6. Elle suppose que Railway déploie `main` (question posée au propriétaire avec la fusion de 1.0.0) ; tant que la branche déployée reste `refonte/hermes`, la place d'une montée entre les deux branches n'est pas tranchée : elle le sera par la PR de la première montée. **Tranché depuis par D164** : Railway déploie `main` | Une PR de montée hors recette (sans version, journal ni étiquette) : l'image livrée changerait sans que `VERSION`, le journal ni une étiquette le disent | Constat docs-7 de la relecture finale |
 | D163 | Textes d'état et relevés autour des deux derniers commits de P9 (ouverture, journal) | Les textes d'état (README, notes de reprise, plan, preuves) sont écrits **avant** l'ouverture sous une forme vraie avant comme après elle (« 1.0.0 préparée ; fusion dans `main` et étiquette en attente de l'accord du propriétaire ») : le commit d'ouverture reste mécanique ; le commit du journal retire l'encadré « Section préparée » du journal et pose sa date ; les SHA de ces deux commits, leurs runs et ceux de la PR de P9 vers `refonte/hermes` sont relevés au § 3 des [preuves](preuves-1.0.0.md) par la PR de documentation d'après l'étiquette, avec le § 4 ; d'ici là, la PR vers `main` les cite dans son corps, où sa relecture les vérifie | Un commit de documentation après le journal : le journal ne serait plus le dernier commit de la branche (recette de `CLAUDE.md`) ; une PR de documentation vers `refonte/hermes` entre la fusion de P9 et la PR vers `main` : une étape et une CI de plus, pour des relevés que le corps de la PR vers `main` porte déjà | Constats publication-1, publication-2 et produit-4 de la relecture finale |
+
+### Accord du propriétaire, 9 octobre 2026 : décision D164, **appliquée**
+
+Consignée avec le changement qu'elle commande, avant l'ouverture de 1.0.0 ; elle prend la suite de D163. Ce n'est pas
+une recommandation appliquée : c'est la réponse du propriétaire à la question unique de P9.
+
+| N° | Question | Choix appliqué en P9 | Autre option et conséquence | Remarque (origine) |
+|---|---|---|---|---|
+| D164 | Branche déployée par Railway, et place de ce changement | **`main`**, par décision du propriétaire du 9 octobre 2026 : son accord à la question unique de P9 couvre la fusion de `refonte/hermes` dans `main` par commit de fusion, l'étiquette annotée `v1.0.0` sur ce commit **et** le passage de la branche déployée de `refonte/hermes` à `main` ; il **remplace** sa décision du 25 septembre 2026 (`refonte/hermes`, après la fusion de P2). Le changement entre **dans 1.0.0**, par le commit `chore(railway): deploy from main` de `refonte/hermes-p9`, avant l'ouverture et le journal, au lieu d'une petite PR vers `refonte/hermes` (cahier P9 § 9.3, point 0) : un cycle d'intégration continue de moins, et `refonte/hermes` le porte avant la PR vers `main`. Changés : constante `BRANCHE` de `.railway/railway.ts`, valeur attendue de `.railway/verifier.mjs`, `scripts/tests/test_railway_iac.py` (qui exige aussi que les quatre workflows qu'attend « Wait for CI » se déclenchent sur un push vers la branche déployée), gestes de [railway.md](railway.md) (clone, PR des libellés, chaîne de déploiement, sonde R0, exécutant, notifications, dépôts réels) et du [manuel](../exploitation.md). **Rien n'est appliqué** : `railway config apply` reste le geste du propriétaire, après la fusion de 1.0.0 (avant elle, `main` porte l'ancienne plateforme, sans `.railway/`). Conséquences : D162 n'a plus de condition (la fusion d'une PR de montée vers `main` est celle qui déploie) ; après 1.0.0, toute PR qui déploie vise `main` et suit la recette d'un lot de `CLAUDE.md` ; les textes d'état de D163 disent l'accord donné, sous une forme toujours vraie avant comme après l'ouverture ; le SHA de ce commit et ses runs sont relevés avec ceux des deux derniers commits de P9 (D163) | Garder `refonte/hermes` : `main` recevrait 1.0.0 sans jamais être déployée, et chaque lot d'après 1.0.0 (D162) devrait être reporté sur une seconde branche pour être déployé ; une PR séparée après l'étiquette : `main` recevrait, juste après 1.0.0, un changement d'infrastructure sans version (recette de `CLAUDE.md`) | Accord du propriétaire du 9 octobre 2026, réponse à la question unique du cahier P9 (§ 9.4, « G1 ») ; cahier P9 § 9.3, point 0 ; branche par défaut du dépôt : `main` (`gh repo view`, 9 octobre 2026), donc aussi celle des runs planifiés ([exploitation.md](../exploitation.md) § 6.2) |
 
 ### Phases P4 à P8 remplacées par le plan d'autonomie
 
@@ -447,8 +459,8 @@ Décision du 25 septembre 2026. Le plan complet, recopié tel quel, est dans
 - **P9** : parts A à E faites côté dépôt et réunies sur `refonte/hermes-p9` (état ci-dessus, § 1, « Étape P9 ») ;
   preuves : [preuves-1.0.0.md](preuves-1.0.0.md) § 3 ; manuel du propriétaire : [exploitation.md](../exploitation.md).
   Relecture indépendante de toute P9 faite (9 octobre 2026) ; puis l'ouverture 1.0.0 et le journal daté (deux
-  derniers commits de la branche), la PR vers `refonte/hermes`, puis la PR vers `main` et l'étiquette `v1.0.0`,
-  après l'accord du propriétaire.
+  derniers commits de la branche, précédés du passage de la branche déployée à `main`), la PR vers `refonte/hermes`,
+  puis la PR vers `main`, sa fusion et l'étiquette `v1.0.0`, accordées par le propriétaire le 9 octobre 2026 (D164).
 
 ### État d'avancement au 25 septembre 2026 (pour mémoire)
 
@@ -1350,7 +1362,8 @@ Autres preuves :
 ### P9 — Exploitation, montée de version et publication
 
 > **État du 9 octobre 2026** : parts A à E **faites côté dépôt** sur `refonte/hermes-p9`, relues de bout en bout
-> (1.0.0 préparée ; fusion dans `main` et étiquette en attente de l'accord du propriétaire) : manuel
+> (1.0.0 préparée ; fusion dans `main`, étiquette et branche déployée `main` accordées par le propriétaire le
+> 9 octobre 2026, D164) : manuel
 > [exploitation.md](../exploitation.md), restauration R1 à R4 et montée de données prouvées en intégration continue,
 > témoin `v2026.9.21`. Écarts à ce texte, décidés et dits : montée répétée à blanc et témoin d'une release
 > antérieure, faute de release suivante (D122) ; aucun environnement Railway éphémère (D123) ; restauration répétée
