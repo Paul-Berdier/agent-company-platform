@@ -8,7 +8,11 @@ les interfaces peuvent encore évoluer entre deux versions mineures.
 
 > **Section préparée, version non ouverte.** Écrite le 8 octobre 2026 à l'étape P9 (part E) : `VERSION` vaut encore
 > 0.11.0. La date sera celle du commit `chore(release): prepare 1.0.0 changelog`, après le commit d'ouverture
-> (D129) ; les preuves des parts B et C de P9 et celles de la PR vers `main` sont **à relever**.
+> (D129) ; les preuves des parts B et C de P9 sont **à relever**. Les runs de la PR de `refonte/hermes-p9` et de
+> celle vers `main` n'y figureront pas : le commit du journal les précède (un commit ne peut citer les runs que son
+> propre push déclenche, et le compléter après la fusion déplacerait l'étiquette hors du commit de fusion). Ils vont
+> dans `docs/refonte/preuves-1.0.0.md` : § 3 pour la PR de `refonte/hermes-p9`, § 4 pour celle vers `main`
+> (complété après l'étiquette par une PR de documentation seule).
 
 1.0.0 achève la refonte « Hermes au centre » (étapes P0 à P9). Hermes Agent 0.21.5, épinglé par le condensat de
 l'image `v2026.9.24`, est le seul serveur, le seul orchestrateur et la seule source de vérité ; ACP n'a plus de
@@ -150,7 +154,8 @@ dans `docs/refonte/preuves-1.0.0.md`.
 - P9, parts A et D : outillage de version vert en CI (répétition à blanc « Aucun écart », Image Hermes
   `37004128839` puis `37028491959`) ; ébauche du manuel relue contre le code et la documentation de Railway.
 - P9, parts B et C (restauration, témoin, montée de données) : **à relever**.
-- PR de `refonte/hermes` vers `main` (quatre workflows) : **à relever**.
+- PR de `refonte/hermes-p9` vers `refonte/hermes`, puis de `refonte/hermes` vers `main` (quatre workflows) :
+  postérieures à ce journal ; leurs runs sont relevés dans `docs/refonte/preuves-1.0.0.md`, § 3 et § 4.
 
 ### Limites connues
 
