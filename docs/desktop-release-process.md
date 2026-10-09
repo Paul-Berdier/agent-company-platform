@@ -256,8 +256,9 @@ paragraphe d'état de signature. Aucune mise en forme n'est reconstruite dans le
 YAML, où l'indentation du bloc la casserait.
 
 Le gabarit porte une section « Ce que cette publication ne prouve pas ». La relire
-avant diffusion : le client existe et a parlé à une API locale réelle ; Railway,
-la signature et l'installation sur Windows propre restent non prouvés. Les notes
+avant diffusion : depuis la refonte (gabarit réécrit le 9 octobre 2026, étape P9), la
+station est testée en CI contre un faux Hermes ; Railway, une vraie passkey, la
+signature et l'installation sur Windows propre restent non prouvés. Les notes
 doivent décrire le paquet courant sans recopier les anciennes absences devenues fausses.
 
 ## 7. Ce qui a été vérifié pour ce document
