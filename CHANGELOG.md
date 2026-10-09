@@ -1,28 +1,21 @@
 # Journal des modifications
 
 Les changements notables d'Agent Company Platform sont consignés dans ce fichier.
-Le projet suit le versionnage sémantique ; tant que la version majeure reste à zéro,
-les interfaces peuvent encore évoluer entre deux versions mineures.
+Le projet suit le versionnage sémantique. Tant que la version majeure restait à zéro (jusqu'à la ligne 0.10),
+les interfaces pouvaient encore évoluer entre deux versions mineures ; depuis 1.0.0, l'engagement porte sur les
+interfaces que nomme la section 1.0.0 (D130), et une rupture de l'une d'elles appelle une nouvelle version majeure.
 
-## [1.0.0] - date à relever — refonte « Hermes au centre »
-
-> **Section préparée.** Écrite le 8 octobre 2026 à l'étape P9 (part E), complétée le 9 octobre 2026 (parts B et C
-> closes, SECU-TUI et P8b fusionnées, branches de P9 réunies, relecture indépendante de toute P9 traitée). Le commit
-> `chore(release): prepare 1.0.0 changelog`, dernier de P9, pose la date et retire cet encadré (D163) ; il suit le
-> commit d'ouverture (D129). Les runs de ces deux commits, de la PR de `refonte/hermes-p9` et de celle vers `main`
-> n'y figureront pas : le commit du journal les précède (un commit ne peut citer les runs que son propre push
-> déclenche, et le compléter après la fusion déplacerait l'étiquette hors du commit de fusion). Ils vont dans
-> `docs/refonte/preuves-1.0.0.md`, § 3 et § 4, complétés après l'étiquette par une PR de documentation seule
-> (D163).
+## [1.0.0] - 2026-10-09 — refonte « Hermes au centre »
 
 1.0.0 achève la refonte « Hermes au centre » (étapes P0 à P9). Hermes Agent 0.21.5, épinglé par le condensat de
 l'image `v2026.9.24`, est le seul serveur, le seul orchestrateur et la seule source de vérité ; ACP n'a plus de
 backend propre et fournit l'image dérivée et ses greffons, l'identité (Authelia), l'exécutant Railway, le poste
 Windows facultatif, la station Qt et l'interface française du tableau de bord. L'ancienne plateforme (ligne 0.10,
-ci-dessous) reste entière sous l'étiquette `archive/acp-0.10.0-avant-hermes`. **Rien n'est déployé sur Railway** :
-la publication précède le premier déploiement, geste du propriétaire (`docs/refonte/railway.md` § 4). Le journal de
-chaque étape, mot pour mot, est dans `docs/refonte/historique.md` (partie C) ; les preuves dans
-`docs/refonte/preuves-1.0.0.md`.
+ci-dessous) reste entière sous l'étiquette `archive/acp-0.10.0-avant-hermes`. **Rien n'est déployé sur Railway** : la
+publication précède le premier déploiement, geste du propriétaire (`docs/refonte/railway.md` § 4), et l'IaC déploie
+désormais `main` (D164). La fusion dans `main` et l'étiquette `v1.0.0` sont accordées par le propriétaire
+(9 octobre 2026) et suivent ce journal. Le journal de chaque étape, mot pour mot, est dans
+`docs/refonte/historique.md` (partie C) ; les preuves dans `docs/refonte/preuves-1.0.0.md`.
 
 À partir de 1.0.0, le versionnage sémantique porte sur **nos** interfaces (D130) : contrat `acp-poste/1` (routes
 `/api/plugins/acp-poste/v1/*`), protocole `acp-machine/1`, format `ACPB1`, commandes `acp-poste`, formats de
@@ -107,6 +100,10 @@ rupture de nos interfaces appellera 2.0.0.
 - Pages relues sur signal du flux au lieu du sondage de 15 s (gardé en repli) ; voie Codex ouverte seulement sur un
   dépôt prouvé privé (P7, D103).
 - Contrôle des décisions documentées à trois chiffres (P7, P9 : D132).
+- Branche déployée par l'IaC : `main` au lieu de `refonte/hermes` (décision du propriétaire du 9 octobre 2026, D164,
+  qui remplace celle du 25 septembre 2026) : constante de `.railway/railway.ts`, valeur attendue du vérificateur,
+  test de l'IaC (qui exige aussi que les quatre workflows qu'attend « Wait for CI » se déclenchent sur un push vers
+  elle) et gestes de la procédure Railway ; rien n'est appliqué sur Railway.
 - Docker sur le poste de travail : arrêté le 8 octobre 2026 (D134), de nouveau permis avec sobriété le 9 octobre
   2026 (D160 : une seule pile à la fois, ressources nommées et retirées) ; l'intégration continue reste la preuve qui
   fait foi.
@@ -199,8 +196,30 @@ dans `docs/refonte/preuves-1.0.0.md`.
 - Réunion de P9 avec SECU-TUI et P8b (9 octobre 2026), tête `90102b1` : CI, Image de l'exécutant, Desktop CI et
   Image Hermes verts (le job « image » à sa seconde tentative, voir « Limites connues ») ; en local, sur Docker de
   nouveau permis (D160) : pytest dans l'image 874 réussis, contrat de sécurité 68, contrat de restauration 13.
-- PR de `refonte/hermes-p9` vers `refonte/hermes`, puis de `refonte/hermes` vers `main` (quatre workflows) :
-  postérieures à ce journal ; leurs runs sont relevés dans `docs/refonte/preuves-1.0.0.md`, § 3 et § 4.
+- Tête de la relecture finale de P9, `0f5e7be` (9 octobre 2026), quatre workflows verts à la 1re tentative :
+  CI `37951285143` (Windows 1 191 réussis et 87 ignorés, Linux 1 224 et 54 ignorés, interface 204 tests, moteur 74),
+  Image Hermes `37951290888` (876 dans l'image, 194 au contrat, 10 au navigateur, « Aucun écart » ; restauration 13
+  et R3 1), Image de l'exécutant `37951296304` (43, puis 831 réussis et 20 ignorés en root), Desktop CI
+  `37951300582` (36 suites sur 36).
+- Les trois derniers commits de P9 (branche déployée `main`, D164 ; ouverture ; ce journal), en local le
+  9 octobre 2026 : suite du dépôt verte avant chacun (1 200 réussis, 84 ignorés) ; test de l'IaC rouge d'abord sur
+  les deux constantes, puis `npm run --prefix .railway verifier` vert (graphe d'essai sur la branche `main`) ;
+  interface : 21 fichiers, 204 tests, bundles à jour ; station Qt reconstruite en Release, 36 suites CTest sur 36 ;
+  sur Docker local (D160), images de l'ouverture : pytest dans l'image 875 réussis et un échec de précondition de
+  mesure, sans lien avec l'ouverture (« Limites connues ») ; au contrat, les deux tests qui lisent la version dans
+  l'image et `hermes/tests/contrat/test_machine_contrat.py` (11) verts.
+- Runs des deux commits qui précèdent ce journal, tous verts à la 1re tentative (compteurs lus dans les journaux des
+  jobs) : `e1fdd3f` (branche déployée) : CI `37961606845` (Windows 1 197 réussis et 87 ignorés, Linux 1 230 et 54
+  ignorés, interface 204, moteur 74), Image Hermes `37961606843` (vérificateur de l'IaC : « branche main » ; 876 dans
+  l'image, 194 au contrat, 10 au navigateur, « Aucun écart » ; restauration 13 et R3 1) ; `f4cf02c` (ouverture) : CI
+  `37965264193` (mêmes compteurs), Image Hermes `37965264194` (876, 194, 10, « Aucun écart » ; restauration 13 et
+  R3 1), Image de l'exécutant `37965264221` (43, puis 831 réussis et 20 ignorés), Desktop CI `37965264067` (36 suites
+  sur 36 ; installeur et archive portable 1.0.0 produits, non signés).
+- Runs de ce journal, de la PR de `refonte/hermes-p9` vers `refonte/hermes`, puis de `refonte/hermes` vers `main`
+  (quatre workflows) : postérieurs à ce journal (un commit ne peut citer les runs que son propre push déclenche, et
+  le compléter après la fusion déplacerait l'étiquette hors du commit de fusion) ; ils vont dans
+  `docs/refonte/preuves-1.0.0.md`, § 3 et § 4, complétés après l'étiquette par une PR de documentation seule (D163),
+  et le corps de la PR vers `main` les cite d'ici là.
 
 ### Limites connues
 
@@ -231,7 +250,12 @@ dans `docs/refonte/preuves-1.0.0.md`.
 - Tests instables connus, verts sur la tête : le test navigateur de la connexion (course avec la relecture
   périodique du tableau de bord de Hermes, qui renvoie la page à la connexion après la déconnexion : rouge une fois,
   Image Hermes `37908787791`, tentative 1) ; sous Windows, `apps/poste/tests/contrat/test_enrolement.py:78` (faux
-  serveur TLS) ; des tests temporisés du poste sous forte charge locale.
+  serveur TLS) ; des tests temporisés du poste sous forte charge locale ; en local seulement, le 9 octobre 2026,
+  `test_concurrence_reelle_d_un_rechargeur_et_du_fil_d_une_session` (`hermes/tests/image/test_secu_env.py`) n'a pas
+  rempli sa précondition de mesure (1 lecture en 4 s, au lieu de plus de 20 : le premier appel de la résolution
+  des outils de Hermes prend environ 3 s sur ce poste, l'image ne portant aucun bytecode), sur l'image d'avant
+  l'ouverture comme sur celle d'après, sans jamais rendre `terminal` ; vert en intégration continue (1 025 lectures
+  sur `f4cf02c`).
 - Cookies de Hermes sans `Secure` tant que `trusted_proxies` est vide ; jeton de rafraîchissement rejoué : 503
   persistant jusqu'à la déconnexion ou l'effacement des cookies (`docs/refonte/identite.md` § 12).
 - Pages natives de Hermes en partie en anglais ; rendu éprouvé dans Chromium seulement.
