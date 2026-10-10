@@ -1,5 +1,13 @@
 # Image Hermes d'ACP — étapes P1, P2 et P3
 
+**Mise à jour 1.0.1 — 10 octobre 2026** : la supervision s6 est maintenue lorsque la plateforme
+possède le PID 1. Le parcours PID 1 est inchangé ; le parcours externe exécute les mêmes gardes avant les services,
+puis atteste leur ascendance et supervise les relances. [Conception, tests et limites](init-plateforme.md).
+Les refus généraux de `--init` et l'hypothèse PID 1 obligatoire décrits historiquement ci-dessous sont remplacés
+par ces contrôles. Les autres protections et limites de sécurité restent en vigueur.
+
+---
+
 État du **25 septembre 2026**. Étape P2 du [plan de la refonte](plan.md) : sur Railway,
 l'agent n'a **aucun outil d'exécution** (ni terminal, ni fichiers, ni exécution de code, ni
 navigateur, ni cron, ni délégation : décision du propriétaire du 25 septembre 2026) et Hermes

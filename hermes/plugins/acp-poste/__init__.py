@@ -105,8 +105,9 @@ def _sentinelle_chaine_s6(argv: Optional[Sequence[str]] = None, environ: Optiona
                           cmdline: str = "/proc/1/cmdline") -> None:
     """Arrête (code 78) une passerelle ou un tableau de bord de PRODUCTION lancé hors de s6.
 
-    Hors de s6 (``docker run --entrypoint …``, ``--init``, Start Command), ni le crochet
-    acp-gardes, ni 05-acp, ni la managed scope régénérée et vérifiée ne s'appliquent. Seuls
+    Hors de s6 (entrée remplacée ou serveur lancé directement), les gardes ne sont pas garanties.
+    Depuis 1.0.1, ``--init`` est admis par le bootstrap root : la sentinelle exige alors une
+    attestation vivante et une ascendance effective vers s6, pas une variable déclarative. Seuls
     ``hermes gateway [run]``, ``hermes dashboard`` et ``hermes serve`` avec un ``HERMES_HOME``
     dans ``/opt/data`` sont visés : les commandes ponctuelles, les workers kanban et les tests ne
     le sont pas. Défense en profondeur : elle suppose que la commande passe par l'analyse de

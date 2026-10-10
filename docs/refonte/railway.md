@@ -1,5 +1,14 @@
 # Déploiement Railway d'ACP — procédure du propriétaire (étapes P2, P6 et P7)
 
+**Mise à jour 1.0.1 — 10 octobre 2026** : le refus PID 1 du § 10 f a été observé sur Railway
+avec 1.0.0. Il est traité par un bootstrap root et s6 sous init externe, pas par une Start Command ni un retrait
+de garde. La procédure corrigée, les tests et les limites sont dans [init-plateforme.md](init-plateforme.md).
+Le projet existant s'appelle **ACP** ; les domaines réels sont renseignés dans l'IaC. Authelia a démarré ;
+les mentions « rien n'est déployé » ci-dessous décrivent l'état historique de préparation. **Aucun apply global**
+tant que le service initial supplémentaire n'a pas été réconcilié ; préserver tous les volumes.
+
+---
+
 État du **25 septembre 2026**. Étape P2 du [plan de la refonte](plan.md). **Rien n'est déployé**,
 aucun compte n'a été utilisé : tout ce qui suit est **préparé et prouvé côté dépôt**, puis
 **exécuté par le propriétaire seul**, étape par étape. L'image Hermes est décrite dans

@@ -1,5 +1,19 @@
 # Reprise du travail sur un autre poste
 
+## Priorité de reprise — 10 octobre 2026, correctif 1.0.1
+
+`main` porte désormais 1.0.0 (`f76e7c5`, PR #25), et `v1.0.0` existe. Le propriétaire a demandé la correction
+complète de l'issue #26, avec commit, push, PR, fusion et version corrective **1.0.1**. Branche de correction :
+`fix/railway-init-1.0.1`. Lire d'abord [init-plateforme.md](refonte/init-plateforme.md) : code, garanties, tests,
+domaines et conditions de redéploiement ; les paragraphes du 9 octobre ci-dessous sont historiques.
+
+Authelia a réellement démarré ; ne pas recréer ses secrets ni son volume. Hermes 1.0.0 échouait en PID 2,
+et l'exécutant n'avait fait que sa sonde. Cibler le commit fusionné vérifié : les anciennes sources Railway étaient
+épinglées à `f76e7c5`. Aucun apply IaC global : le projet s'appelle **ACP** et contient encore le service initial
+supplémentaire. Pas de suppression de ressources. Les connexions personnelles et passkeys ne sont pas des tests CI.
+
+---
+
 État du **9 octobre 2026**, Europe/Paris. Notes remises à plat à l'étape P9 (part E, préparation de 1.0.0) :
 l'historique de chaque étape, avec ses preuves, ses écarts et ses pièges, est recopié sans modification dans
 [l'historique de la refonte](refonte/historique.md) (partie B : ces notes telles qu'au 8 octobre 2026, avant leur

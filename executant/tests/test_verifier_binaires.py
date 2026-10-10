@@ -194,7 +194,10 @@ def test_verifier_binaires_refuse_empreinte_fausse(tmp_path, cles):
 
 def test_verifier_binaires_refuse_binaire_claude_altere(tmp_path, cles):
     pub = Publication(tmp_path, cles[0])
-    (pub.source / "claude").write_bytes(pub.claude[:-1] + b"X")
+    # XOR garantit une altération, même si l'octet aléatoire valait déjà « X » (1/256 auparavant).
+    altere = pub.claude[:-1] + bytes([pub.claude[-1] ^ 1])
+    assert altere != pub.claude and len(altere) == len(pub.claude)
+    (pub.source / "claude").write_bytes(altere)
     _refus(pub.telecharger(), "empreinte fausse")
     assert not (tmp_path / "outils").exists()
 

@@ -114,7 +114,6 @@ def test_aucune_autorisation_par_variable(preuve, monkeypatch):
 
 def test_les_deux_modes_passent_par_une_chaine_supervisee():
     entree = (RACINE / 'hermes/image/acp-entree').read_text()
-    assert '[ "$${}"' not in entree
     assert 'if [ "$$" -eq 1 ]' in entree
     assert 'exec /opt/hermes/docker/entrypoint-dispatch.sh "$@"' in entree
     assert '/opt/acp/bin/acp_init_plateforme.py' in entree

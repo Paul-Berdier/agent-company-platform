@@ -69,7 +69,8 @@ def test_entree_externe_refuse_le_volume_railway_non_declare(ressources, image):
     env = dict(ENV_VALIDE, RAILWAY_DEPLOYMENT_ID="dep-contrat")
     code, journal = _executer_jusqu_a_l_arret(ressources, image, "--init", env=env)
     afficher(f"docker run --init, volume Railway non déclaré : code {code}", _lignes_acp(journal))
-    assert code == 1 and "RAILWAY_VOLUME_MOUNT_PATH" in journal
+    assert code == 1 and "sur Railway, le volume du service doit être monté sur /opt/data" in journal
+    assert "aucun volume" in journal
     assert "[stage2]" not in journal and "not PID 1; skipping s6-overlay" not in journal
 
 
