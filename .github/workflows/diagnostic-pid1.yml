@@ -16,16 +16,6 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
-      - name: Archiver uniquement les sources suivies
-        run: |
-          mkdir -p /tmp/acp-26-sources
-          git archive --format=tar.gz HEAD > /tmp/acp-26-sources/source.tar.gz
-          git bundle create /tmp/acp-26-sources/history.bundle --all
-      - uses: actions/upload-artifact@v4
-        with:
-          name: acp-26-sources
-          path: /tmp/acp-26-sources/
-          retention-days: 3
       - name: Extraire les scripts de l'image epinglee, sans comptes
         shell: bash
         run: |
@@ -35,11 +25,11 @@ jobs:
           mkdir -p /tmp/acp-26-runtime
           docker image inspect "$image" > /tmp/acp-26-runtime/image.json
           docker create --name acp-26-source --entrypoint /bin/true "$image"
-          for path in /opt/hermes/docker /etc/cont-init.d /etc/s6-overlay /etc/fix-attrs.d /opt/hermes/scripts; do
+          for path in /opt/hermes/docker /etc/cont-init.d /etc/s6-overlay /opt/hermes/scripts /package/admin/s6 /package/admin/s6-overlay; do
             mkdir -p "/tmp/acp-26-runtime$(dirname "$path")"
-            docker cp "acp-26-source:$path" "/tmp/acp-26-runtime$path" || exit 1
+            docker cp "acp-26-source:$path" "/tmp/acp-26-runtime$path"
           done
-          docker cp acp-26-source:/package/admin/s6-overlay /tmp/acp-26-runtime/s6-overlay
+          docker run --rm --entrypoint /bin/sh "$image" -c 'command -v tini || true; ls -la /command; ls /package/admin; cat /etc/os-release' > /tmp/acp-26-runtime/inventaire.txt
           docker rm acp-26-source
           tar -czf /tmp/acp-26-runtime.tar.gz -C /tmp/acp-26-runtime .
       - uses: actions/upload-artifact@v4
