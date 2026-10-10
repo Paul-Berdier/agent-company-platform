@@ -1,9 +1,9 @@
 #!/bin/sh
-# ACP 1.0.1 : conserver s6-overlay en PID 1 ; sous un init de plateforme,
-# passer au bootstrap explicite qui valide les mêmes gardes AVANT s6-svscan.
+# ACP 1.0.1 : sous un init externe, bootstrap explicite et gardes AVANT s6-svscan.
+# La voie PID 1 conserve exactement l'exec historique vers s6-overlay.
 # Ne jamais appeler le repli amont non supervisé de entrypoint-dispatch.sh.
-if [ "$$" -eq 1 ]; then
-    exec /opt/hermes/docker/entrypoint-dispatch.sh "$@"
+if [ "$$" -ne 1 ]; then
+    exec /opt/hermes/.venv/bin/python -I -B /opt/acp/bin/acp_init_plateforme.py \
+        /opt/hermes/docker/main-wrapper.sh "$@"
 fi
-exec /opt/hermes/.venv/bin/python -I -B /opt/acp/bin/acp_init_plateforme.py \
-    /opt/hermes/docker/main-wrapper.sh "$@"
+exec /opt/hermes/docker/entrypoint-dispatch.sh "$@"
