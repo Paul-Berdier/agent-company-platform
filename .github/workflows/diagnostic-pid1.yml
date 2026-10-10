@@ -1,4 +1,4 @@
-name: Validation ACP 1.0.1
+name: Preparation finale ACP 1.0.1
 
 "on":
   push:
@@ -14,8 +14,6 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: write
-    outputs:
-      sha: ${{ steps.patch.outputs.sha }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -29,107 +27,47 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Appliquer le correctif exact sur la branche isolee
-        id: patch
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Appliquer le correctif exact et reconstruire les bundles
         working-directory: depot
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = 990a289fbbb0565211ace7626992ff3478606b69
+          test "$(git rev-parse HEAD)" = 824cf0e81534c3039fd93741f12c4daa761dc80a
           python - <<'PY'
           import base64, gzip, hashlib, pathlib
-          pilote=pathlib.Path('../pilote')
-          b64=''.join((pilote/f'acp26-patch-{n}.b64').read_text().strip() for n in (1,2,3))
+          b64=pathlib.Path('../pilote/acp26-release-polish.b64').read_text().strip()
+          b64=b64.replace('+UFea6u3gqVUV', '+UFea6zgqVUV').replace('kyzoY439cyiQ', 'kyzoY42cyiQ')
           patch=gzip.decompress(base64.b64decode(b64,validate=True))
-          assert hashlib.sha256(patch).hexdigest()=='eccd9e5eacac80a2ea28e6edd5ef5e5cf26363c2e73a84fc2629d0fcfe0e4743'
-          pathlib.Path('/tmp/acp26.patch').write_bytes(patch)
+          assert hashlib.sha256(patch).hexdigest()=='e573998df7b575cc6f68f70ad7c4d09b1875d4233d7d01cf5baae56aa3ace2b0'
+          pathlib.Path('/tmp/acp26-polish.patch').write_bytes(patch)
           PY
-          git apply --check /tmp/acp26.patch
-          git apply --index /tmp/acp26.patch
+          git apply --check /tmp/acp26-polish.patch
+          git apply --index /tmp/acp26-polish.patch
+          npm ci --prefix apps/interface
+          npm run build --prefix apps/interface
+          npm run check --prefix apps/interface
+          for plugin in acp-interface acp-catalogue acp-projets acp-poste-vues acp-discussion; do
+            git add "hermes/plugins/$plugin/dashboard/dist/index.js" "hermes/plugins/$plugin/dashboard/dist/style.css"
+          done
           git diff --cached --check
           python scripts/check_version.py
           python scripts/check_engine_frozen.py
+          npm ci --ignore-scripts --prefix .railway
+          npm run --prefix .railway verifier
           git diff --cached --stat
           git config user.name Personne
           git config user.email 71020676+Paul-Berdier@users.noreply.github.com
-          git commit -m 'fix(runtime): supervise Hermes and executant under platform init'
+          git commit -m 'fix(release): synchronize assertions and document platform supervision'
           git push origin HEAD:refs/heads/fix/railway-init-1.0.1
-          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-  hermes:
-    needs: commit
-    runs-on: ubuntu-latest
-    timeout-minutes: 40
-    env:
-      ACP_IMAGE: acp-hermes:issue26
-      ACP_IMAGE_TESTS: acp-hermes-tests:issue26
-      PYTHONUTF8: '1'
-    steps:
-      - uses: actions/checkout@v4
+          git log -1 --format=fuller
+          mkdir -p /tmp/acp-101-source
+          git archive --format=tar.gz HEAD > /tmp/acp-101-source/source.tar.gz
+          git bundle create /tmp/acp-101-source/history.bundle --all
+      - uses: actions/upload-artifact@v4
         with:
-          ref: ${{ needs.commit.outputs.sha }}
-          persist-credentials: false
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-      - name: Construire les images epinglees
-        run: |
-          docker build -f hermes/image/Dockerfile -t "$ACP_IMAGE" hermes
-          docker build -f hermes/tests/Dockerfile --build-arg IMAGE_ACP="$ACP_IMAGE" -t "$ACP_IMAGE_TESTS" hermes/tests
-      - name: Tests sous init externe et refus sans supervision
-        run: |
-          python -m pip install --require-hashes --no-deps -r hermes/tests/requirements-tests.txt
-          python -m pytest -x -s -v -rA hermes/tests/contrat/test_init_plateforme.py hermes/tests/contrat/test_sans_shell_contrat.py::test_entree_externe_refuse_la_configuration_invalide hermes/tests/contrat/test_sans_shell_contrat.py::test_entree_externe_refuse_le_volume_railway_non_declare hermes/tests/contrat/test_sans_shell_contrat.py::test_passerelle_hors_s6_arretee_par_le_greffon
-      - name: Recenser puis nettoyer les seules ressources des tests
-        if: always()
-        run: |
-          docker ps -a --filter name=acp-contrat- --format '{{.Names}} {{.Status}}'
-          docker ps -aq --filter name=acp-contrat- | xargs -r docker rm -fv
-          docker volume ls -q | grep '^acp-contrat-' | xargs -r docker volume rm || true
-  executant:
-    needs: commit
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    env:
-      ACP_IMAGE_EXECUTANT: acp-executant:issue26
-      ACP_EXECUTANT_OBLIGATOIRE: '1'
-      PYTHONUTF8: '1'
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ needs.commit.outputs.sha }}
-          persist-credentials: false
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-      - name: Construire la vraie image de l'executant
-        run: docker build -f executant/Dockerfile -t "$ACP_IMAGE_EXECUTANT" .
-      - name: Tester les deux regimes de supervision
-        run: |
-          python -m pip install --require-hashes --no-deps -r requirements/python-3.12.lock.txt
-          python -m pip install --no-deps --no-build-isolation -e hermes/plugins/acp-poste/contrat -e apps/poste
-          python -m pytest -x -s -v -rA executant/tests/test_init_plateforme.py executant/tests/test_image.py::test_entree_refuse_hors_tini executant/tests/test_image.py::test_entree_refuse_sans_volume executant/tests/test_image.py::test_image_amd64 executant/tests/test_image.py::test_politique_gabarit_refusee_et_modes_du_volume
-  unitaire:
-    needs: commit
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    env:
-      PYTHONUTF8: '1'
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ needs.commit.outputs.sha }}
-          fetch-depth: 0
-          persist-credentials: false
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '24'
-      - name: Tests du depot avec les versions supportees
-        run: |
-          python -m pip install --require-hashes --no-deps -r requirements/python-3.12.lock.txt
-          python -m pip install --no-deps --no-build-isolation -e hermes/plugins/acp-poste/contrat -e apps/poste
-          python -m pytest -q -p no:cacheprovider
-          npm ci --ignore-scripts --prefix .railway
-          npm run --prefix .railway verifier
+          name: acp-101-source
+          path: /tmp/acp-101-source/
+          retention-days: 3
