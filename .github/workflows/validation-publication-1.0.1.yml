@@ -1,0 +1,71 @@
+name: ACP 1.0.1 — validation publique
+
+# Opération ponctuelle de publication demandée par le propriétaire.
+# Cette branche ne déploie rien et ne lit aucun secret Railway.
+"on":
+  push:
+    branches: ["release/validation-v1.0.1"]
+    paths: [".github/workflows/validation-publication-1.0.1.yml"]
+
+permissions:
+  contents: read
+
+jobs:
+  verifier:
+    name: HTTPS, santé, découverte OIDC et refus sans session
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Vérifier les seules routes publiques, sans identifiants
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json
+          import urllib.error
+          import urllib.parse
+          import urllib.request
+
+          HERMES = 'https://hermes-production-2d4e.up.railway.app'
+          IDENTITE = 'https://identite-production.up.railway.app'
+
+          class SansRedirection(urllib.request.HTTPRedirectHandler):
+              def redirect_request(self, req, fp, code, msg, headers, newurl):
+                  return None
+
+          client = urllib.request.build_opener(SansRedirection)
+
+          def lire(url):
+              requete = urllib.request.Request(url, headers={'User-Agent': 'ACP-release-readiness/1.0.1'})
+              try:
+                  reponse = client.open(requete, timeout=30)
+              except urllib.error.HTTPError as erreur:
+                  reponse = erreur
+              with reponse:
+                  return reponse.code, dict(reponse.headers), reponse.read(65536)
+
+          for nom, origine in [('hermes', HERMES), ('identite', IDENTITE)]:
+              statut, entetes, corps = lire(origine + '/api/health')
+              assert statut == 200, f'{nom} : santé HTTP {statut}'
+              print(json.dumps({'service': nom, 'sante_http': statut, 'reponse': json.loads(corps)}))
+
+          statut, entetes, corps = lire(IDENTITE + '/.well-known/openid-configuration')
+          assert statut == 200, f'Découverte OIDC : HTTP {statut}'
+          configuration = json.loads(corps)
+          assert configuration['issuer'] == IDENTITE, 'Émetteur OIDC inattendu'
+          for cle in ['authorization_endpoint', 'token_endpoint', 'jwks_uri']:
+              url = urllib.parse.urlsplit(configuration[cle])
+              assert url.scheme == 'https' and url.netloc == urllib.parse.urlsplit(IDENTITE).netloc, cle
+          print(json.dumps({'oidc': 'conforme', 'issuer': configuration['issuer']}))
+
+          statut, entetes, corps = lire(HERMES + '/api/plugins/acp-poste/v1/meta')
+          assert statut == 401, f'Route privée sans session : HTTP {statut}, attendu 401'
+          print(json.dumps({'route_privee_sans_session': statut}))
+
+          statut, entetes, corps = lire(HERMES + '/auth/login')
+          assert statut in (200, 302, 303, 307, 308), f'Entrée connexion : HTTP {statut}'
+          destination = urllib.parse.urlsplit(entetes.get('Location', entetes.get('location', '')))
+          # Ne jamais journaliser les valeurs state, nonce ou cookies d'une connexion.
+          print(json.dumps({'entree_connexion_http': statut, 'destination_hote': destination.netloc,
+                            'destination_chemin': destination.path}))
+          print('VALIDATION_PUBLIQUE_REUSSIE — aucun compte utilisé, aucune authentification simulée.')
+          PY
