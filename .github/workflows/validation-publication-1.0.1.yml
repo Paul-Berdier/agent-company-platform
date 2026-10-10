@@ -1,7 +1,7 @@
-name: ACP 1.0.1 — validation publique
+name: ACP 1.0.1 — validation et publication
 
-# Opération ponctuelle de publication demandée par le propriétaire.
-# Cette branche ne déploie rien et ne lit aucun secret Railway.
+# Opération ponctuelle autorisée par le propriétaire : contrôle public puis
+# étiquette annotée de la seule PR 27, jamais de fusion ou de déploiement ici.
 "on":
   push:
     branches: ["release/validation-v1.0.1"]
@@ -9,6 +9,10 @@ name: ACP 1.0.1 — validation publique
 
 permissions:
   contents: read
+
+concurrency:
+  group: publication-unique-acp-1.0.1
+  cancel-in-progress: false
 
 jobs:
   verifier:
@@ -24,16 +28,12 @@ jobs:
           import urllib.error
           import urllib.parse
           import urllib.request
-
           HERMES = 'https://hermes-production-2d4e.up.railway.app'
           IDENTITE = 'https://identite-production.up.railway.app'
-
           class SansRedirection(urllib.request.HTTPRedirectHandler):
               def redirect_request(self, req, fp, code, msg, headers, newurl):
                   return None
-
           client = urllib.request.build_opener(SansRedirection)
-
           def lire(url):
               requete = urllib.request.Request(url, headers={'User-Agent': 'ACP-release-readiness/1.0.1'})
               try:
@@ -42,12 +42,10 @@ jobs:
                   reponse = erreur
               with reponse:
                   return reponse.code, {k.lower(): v for k, v in reponse.headers.items()}, reponse.read(65536)
-
           for nom, origine in [('hermes', HERMES), ('identite', IDENTITE)]:
               statut, entetes, corps = lire(origine + '/api/health')
               assert statut == 200, f'{nom} : santé HTTP {statut}'
               print(json.dumps({'service': nom, 'sante_http': statut, 'reponse': json.loads(corps)}))
-
           statut, entetes, corps = lire(IDENTITE + '/.well-known/openid-configuration')
           assert statut == 200, f'Découverte OIDC : HTTP {statut}'
           configuration = json.loads(corps)
@@ -56,32 +54,154 @@ jobs:
               url = urllib.parse.urlsplit(configuration[cle])
               assert url.scheme == 'https' and url.netloc == urllib.parse.urlsplit(IDENTITE).netloc, cle
           print(json.dumps({'oidc': 'conforme', 'issuer': configuration['issuer']}))
-
           statut, entetes, corps = lire(HERMES + '/api/plugins/acp-poste/v1/meta')
           assert statut == 401, f'Route privée sans session : HTTP {statut}, attendu 401'
           print(json.dumps({'route_privee_sans_session': statut}))
-
           statut, entetes, corps = lire(HERMES + '/api/auth/providers')
-          assert statut == 200, f'Fournisseurs interactifs : HTTP {statut}'
-          fournisseurs = json.loads(corps)['providers']
-          assert [p['name'] for p in fournisseurs] == ['self-hosted'], 'Fournisseur interactif inattendu'
+          assert statut == 200
+          assert [p['name'] for p in json.loads(corps)['providers']] == ['self-hosted']
           statut, entetes, corps = lire(HERMES + '/login')
-          assert statut == 200 and b'html' in corps.lower(), 'Page de connexion indisponible'
-          # La route amont exige provider ; /auth/login seul doit répondre 422.
+          assert statut == 200 and b'html' in corps.lower()
           statut, entetes, corps = lire(HERMES + '/auth/login?provider=self-hosted')
           assert statut == 302, f'Entrée connexion OIDC : HTTP {statut}'
           destination = urllib.parse.urlsplit(entetes.get('location', ''))
           autorisation = urllib.parse.urlsplit(configuration['authorization_endpoint'])
           assert (destination.scheme, destination.netloc, destination.path) == (
-              autorisation.scheme, autorisation.netloc, autorisation.path), 'Redirection OIDC inattendue'
+              autorisation.scheme, autorisation.netloc, autorisation.path)
           parametres = urllib.parse.parse_qs(destination.query)
           assert parametres['client_id'] == ['hermes-acp']
           assert parametres['redirect_uri'] == [HERMES + '/auth/callback']
           assert parametres['code_challenge_method'] == ['S256']
           assert parametres.get('code_challenge') and parametres.get('state')
-          # Ne jamais journaliser state, nonce, challenge ou valeurs des cookies.
+          # Aucune valeur de cookie, state, nonce ou challenge n'est journalisée.
           print(json.dumps({'connexion_oidc_http': statut, 'destination_hote': destination.netloc,
                             'destination_chemin': destination.path, 'pkce': 'S256',
                             'cookie_pkce_secure': '; secure' in entetes.get('set-cookie', '').lower()}))
-          print('VALIDATION_PUBLIQUE_REUSSIE — aucun compte utilisé, aucune authentification simulée.')
+          print('VALIDATION_PUBLIQUE_REUSSIE — aucun compte utilisé.')
+          PY
+
+  publier:
+    name: Étiquette annotée après CI verte et fusion vérifiée
+    needs: verifier
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: write
+      actions: read
+      pull-requests: read
+    steps:
+      - name: Contrôler la cible, attendre les vérifications puis publier sans force
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 -u - <<'PY'
+          import base64
+          import datetime
+          import json
+          import os
+          import re
+          import time
+          import urllib.error
+          import urllib.request
+          REPO = 'Paul-Berdier/agent-company-platform'
+          HEAD = 'a3d0422c05b1c204b023cb7c95264fc2998fe622'
+          TAG = 'v1.0.1'
+          WORKFLOWS = {355889195: 'CI', 366228249: 'Image Hermes',
+                       372323507: "Image de l'exécutant", 361277668: 'Desktop CI'}
+          class Refus(RuntimeError):
+              pass
+          def exiger(condition, message):
+              if not condition:
+                  raise Refus(message)
+          def api(methode, chemin, data=None, absent=False):
+              requete = urllib.request.Request(
+                  f'https://api.github.com/repos/{REPO}/{chemin}',
+                  data=None if data is None else json.dumps(data).encode(), method=methode,
+                  headers={'Authorization': 'Bearer ' + os.environ['GH_TOKEN'],
+                           'Accept': 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28',
+                           'Content-Type': 'application/json', 'User-Agent': 'ACP-publication-1.0.1'})
+              try:
+                  with urllib.request.urlopen(requete, timeout=30) as reponse:
+                      return json.load(reponse)
+              except urllib.error.HTTPError as erreur:
+                  if absent and erreur.code == 404:
+                      return None
+                  raise Refus(f'GitHub : HTTP {erreur.code} pour {methode} {chemin}') from None
+          def derniers_runs():
+              runs = api('GET', f'actions/runs?head_sha={HEAD}&event=pull_request&per_page=100')['workflow_runs']
+              retenus = {}
+              for run in runs:
+                  cle = run['workflow_id']
+                  if cle not in WORKFLOWS:
+                      continue
+                  avant = retenus.get(cle)
+                  if avant is None or (run['id'], run['run_attempt']) > (avant['id'], avant['run_attempt']):
+                      retenus[cle] = run
+              exiger(set(retenus) == set(WORKFLOWS), 'Un workflow requis manque')
+              return retenus
+          def controler(merge):
+              exiger(re.fullmatch('[0-9a-f]{40}', merge) is not None, 'Fusion invalide')
+              pr = api('GET', 'pulls/27')
+              exiger(pr['merged'] is True and pr['head']['sha'] == HEAD, 'PR non fusionnée ou tête différente')
+              exiger(pr['merge_commit_sha'] == merge and pr['base']['ref'] == 'main', 'Mauvaise fusion')
+              exiger(pr['head']['repo']['full_name'] == REPO, 'Dépôt de tête inattendu')
+              exiger(api('GET', 'git/ref/heads/main')['object']['sha'] == merge, 'main a changé : revue requise')
+              cible = api('GET', f'git/commits/{merge}')
+              tete = api('GET', f'git/commits/{HEAD}')
+              exiger(len(cible['parents']) == 2 and HEAD in [p['sha'] for p in cible['parents']],
+                     'La cible doit être la fusion normale de la tête validée')
+              exiger(cible['tree']['sha'] == tete['tree']['sha'], 'La fusion modifie le contenu testé')
+              version = api('GET', f'contents/VERSION?ref={merge}')
+              exiger(base64.b64decode(version['content']).decode().strip() == '1.0.1', 'VERSION incohérente')
+              retenus = derniers_runs()
+              for identifiant, nom in WORKFLOWS.items():
+                  run = retenus[identifiant]
+                  exiger(run['head_sha'] == HEAD and run['status'] == 'completed' and run['conclusion'] == 'success',
+                         f'CI non validée : {nom}')
+              return {WORKFLOWS[k]: v['id'] for k, v in retenus.items()}
+
+          # Aucun geste de fusion ici : l'opérateur la fait après contrôle.
+          # Une tête différente, un échec ou une annulation arrête la publication.
+          limite = time.monotonic() + 40 * 60
+          precedent = None
+          while True:
+              pr = api('GET', 'pulls/27')
+              exiger(pr['head']['sha'] == HEAD, 'La tête de PR a changé : publication refusée')
+              exiger(pr['state'] == 'open' or pr['merged'] is True, 'PR fermée sans fusion')
+              runs = derniers_runs()
+              for identifiant, run in runs.items():
+                  exiger(run['status'] != 'completed' or run['conclusion'] == 'success',
+                         f'Workflow non validé : {WORKFLOWS[identifiant]}')
+              etat = {'fusionnee': pr['merged'], 'ci': {WORKFLOWS[k]: v['status'] for k, v in runs.items()}}
+              if etat != precedent:
+                  print(json.dumps(etat, ensure_ascii=False))
+                  precedent = etat
+              if pr['merged'] is True and all(r['status'] == 'completed' for r in runs.values()):
+                  merge = pr['merge_commit_sha']
+                  break
+              exiger(time.monotonic() < limite, 'Délai de publication atteint sans fusion/CI validées')
+              time.sleep(30)
+
+          preuves = controler(merge)
+          existante = api('GET', f'git/ref/tags/{TAG}', absent=True)
+          if existante is None:
+              objet = api('POST', 'git/tags', {
+                  'tag': TAG,
+                  'message': 'ACP 1.0.1 — supervision Railway compatible avec un init externe.\n'
+                             'PR #27 fusionnée ; quatre workflows de la tête validés.\n'
+                             'Contrôle HTTPS public et démarrage Railway vérifiés ; comptes non connectés.\n',
+                  'object': merge, 'type': 'commit',
+                  'tagger': {'name': 'Paul-Berdier',
+                             'email': '71020676+Paul-Berdier@users.noreply.github.com',
+                             'date': datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')}})
+              exiger(objet['object']['sha'] == merge and objet['object']['type'] == 'commit', 'Objet incohérent')
+              api('POST', 'git/refs', {'ref': f'refs/tags/{TAG}', 'sha': objet['sha']})
+              existante = api('GET', f'git/ref/tags/{TAG}')
+          exiger(existante['object']['type'] == 'tag', 'Tag non annoté : aucun remplacement automatique')
+          objet = api('GET', 'git/tags/' + existante['object']['sha'])
+          exiger(objet['tag'] == TAG and objet['object']['type'] == 'commit' and objet['object']['sha'] == merge,
+                 'Le tag désigne un autre commit : aucun remplacement automatique')
+          print(json.dumps({'tag': TAG, 'tag_object': objet['sha'], 'commit': merge, 'ci': preuves}, ensure_ascii=False))
+          print('TAG_ANNOTE_VERIFIE')
           PY
