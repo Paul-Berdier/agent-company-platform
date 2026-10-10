@@ -114,9 +114,17 @@ def test_aucune_autorisation_par_variable(preuve, monkeypatch):
 
 def test_les_deux_modes_passent_par_une_chaine_supervisee():
     entree = (RACINE / 'hermes/image/acp-entree').read_text()
-    assert 'if [ "$$" -eq 1 ]' in entree
-    assert 'exec /opt/hermes/docker/entrypoint-dispatch.sh "$@"' in entree
-    assert '/opt/acp/bin/acp_init_plateforme.py' in entree
+    # Le bootstrap externe quitte par exec dans le if ; seul PID 1 atteint
+    # l'exec historique final. Vérifier tout le routage, pas un ancien fragment.
+    lignes = [ligne.strip() for ligne in entree.splitlines()
+              if ligne.strip() and not ligne.lstrip().startswith('#')]
+    assert lignes == [
+        'if [ "$$" -ne 1 ]; then',
+        'exec /opt/hermes/.venv/bin/python -I -B /opt/acp/bin/acp_init_plateforme.py \\',
+        '/opt/hermes/docker/main-wrapper.sh "$@"',
+        'fi',
+        'exec /opt/hermes/docker/entrypoint-dispatch.sh "$@"',
+    ]
     init = (RACINE / 'hermes/image/acp_init_plateforme.py').read_text()
     assert init.index('gardes.commande_gardes(') < init.index('for nom in INIT:') < init.index("ecrire(RUNTIME / 'etat.json'") < init.index('os.execve(')
     assert "'05-acp'" in init and 'PR_SET_CHILD_SUBREAPER' in init
