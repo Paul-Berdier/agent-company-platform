@@ -1,36 +1,61 @@
-name: Diagnostic PID 1
+name: Preparation ACP 1.0.1
 
 "on":
   push:
     branches: ["diagnostic/railway-pid1-26"]
+    paths: [".github/workflows/diagnostic-pid1.yml"]
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  diagnostic:
+  version:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
         with:
-          persist-credentials: false
-      - name: Extraire le code epingle sans compte ni volume
+          ref: f76e7c5aed0ae8779b183898b480d6daf862721b
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Ouvrir la version de correctif sans modifier le moteur gele
         shell: bash
         run: |
           set -euo pipefail
-          image='nousresearch/hermes-agent:v2026.9.24@sha256:fca358f12efd65bfaaca05884166f15c0e2788375ca30d77061ac1ebc96452b7'
-          docker pull "$image"
-          mkdir -p /tmp/acp-26-amont
-          docker create --name acp-26-source --entrypoint /bin/true "$image"
-          for path in /opt/hermes/hermes_cli /opt/hermes/gateway /package/admin/s6 /package/admin/s6-overlay /package/admin/execline; do
-            mkdir -p "/tmp/acp-26-amont$(dirname "$path")"
-            docker cp -L "acp-26-source:$path" "/tmp/acp-26-amont$path"
-          done
-          docker rm acp-26-source
-          tar -czf /tmp/acp-26-amont.tar.gz -C /tmp/acp-26-amont .
-      - uses: actions/upload-artifact@v4
-        with:
-          name: acp-26-amont
-          path: /tmp/acp-26-amont.tar.gz
-          retention-days: 3
+          test "$(git rev-parse HEAD)" = f76e7c5aed0ae8779b183898b480d6daf862721b
+          git switch -c fix/railway-init-1.0.1
+          python - <<'PY'
+          import pathlib, re, runpy, subprocess
+          m = runpy.run_path('scripts/check_version.py')
+          assert m['EXPECTED'] == '1.0.0'
+          changed = ['VERSION']
+          pathlib.Path('VERSION').write_text('1.0.1\n')
+          for key in ['PYPROJECTS', 'PACKAGE_JSONS', 'PLUGIN_YAMLS', 'PYTHON_MODULES']:
+              for relative in m[key]:
+                  p = pathlib.Path(relative)
+                  text = p.read_text()
+                  if key == 'PACKAGE_JSONS':
+                      text = re.sub(r'("version"\s*:\s*")1\.0\.0(")', r'\g<1>1.0.1\2', text, count=1)
+                  else:
+                      text = text.replace('1.0.0', '1.0.1')
+                  p.write_text(text)
+                  changed.append(relative)
+          for relative in m['LOCKS']:
+              p = pathlib.Path(relative)
+              text = re.sub(r'("version"\s*:\s*")1\.0\.0(")', r'\g<1>1.0.1\2', p.read_text(), count=2)
+              p.write_text(text)
+              changed.append(relative)
+          for relative in changed:
+              subprocess.run(['git', 'add', '--', relative], check=True)
+          PY
+          python scripts/check_version.py
+          python scripts/check_engine_frozen.py
+          git diff --cached --check
+          git diff --cached --stat
+          git config user.name 'Personne'
+          git config user.email '71020676+Paul-Berdier@users.noreply.github.com'
+          git commit -m 'chore(release): open 1.0.1'
+          git push origin HEAD:refs/heads/fix/railway-init-1.0.1
+          git log -1 --format=fuller
