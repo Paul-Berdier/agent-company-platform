@@ -1,4 +1,4 @@
-name: Preparation ACP 1.0.1
+name: Validation ACP 1.0.1
 
 "on":
   push:
@@ -6,56 +6,130 @@ name: Preparation ACP 1.0.1
     paths: [".github/workflows/diagnostic-pid1.yml"]
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  version:
+  commit:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      contents: write
+    outputs:
+      sha: ${{ steps.patch.outputs.sha }}
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: f76e7c5aed0ae8779b183898b480d6daf862721b
+          path: pilote
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/railway-init-1.0.1
+          path: depot
           fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Ouvrir la version de correctif sans modifier le moteur gele
+      - name: Appliquer le correctif exact sur la branche isolee
+        id: patch
+        working-directory: depot
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = f76e7c5aed0ae8779b183898b480d6daf862721b
-          git switch -c fix/railway-init-1.0.1
+          test "$(git rev-parse HEAD)" = 990a289fbbb0565211ace7626992ff3478606b69
           python - <<'PY'
-          import pathlib, re, runpy, subprocess
-          m = runpy.run_path('scripts/check_version.py')
-          assert m['EXPECTED'] == '1.0.0'
-          changed = ['VERSION']
-          pathlib.Path('VERSION').write_text('1.0.1\n')
-          for key in ['PYPROJECTS', 'PACKAGE_JSONS', 'PLUGIN_YAMLS', 'PYTHON_MODULES']:
-              for relative in m[key]:
-                  p = pathlib.Path(relative)
-                  text = p.read_text()
-                  if key == 'PACKAGE_JSONS':
-                      text = re.sub(r'("version"\s*:\s*")1\.0\.0(")', r'\g<1>1.0.1\2', text, count=1)
-                  else:
-                      text = text.replace('1.0.0', '1.0.1')
-                  p.write_text(text)
-                  changed.append(relative)
-          for relative in m['LOCKS']:
-              p = pathlib.Path(relative)
-              text = re.sub(r'("version"\s*:\s*")1\.0\.0(")', r'\g<1>1.0.1\2', p.read_text(), count=2)
-              p.write_text(text)
-              changed.append(relative)
-          for relative in changed:
-              subprocess.run(['git', 'add', '--', relative], check=True)
+          import base64, gzip, hashlib, pathlib
+          pilote=pathlib.Path('../pilote')
+          b64=''.join((pilote/f'acp26-patch-{n}.b64').read_text().strip() for n in (1,2,3))
+          patch=gzip.decompress(base64.b64decode(b64,validate=True))
+          assert hashlib.sha256(patch).hexdigest()=='eccd9e5eacac80a2ea28e6edd5ef5e5cf26363c2e73a84fc2629d0fcfe0e4743'
+          pathlib.Path('/tmp/acp26.patch').write_bytes(patch)
           PY
+          git apply --check /tmp/acp26.patch
+          git apply --index /tmp/acp26.patch
+          git diff --cached --check
           python scripts/check_version.py
           python scripts/check_engine_frozen.py
-          git diff --cached --check
           git diff --cached --stat
-          git config user.name 'Personne'
-          git config user.email '71020676+Paul-Berdier@users.noreply.github.com'
-          git commit -m 'chore(release): open 1.0.1'
+          git config user.name Personne
+          git config user.email 71020676+Paul-Berdier@users.noreply.github.com
+          git commit -m 'fix(runtime): supervise Hermes and executant under platform init'
           git push origin HEAD:refs/heads/fix/railway-init-1.0.1
-          git log -1 --format=fuller
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+  hermes:
+    needs: commit
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      ACP_IMAGE: acp-hermes:issue26
+      ACP_IMAGE_TESTS: acp-hermes-tests:issue26
+      PYTHONUTF8: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.commit.outputs.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Construire les images epinglees
+        run: |
+          docker build -f hermes/image/Dockerfile -t "$ACP_IMAGE" hermes
+          docker build -f hermes/tests/Dockerfile --build-arg IMAGE_ACP="$ACP_IMAGE" -t "$ACP_IMAGE_TESTS" hermes/tests
+      - name: Tests sous init externe et refus sans supervision
+        run: |
+          python -m pip install --require-hashes --no-deps -r hermes/tests/requirements-tests.txt
+          python -m pytest -x -s -v -rA hermes/tests/contrat/test_init_plateforme.py hermes/tests/contrat/test_sans_shell_contrat.py::test_entree_externe_refuse_la_configuration_invalide hermes/tests/contrat/test_sans_shell_contrat.py::test_entree_externe_refuse_le_volume_railway_non_declare hermes/tests/contrat/test_sans_shell_contrat.py::test_passerelle_hors_s6_arretee_par_le_greffon
+      - name: Recenser puis nettoyer les seules ressources des tests
+        if: always()
+        run: |
+          docker ps -a --filter name=acp-contrat- --format '{{.Names}} {{.Status}}'
+          docker ps -aq --filter name=acp-contrat- | xargs -r docker rm -fv
+          docker volume ls -q | grep '^acp-contrat-' | xargs -r docker volume rm || true
+  executant:
+    needs: commit
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      ACP_IMAGE_EXECUTANT: acp-executant:issue26
+      ACP_EXECUTANT_OBLIGATOIRE: '1'
+      PYTHONUTF8: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.commit.outputs.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Construire la vraie image de l'executant
+        run: docker build -f executant/Dockerfile -t "$ACP_IMAGE_EXECUTANT" .
+      - name: Tester les deux regimes de supervision
+        run: |
+          python -m pip install --require-hashes --no-deps -r requirements/python-3.12.lock.txt
+          python -m pip install --no-deps --no-build-isolation -e hermes/plugins/acp-poste/contrat -e apps/poste
+          python -m pytest -x -s -v -rA executant/tests/test_init_plateforme.py executant/tests/test_image.py::test_entree_refuse_hors_tini executant/tests/test_image.py::test_entree_refuse_sans_volume executant/tests/test_image.py::test_image_amd64 executant/tests/test_image.py::test_politique_gabarit_refusee_et_modes_du_volume
+  unitaire:
+    needs: commit
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      PYTHONUTF8: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.commit.outputs.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Tests du depot avec les versions supportees
+        run: |
+          python -m pip install --require-hashes --no-deps -r requirements/python-3.12.lock.txt
+          python -m pip install --no-deps --no-build-isolation -e hermes/plugins/acp-poste/contrat -e apps/poste
+          python -m pytest -q -p no:cacheprovider
+          npm ci --ignore-scripts --prefix .railway
+          npm run --prefix .railway verifier
