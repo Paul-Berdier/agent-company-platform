@@ -14,26 +14,23 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0
           persist-credentials: false
-      - name: Extraire les scripts de l'image epinglee, sans comptes
+      - name: Extraire le code epingle sans compte ni volume
         shell: bash
         run: |
           set -euo pipefail
           image='nousresearch/hermes-agent:v2026.9.24@sha256:fca358f12efd65bfaaca05884166f15c0e2788375ca30d77061ac1ebc96452b7'
           docker pull "$image"
-          mkdir -p /tmp/acp-26-runtime
-          docker image inspect "$image" > /tmp/acp-26-runtime/image.json
+          mkdir -p /tmp/acp-26-amont
           docker create --name acp-26-source --entrypoint /bin/true "$image"
-          for path in /opt/hermes/docker /etc/cont-init.d /etc/s6-overlay /opt/hermes/scripts /package/admin/s6 /package/admin/s6-overlay; do
-            mkdir -p "/tmp/acp-26-runtime$(dirname "$path")"
-            docker cp "acp-26-source:$path" "/tmp/acp-26-runtime$path"
+          for path in /opt/hermes/hermes_cli /opt/hermes/gateway /package/admin/s6 /package/admin/s6-overlay /package/admin/execline; do
+            mkdir -p "/tmp/acp-26-amont$(dirname "$path")"
+            docker cp -L "acp-26-source:$path" "/tmp/acp-26-amont$path"
           done
-          docker run --rm --entrypoint /bin/sh "$image" -c 'command -v tini || true; ls -la /command; ls /package/admin; cat /etc/os-release' > /tmp/acp-26-runtime/inventaire.txt
           docker rm acp-26-source
-          tar -czf /tmp/acp-26-runtime.tar.gz -C /tmp/acp-26-runtime .
+          tar -czf /tmp/acp-26-amont.tar.gz -C /tmp/acp-26-amont .
       - uses: actions/upload-artifact@v4
         with:
-          name: acp-26-runtime
-          path: /tmp/acp-26-runtime.tar.gz
+          name: acp-26-amont
+          path: /tmp/acp-26-amont.tar.gz
           retention-days: 3
