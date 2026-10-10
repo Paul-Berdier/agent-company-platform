@@ -177,7 +177,7 @@ function lireConstante(texte, constante) {
   return trouve ? trouve[1] : null;
 }
 
-async function evaluerFichier(chemin, environnement, projet = "acp") {
+async function evaluerFichier(chemin, environnement, projet = "ACP") {
   const module = await import(pathToFileURL(chemin).href);
   if (typeof module.default !== "function") {
     throw new Error("railway.ts n'exporte pas par défaut le programme de defineRailway().");
@@ -192,7 +192,7 @@ async function evaluerFichier(chemin, environnement, projet = "acp") {
 // Évalue une COPIE de railway.ts, libellés remplacés, dans .railway/ (pour que Node y résolve
 // railway/iac) sous un nom ignoré par Git ; la copie est toujours supprimée. `alterations` : couples
 // [texte exact, remplacement] appliqués à la copie (témoins du vérificateur), chacun présent une fois.
-async function evaluerCopie(libelles, environnement = "production", projet = "acp", alterations = []) {
+async function evaluerCopie(libelles, environnement = "production", projet = "ACP", alterations = []) {
   let texte = readFileSync(SOURCE, "utf8");
   for (const [constante, valeur] of Object.entries(libelles)) texte = remplacer(texte, constante, valeur);
   for (const [avant, apres] of alterations) {
@@ -228,7 +228,7 @@ async function attendreRefus(titre, evaluation, fragment) {
 // Témoin du vérificateur lui-même : une copie altérée de railway.ts DOIT produire l'écart attendu. Les écarts
 // de la copie sont retirés de la liste (ils sont voulus) ; seule leur absence est une erreur.
 async function attendreEcart(titre, alterations, fragment) {
-  const graphe = await evaluerCopie(ESSAI, "production", "acp", alterations);
+  const graphe = await evaluerCopie(ESSAI, "production", "ACP", alterations);
   const avant = erreurs.length;
   verifierGraphe(graphe, ESSAI.LIBELLE_HERMES, ESSAI.LIBELLE_IDENTITE);
   const ecarts = erreurs.splice(avant);
@@ -313,7 +313,7 @@ function verifierService(noeud, nom, h, i) {
 
 function verifierGraphe(definition, h, i) {
   const avant = erreurs.length;
-  exiger(definition?.name === "acp", `projet « ${definition?.name} », attendu « acp ».`);
+  exiger(definition?.name === "ACP", `projet « ${definition?.name} », attendu « ACP ».`);
   const ressources = definition?.resources ?? [];
   const adresses = ressources.map((r) => r.address).sort();
   exiger(

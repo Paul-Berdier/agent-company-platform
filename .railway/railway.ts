@@ -57,7 +57,7 @@ const BRANCHE = "main";
 // n'est pas décrit ici. La CLI fournit le nom du projet lié (ctx.projectName, rw_full.txt:28476) ;
 // son absence refuse aussi. L'identifiant du projet n'est pas vérifié : il n'existe qu'après
 // `railway init` (railway.md § 4.2) ; la lecture de « 0 to destroy » reste obligatoire.
-const PROJET = "acp";
+const PROJET = "ACP";
 
 // Seul environnement admis : un plan lié à un autre environnement refuse.
 const ENVIRONNEMENT = "production";
@@ -72,8 +72,8 @@ const REGION = "europe-west4-drams3a";
 // enrôlement de passkey : une passkey est liée au sous-domaine exact de l'identité. À remplacer,
 // par une PR, par deux libellés DNS distincts (a-z, 0-9, tirets ; 63 caractères au plus ; ni
 // tiret initial ni final) : railway.md § 4. Tant qu'ils valent le gabarit, tout est refusé.
-const LIBELLE_HERMES = "<libellé-hermes>";
-const LIBELLE_IDENTITE = "<libellé-identite>";
+const LIBELLE_HERMES = "hermes-production-2d4e";
+const LIBELLE_IDENTITE = "identite-production";
 
 const GIO = 1024 * 1024 * 1024;
 

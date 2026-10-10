@@ -1,10 +1,14 @@
 # Agent Company Platform (ACP)
 
-Espace de travail personnel d'agents IA, bâti autour de **Hermes Agent** (Nous Research, licence MIT) : c'est la
-refonte « Hermes au centre ». **1.0.0 est préparée** (étape P9) ; sa fusion dans `main` et l'étiquette `v1.0.0`,
-accordées par le propriétaire le 9 octobre 2026 (D164), suivent la PR vers `main` : rien n'est encore publié ni
-**déployé**. L'ancienne plateforme (API FastAPI, base SQLite et PostgreSQL, interface web Vite, CLI `acp`,
-déploiement Railway multi-services) reste entière sous l'étiquette `archive/acp-0.10.0-avant-hermes`.
+Espace de travail personnel d'agents IA, bâti autour de **Hermes Agent** (Nous Research, licence MIT).
+**1.0.1 corrige le démarrage sous un init de plateforme** (issue #26), sans changer les interfaces de 1.0.0.
+La fusion de 1.0.0 dans `main` et son étiquette ont eu lieu le 10 octobre 2026. L'ancienne plateforme reste entière
+sous `archive/acp-0.10.0-avant-hermes`.
+
+**État d'exploitation au début du correctif (10 octobre 2026)** : Authelia démarré sur Railway ; Hermes 1.0.0
+refusé en PID 2 ; exécutant limité à sa sonde, sans compte connecté. Le correctif et les vérifications sont décrits
+dans [Démarrage sous init externe](docs/refonte/init-plateforme.md). Une CI verte ne vaut pas connexion réelle du
+propriétaire ni preuve d'un déploiement. Les bilans du 9 octobre ci-dessous sont historiques.
 
 ## Ce que c'est
 
@@ -39,7 +43,7 @@ fait relire, pose ses questions et notifie. ACP n'a plus de backend propre ; il 
 L'infrastructure Railway (trois services, trois volumes) est déclarée en code dans
 [`.railway/railway.ts`](.railway/railway.ts) et appliquée par le propriétaire seul ; branche déployée : `main` (D164).
 
-## État réel (9 octobre 2026)
+## Bilan historique de 1.0.0 (9 octobre 2026)
 
 - Étapes P0 à P8 de la refonte fusionnées dans `refonte/hermes`, puis, le 9 octobre 2026, le correctif de sécurité
   SECU-TUI (PR #23, `5026a70`) et la station Qt alignée sur P7 (P8b, PR #22, `8583642`). P9 (exploitation, montée
@@ -74,7 +78,8 @@ L'infrastructure Railway (trois services, trois volumes) est déclarée en code 
   écriture **directe** d'un `.env` du volume pendant la vie d'un service (faille de Hermes, ou shell du
   propriétaire) : elle rouvrirait la fenêtre jusqu'à la relance suivante ; et quelques variables ni épinglées ni
   refusées dans le volume restent non mesurées ([`docs/refonte/image.md`](docs/refonte/image.md) § 10).
-- Rien n'est déployé : la [procédure Railway](docs/refonte/railway.md) § 12 liste ce qui ne se prouve que là.
+- Déploiement partiel observé le 10 octobre : Authelia actif, correction du lancement Hermes nécessaire ;
+  voir [init-plateforme.md](docs/refonte/init-plateforme.md). Les connexions réelles restent à vérifier.
 - Tant que `trusted_proxies` reste vide, les cookies de Hermes n'ont pas l'attribut `Secure` ; un jeton de
   rafraîchissement rejoué laisse une erreur 503 jusqu'à la déconnexion ou l'effacement des cookies du site
   ([`docs/refonte/identite.md`](docs/refonte/identite.md) § 12).

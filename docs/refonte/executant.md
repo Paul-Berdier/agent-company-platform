@@ -1,5 +1,13 @@
 # Exécutant Railway (étape P6)
 
+**Mise à jour 1.0.1 — 10 octobre 2026** : `tini -s` est accepté en PID 1 ou sous l'init de la
+plateforme. L'entrée vérifie le vrai binaire et son parent, son argv et son UID ; aucun simple contrôle de nom.
+[Conception et tests](init-plateforme.md). La sonde réelle Railway a observé le **régime B** et des UID séparés ;
+elle ne prouve ni l'enrôlement ni une exécution réelle. Codex reste interdit sans son sandbox. Les mentions de
+sonde non lancée et de PID 1 obligatoire ci-dessous sont le bilan historique de P6, remplacé sur ces points.
+
+---
+
 État du **1er octobre 2026**. Étape P6 du [plan d'autonomie](autonomie.md), transposée à Railway par décision du
 propriétaire du 27 septembre 2026 (D74) : l'exécution principale se fait dans un **troisième service Railway,
 `executant`**, séparé de Hermes, qui porte Codex CLI et Claude Code ; le PC devient facultatif. Hermes garde son

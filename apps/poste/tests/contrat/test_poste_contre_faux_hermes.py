@@ -102,7 +102,7 @@ async def test_requetes_du_poste_ont_la_forme_des_exemples(poste, hermes, monkey
         attendu = module_faux_hermes.exemple(exemples[requete["chemin"]])
         assert set(corps) == set(attendu), requete["chemin"]
         vus.add(requete["chemin"])
-        assert requete["entetes"]["User-Agent"] == "acp-poste/1.0.0 (acp-machine/1)"
+        assert requete["entetes"]["User-Agent"] == "acp-poste/1.0.1 (acp-machine/1)"
         assert requete["entetes"]["X-ACP-Protocole"] == "acp-machine/1"
         assert requete["entetes"]["Content-Type"] == "application/json"
     assert vus == set(exemples)

@@ -7,6 +7,8 @@ Le test marqué ``RACINE_LINUX`` lance l'agent sous son UID dédié (``setpriv``
 
 from __future__ import annotations
 
+import re
+
 import asyncio
 import dataclasses
 import json
@@ -94,8 +96,7 @@ class Banc:
         _git(self.distant, "add", "-A")
         _git(self.distant, "commit", "-qm", "initial")
         self.emplacements = EmplacementsLinux.de_test(racine)
-        texte = (RACINE_DEPOT / "executant" / "politique" / "executant.toml").read_text(encoding="utf-8").replace(
-            'origine = "https://<libellé-hermes>.up.railway.app"', 'origine = "https://hermes-acp-test.up.railway.app"')
+        texte = re.sub(r'(?m)^origine = "[^"\n]*"$', 'origine = "https://hermes-acp-test.up.railway.app"', (RACINE_DEPOT / "executant" / "politique" / "executant.toml").read_text(encoding="utf-8"), count=1)
         texte += ('\n[depots.jetable]\nurl = "https://github.com/proprietaire-factice/jetable.git"\n'
                   'acces = "jeton_lecture"\nverification = ["true"]\nverification_sans_bac_a_sable = true\n')
         politique = analyser_executant(texte.encode("utf-8"), self.emplacements)

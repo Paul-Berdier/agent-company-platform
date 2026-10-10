@@ -95,10 +95,10 @@ def test_en_tetes(serveur, autorite):
     entetes = {k.lower(): v for k, v in vue["entetes"].items()}
     assert entetes["authorization"] == "Bearer " + "acpm_" + "h" * 43
     assert entetes["content-type"] == "application/json" and entetes["accept"] == "application/json"
-    assert entetes["user-agent"] == "acp-poste/1.0.0 (acp-machine/1)"
+    assert entetes["user-agent"] == "acp-poste/1.0.1 (acp-machine/1)"
     assert entetes["x-acp-protocole"] == "acp-machine/1"
     assert "cookie" not in entetes
-    assert json.loads(vue["corps"]) == {"protocole": "acp-machine/1", "version_poste": "1.0.0", "peut_executer": False,
+    assert json.loads(vue["corps"]) == {"protocole": "acp-machine/1", "version_poste": "1.0.1", "peut_executer": False,
                                         "ordres_acquittes": [3], "attente_max_s": 5, "politique_valide": True}
 
 

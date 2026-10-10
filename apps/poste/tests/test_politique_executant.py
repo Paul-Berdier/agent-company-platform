@@ -34,8 +34,7 @@ def _emplacements(tmp_path: Path) -> EmplacementsLinux:
 def _texte_valide(emplacements: EmplacementsLinux, *, depot: str = "", binaires: bool = False) -> str:
     """Le fichier versionné, origine de test ; ``binaires`` : exécutables de la racine jetable (Linux seulement : un
     chemin de Windows n'est pas un chemin POSIX absolu, et l'absence d'un binaire reste admise à la lecture)."""
-    texte = VERSIONNEE.read_text(encoding="utf-8").replace(
-        'origine = "https://<libellé-hermes>.up.railway.app"', ORIGINE_TEST)
+    texte = re.sub(r'(?m)^origine = "[^"\n]*"$', ORIGINE_TEST, VERSIONNEE.read_text(encoding="utf-8"), count=1)
     if binaires:
         texte = texte.replace('"/opt/acp/outils/codex/codex"', f'"{emplacements.codex_par_defaut.as_posix()}"')
         texte = texte.replace('"/opt/acp/outils/claude/claude"', f'"{emplacements.claude_par_defaut.as_posix()}"')
@@ -59,9 +58,16 @@ def _analyser(texte: str, emplacements: EmplacementsLinux):
 # ------------------------------------------------------------------ fichier versionné
 
 
-def test_fichier_versionne_refuse_tant_que_l_origine_est_au_gabarit(tmp_path):
+def test_fichier_versionne_a_son_origine_de_production(tmp_path):
+    politique = analyser_executant(VERSIONNEE.read_bytes(), _emplacements(tmp_path))
+    assert politique.hermes.origine == "https://hermes-production-2d4e.up.railway.app"
+
+
+def test_origine_au_gabarit_reste_refusee(tmp_path):
     with pytest.raises(PolitiqueRefusee, match=r"^executant\.toml : \[hermes\] origine vaut encore le gabarit"):
-        analyser_executant(VERSIONNEE.read_bytes(), _emplacements(tmp_path))
+        texte = re.sub(r'(?m)^origine = "[^"\n]*"$',
+                       'origine = "https://<libellé-hermes>.up.railway.app"', VERSIONNEE.read_text(), count=1)
+        analyser_executant(texte.encode(), _emplacements(tmp_path))
 
 
 def test_libelle_egal_a_celui_de_l_iac():
@@ -224,8 +230,7 @@ def test_forme_commentee_du_depot_acceptee(tmp_path):
     n'exige que des outils de l'image (ni uv, ni pytest : relecture de P6), éprouvée dans l'image par
     executant/tests/test_image.py::test_forme_commentee_du_depot_dans_l_image."""
     emplacements = EmplacementsLinux.de_test(tmp_path)
-    texte = (RACINE_DEPOT / "executant" / "politique" / "executant.toml").read_text(encoding="utf-8").replace(
-        'origine = "https://<libellé-hermes>.up.railway.app"', 'origine = "https://hermes-acp-test.up.railway.app"')
+    texte = re.sub(r'(?m)^origine = "[^"\n]*"$', 'origine = "https://hermes-acp-test.up.railway.app"', (RACINE_DEPOT / "executant" / "politique" / "executant.toml").read_text(encoding="utf-8"), count=1)
     politique = analyser_executant((texte + "\n" + forme_commentee()).encode("utf-8"), emplacements)
     depot = politique.depot("jetable")
     assert depot.verification[0] == "python3.12" and depot.preparation == ()

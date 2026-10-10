@@ -5,6 +5,29 @@ Le projet suit le versionnage sémantique. Tant que la version majeure restait �
 les interfaces pouvaient encore évoluer entre deux versions mineures ; depuis 1.0.0, l'engagement porte sur les
 interfaces que nomme la section 1.0.0 (D130), et une rupture de l'une d'elles appelle une nouvelle version majeure.
 
+## [1.0.1] - 2026-10-10 — compatibilité avec l'init de Railway
+
+### Corrigé
+
+- **Hermes sous init externe** (#26) : bootstrap root explicite exécutant les gardes et les scripts d'initialisation
+  épinglés avant s6 ; preuve de supervision liée au processus vivant et à son ascendance, refus des lancements
+  directs, relances contrôlées, arrêt borné et récupération des orphelins. Le parcours s6-overlay en PID 1 reste
+  inchangé. La détection amont est adaptée après vérification des empreintes des scripts dont elle dépend.
+- **Exécutant** : Tini en mode subreaper `-s` ; validation de son vrai binaire et de sa parenté, sans retirer les
+  contrôles de volume et d'UID. Le refus de Codex sans sandbox reste intact.
+- **Configuration versionnée** : nom réel du projet `ACP`, domaines définitifs et origine de l'exécutant alignés.
+  Aucun apply, aucune suppression de ressource et aucun changement d'identifiants ne font partie du correctif.
+- **Tests de release** : assertions de version courante synchronisées ; fixtures anciennes conservées pour la
+  rétrocompatibilité. Une altération aléatoire de binaire qui pouvait ne rien changer devient déterministe par XOR.
+
+### Vérification et limites
+
+Nouveaux tests sur Docker normal et `--init`, attestations falsifiées, accès privés, garde d'exécution, volume
+piégé, relances, redémarrage, orphelins et arrêt. Les suites existantes restent exigées avant fusion. Aucun protocole
+public ni format de données n'est modifié ; le moteur Pixel Office reste gelé. Les connexions réelles du
+propriétaire, les passkeys et la disponibilité du sandbox Railway ne sont pas établies par la CI.
+Détails et relevés : [démarrage sous init externe](docs/refonte/init-plateforme.md).
+
 ## [1.0.0] - 2026-10-09 — refonte « Hermes au centre »
 
 1.0.0 achève la refonte « Hermes au centre » (étapes P0 à P9). Hermes Agent 0.21.5, épinglé par le condensat de

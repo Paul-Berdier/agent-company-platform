@@ -81,7 +81,7 @@ COPY hermes/plugins/acp-poste/contrat/acp_poste_contrat/ /opt/acp/lib/acp_poste_
 COPY packaging/poste/lancer.py /opt/acp/lancer.py
 COPY executant/binaires.toml /opt/acp/binaires.toml
 COPY executant/cles/ /opt/acp/cles/
-COPY executant/bin/acp-entree-executant executant/bin/acp-askpass executant/bin/verifier-binaires /opt/acp/bin/
+COPY executant/bin/acp-entree-executant executant/bin/acp-askpass executant/bin/verifier-binaires executant/bin/verifier-superviseur /opt/acp/bin/
 COPY executant/bin/acp-poste /usr/local/bin/acp-poste
 COPY executant/politique/executant.toml /etc/acp/executant.toml
 COPY executant/claude-settings.json /etc/acp/claude-settings.json
@@ -106,7 +106,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     DISABLE_TELEMETRY=1
 # tini en PID 1 (exigé par l'entrée), puis l'entrée root qui prépare le volume et lance le superviseur. Une Start
 # Command Railway remplace cet ENTRYPOINT : réservée à la sonde R0 dans le projet jetable « acp-sonde » (cahier § 4.1).
-ENTRYPOINT ["/usr/bin/tini", "--", "/opt/acp/bin/acp-entree-executant"]
+ENTRYPOINT ["/usr/bin/tini", "-s", "--", "/opt/acp/bin/acp-entree-executant"]
 
 # ---------------------------------------------------------------------------------------------------------------
 # Cible de TEST « factice » (cahier § 14.3) : deux programmes Python remplacent Codex et Claude Code. Jamais

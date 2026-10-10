@@ -225,7 +225,7 @@ def test_constantes(code):
     assert constante(code, "DEPOT") == "Paul-Berdier/agent-company-platform"
     assert constante(code, "BRANCHE") == BRANCHE_DEPLOYEE, "branche déployée : décision du propriétaire (D164)."
     assert constante(code, "ENVIRONNEMENT") == "production"
-    assert constante(code, "PROJET") == "acp"
+    assert constante(code, "PROJET") == "ACP"
 
 
 def test_le_verificateur_attend_la_meme_branche():
@@ -408,7 +408,7 @@ def test_executant_sans_port_ni_secret_ni_reference(code):
     assert not re.search(r"^\s*[A-Z_]*(?:JETON|TOKEN|SECRET|KEY|CLE|PASSWORD|OAUTH)[A-Z_]*:", bloc, flags=re.M)
     assert "${{" not in code, "aucune référence de variable entre services"
     assert (RACINE / "executant" / "Dockerfile").is_file()
-    assert re.search(r'^ENTRYPOINT \["/usr/bin/tini", "--", "/opt/acp/bin/acp-entree-executant"\]$',
+    assert re.search(r'^ENTRYPOINT \["/usr/bin/tini", "-s", "--", "/opt/acp/bin/acp-entree-executant"\]$',
                      lire(RACINE / "executant" / "Dockerfile"), flags=re.M)
     assert re.search(r"^const MEMOIRE_EXECUTANT = 4 \* GIO;$", code, flags=re.M)
     politique = lire(RACINE / "executant" / "politique" / "executant.toml")

@@ -62,10 +62,10 @@ def test_fichiers_des_greffons_root_0644_sans_code_serveur():
             attendu = 0o755 if stat.S_ISDIR(st.st_mode) else 0o644
             assert st.st_uid == 0 and st.st_gid == 0 and stat.S_IMODE(st.st_mode) == attendu, chemin
         manifeste = json.loads((racine / "dashboard" / "manifest.json").read_text(encoding="utf-8"))
-        assert manifeste["name"] == nom and manifeste["version"] == "1.0.0"
+        assert manifeste["name"] == nom and manifeste["version"] == "1.0.1"
         assert "api" not in manifeste
         code = (racine / "dashboard" / "dist" / "index.js").read_text(encoding="utf-8")
-        assert code.startswith(f"/* {nom} 1.0.0 (ACP)")
+        assert code.startswith(f"/* {nom} 1.0.1 (ACP)")
 
 
 def test_hermes_decouvre_et_sert_les_greffons_d_acp_malgre_un_volume_piege(chemins, valeurs):

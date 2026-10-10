@@ -60,7 +60,7 @@ def test_aucun_arg_ni_env_sensible_ni_curl_sh_ni_port():
     assert not re.search(r"curl[^\n]*\|\s*(ba)?sh", DOCKERFILE)
     assert "install.sh" not in DOCKERFILE.replace("Jamais install.sh", "")
     entree = [a for i, a in INSTRUCTIONS if i == "ENTRYPOINT"]
-    assert entree == ['["/usr/bin/tini", "--", "/opt/acp/bin/acp-entree-executant"]']
+    assert entree == ['["/usr/bin/tini", "-s", "--", "/opt/acp/bin/acp-entree-executant"]']
 
 
 def test_contexte_en_liste_blanche():

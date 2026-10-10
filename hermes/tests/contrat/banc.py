@@ -73,8 +73,10 @@ def politique_de_test(racine: Path = RACINE) -> str:
     Codex coupée (voie fermée en régime B), vérification admise sans bac à sable (réseau du banc seulement).
     ``racine`` : l'arbre dont la politique est lue (étape P9, montée de données : celui du commit « avant »)."""
     texte = (racine / "executant" / "politique" / "executant.toml").read_text(encoding="utf-8")
+    import re
+    texte, nombre = re.subn(r'(?m)^origine = "[^"\n]*"$', 'origine = "https://hermes-acp.test"', texte)
+    assert nombre == 1, "une seule origine attendue dans la politique du banc"
     remplacements = {
-        'origine = "https://<libellé-hermes>.up.railway.app"': 'origine = "https://hermes-acp.test"',
         "attente_max_s = 25": "attente_max_s = 5",
         "[sondes]\ncodex = true": "[sondes]\ncodex = false",
         'hotes_admis = ["github.com"]': 'hotes_admis = ["git.acp.test"]',
