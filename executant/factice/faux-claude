@@ -1,0 +1,121 @@
+#!/usr/local/bin/python3.12 -I
+"""FAUX Claude Code de la cible de test « factice » de l'image de l'exécutant (cahier P6 § 14.3). Jamais dans
+l'image de production (cible « finale ») ; il ne prouve que la PLOMBERIE, jamais la qualité d'un modèle.
+
+- ``--version`` : « 2.1.283 (Claude Code) » ; ``auth status`` : 0 si ``CLAUDE_CODE_OAUTH_TOKEN`` est présent, 1
+  sinon (la valeur n'est jamais lue au-delà de sa présence) ;
+- ``-p … --output-format stream-json`` : consigne lue sur l'entrée standard ; le SCÉNARIO est le mot
+  ``[scenario:<nom>]`` trouvé dans la consigne (objectif du projet), ou, sur une reprise (``--resume <session>``), le
+  nom porté par la session (``factice-<nom>-…``) ; il écrit ou supprime des fichiers dans le dossier courant (le
+  worktree de la carte), tente les lectures interdites listées, lit les textes listés (``lire_texte`` : chemins du
+  dossier courant ou préfixés par ``{add_dir}``, le dossier de ``--add-dir`` ; relecture : diff et code relus), puis
+  émet ``system/init``, ``result`` et la sortie structurée du scénario (``/opt/acp/outils/scenarios-factices.json``) ;
+- étape P9 (tests de restauration) : une étape ``attendre`` ({drapeau, max_s}) garde la carte EN MAIN après
+  ``system/init`` jusqu'à l'apparition du drapeau (fichier hors du volume, créé par le test avec ``docker exec``) ou
+  l'échéance, puis écrit et conclut ; la fin de l'attente est journalisée (``liberation``, drapeau vu ou non, durée).
+
+Chaque invocation est journalisée dans ``/var/tmp/acp-factice/journal-<uid>.jsonl`` (un fichier par UID : un fichier
+créé par un autre UID ne lui serait pas inscriptible) : argv, UID, noms des variables d'environnement, présence du
+jeton (jamais sa valeur), issue de chaque lecture interdite.
+"""
+
+import json
+import os
+import sys
+import time
+import uuid
+
+SCENARIOS = "/opt/acp/outils/scenarios-factices.json"
+JOURNAL = f"/var/tmp/acp-factice/journal-{os.getuid()}.jsonl"
+
+
+def journal(entree):
+    try:
+        with open(JOURNAL, "a", encoding="utf-8") as flux:
+            flux.write(json.dumps(entree, ensure_ascii=False) + "\n")
+    except OSError:
+        pass
+
+
+def emettre(objet):
+    sys.stdout.buffer.write((json.dumps(objet, ensure_ascii=False) + "\n").encode("utf-8"))
+    sys.stdout.buffer.flush()
+
+
+def lire_texte(chemin):
+    try:
+        with open(chemin, encoding="utf-8") as flux:
+            return flux.read(4000)
+    except OSError as exc:
+        return f"refusé ({type(exc).__name__})"
+
+
+def lire_interdit(chemin):
+    try:
+        with open(chemin, "rb") as flux:
+            flux.read(16)
+        return "lu"
+    except OSError as exc:
+        return f"refusé ({type(exc).__name__})"
+
+
+def main(argv):
+    if "--version" in argv:
+        print("2.1.283 (Claude Code)")
+        return 0
+    if argv[:2] == ["auth", "status"]:
+        present = bool(os.environ.get("CLAUDE_CODE_OAUTH_TOKEN"))
+        journal({"outil": "claude", "commande": "auth status", "uid": os.getuid(), "jeton": present})
+        return 0 if present else 1
+    if "-p" not in argv:
+        print("faux Claude Code : commande non simulée.", file=sys.stderr)
+        return 1
+    consigne = sys.stdin.buffer.read().decode("utf-8", "replace")
+    with open(SCENARIOS, encoding="utf-8") as flux:
+        scenarios = json.load(flux)
+    session = argv[argv.index("--resume") + 1] if "--resume" in argv else None
+    if session and session.startswith("factice-"):
+        nom, phase = session.split("-")[1], "reprise"
+    else:
+        nom = next((n for n in scenarios if f"[scenario:{n}]" in consigne), "simple")
+        phase, session = "premiere", f"factice-{nom}-{uuid.uuid4().hex[:12]}"
+    etape = scenarios[nom].get(phase) or scenarios[nom]["premiere"]
+    lectures = {chemin: lire_interdit(chemin) for chemin in etape.get("lire_interdit", [])}
+    ajout = argv[argv.index("--add-dir") + 1] if "--add-dir" in argv else ""
+    textes = {modele: lire_texte(modele.replace("{add_dir}", ajout)) for modele in etape.get("lire_texte", [])}
+    journal({"outil": "claude", "scenario": nom, "phase": phase, "uid": os.getuid(), "argv": argv,
+             "noms": sorted(os.environ), "jeton": bool(os.environ.get("CLAUDE_CODE_OAUTH_TOKEN")), "cwd": os.getcwd(),
+             "consigne_octets": len(consigne.encode("utf-8")), "lectures": lectures, "textes": textes})
+    # Modèle servi : celui que Claude Code 2.1.283 sert réellement pour l'alias demandé (relevé sans compte dans
+    # l'image : opus → claude-opus-5-5), sauf si le scénario impose un écart.
+    demande = argv[argv.index("--model") + 1] if "--model" in argv else "opus"
+    servi = etape.get("modele") or {"opus": "claude-opus-5-5", "sonnet": "claude-sonnet-5"}.get(demande, demande)
+    emettre({"type": "system", "subtype": "init", "session_id": session, "model": servi,
+             "tools": ["Read", "Glob", "Grep", "Edit", "Write", "StructuredOutput"]})
+    attente = etape.get("attendre")
+    if attente:
+        debut = time.monotonic()
+        while not os.path.exists(attente["drapeau"]) and time.monotonic() - debut < attente["max_s"]:
+            time.sleep(0.5)
+        journal({"outil": "claude", "liberation": nom, "phase": phase, "uid": os.getuid(),
+                 "drapeau": os.path.exists(attente["drapeau"]), "duree_s": round(time.monotonic() - debut, 1)})
+    for chemin in etape.get("supprimer", []):
+        try:
+            os.remove(chemin)
+        except FileNotFoundError:
+            pass
+    for chemin, contenu in etape.get("ecrire", {}).items():
+        if os.path.dirname(chemin):
+            os.makedirs(os.path.dirname(chemin), exist_ok=True)
+        with open(chemin, "w", encoding="utf-8") as flux:
+            # Un secret factice est ASSEMBLÉ ici (« sk-ant- » + valeur) : le balayage du dépôt ne le voit jamais en clair.
+            flux.write(contenu.replace("{secret_factice}", "sk-ant-" + "faux" * 8))
+    emettre({"type": "result", "subtype": "success", "is_error": False, "session_id": session, "result": "fini",
+             "usage": {"input_tokens": 900, "output_tokens": 40, "cache_read_input_tokens": 100,
+                       "cache_creation_input_tokens": 0},
+             "structured_output": etape["sortie"]})
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv[1:]))

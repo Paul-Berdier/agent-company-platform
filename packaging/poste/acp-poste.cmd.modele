@@ -1,0 +1,4 @@
+@echo off
+rem Commande acp-poste du poste Windows d'ACP, ecrite par Installer-PosteAcp.ps1 (ASCII, fins de ligne CRLF).
+rem Interpreteur python.org "tous utilisateurs" en mode isole (-I), sans venv (decision D53).
+"__PYTHON__" -I "__LANCEUR__" %*

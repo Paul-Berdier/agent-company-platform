@@ -3,20 +3,28 @@
 # Exécutés par scripts/test-desktop.ps1 (ctest) sur poste et dans desktop-ci.yml.
 #
 # Deux familles :
-#   - Qt Test (C++) : analyseur SSE, erreurs d'API, registre de commandes, machine à états
-#     de session, compatibilité, curseurs, expurgation, contrôles de disponibilité. Ils
-#     ne touchent pas le réseau et n'ouvrent aucune fenêtre. Ceux qui lisent un document
-#     d'API le prennent dans fixtures/, que la suite Python garde aligné sur l'API réelle
-#     (apps/api/tests/test_desktop_contract_fixtures.py) ;
+#   - Qt Test (C++) : analyseur SSE, erreurs d'API, registre de commandes et navigation,
+#     expurgation, recul, mises à jour, chargement des pages. Ils ne visent jamais un
+#     serveur réel : ceux qui parlent HTTP le font à un faux serveur de bouclage ;
 #   - Qt Quick Test (QML) : composants de la coquille, sur une scène réelle.
 
 find_package(Qt6 6.8 REQUIRED COMPONENTS Test QuickTest)
 
 # --- Tests C++ ----------------------------------------------------------------
 
+# Fixtures PARTAGÉES avec le greffon et l'interface web (hermes/tests/outils/fixtures_*), lues à
+# leur place et jamais recopiées : un changement de forme côté greffon fait échouer la station.
+get_filename_component(ACP_FIXTURES_PARTAGEES_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../../hermes/tests/outils" ABSOLUTE)
+if(NOT EXISTS "${ACP_FIXTURES_PARTAGEES_DIR}/fixtures_accueil/accueil.json")
+    message(FATAL_ERROR "Fixtures partagées introuvables : ${ACP_FIXTURES_PARTAGEES_DIR}. La station doit être "
+                        "configurée depuis le dépôt complet.")
+endif()
+
 function(acp_add_cpp_test name)
-    qt_add_executable(${name} cpp/${name}.cpp)
+    qt_add_executable(${name} cpp/${name}.cpp ${ARGN})
     target_link_libraries(${name} PRIVATE acp_core Qt6::Test)
+    target_include_directories(${name} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/cpp")
+    target_compile_definitions(${name} PRIVATE ACP_FIXTURES_PARTAGEES_DIR="${ACP_FIXTURES_PARTAGEES_DIR}")
     # Les tests sont des programmes de console : pas de sous-système fenêtré sur Windows,
     # sans quoi leur sortie serait invisible pour ctest.
     set_target_properties(${name} PROPERTIES WIN32_EXECUTABLE FALSE)
@@ -27,64 +35,82 @@ function(acp_add_cpp_test name)
 endfunction()
 
 acp_add_cpp_test(tst_sse_parser)
-acp_add_cpp_test(tst_event_stream_transport)
-acp_add_cpp_test(tst_workspace)
-acp_add_cpp_test(tst_conversations)
-acp_add_cpp_test(tst_missions)
-acp_add_cpp_test(tst_artifacts)
 acp_add_cpp_test(tst_updates)
-acp_add_cpp_test(tst_platform)
-acp_add_cpp_test(tst_operations)
-acp_add_cpp_test(tst_subscription_quotas)
-# Forme de référence de GET /subscription-quotas, comparée à la réponse réelle par
-# apps/api/tests/test_subscription_quotas.py.
-target_compile_definitions(tst_subscription_quotas PRIVATE
-    ACP_TEST_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures"
-)
-acp_add_cpp_test(tst_session_persistence)
-acp_add_cpp_test(tst_api_journey)
-acp_add_cpp_test(tst_desktop_pages)
-acp_add_cpp_test(tst_desktop_interactions)
-acp_add_cpp_test(tst_conversations_ui)
-target_link_libraries(tst_conversations_ui PRIVATE Qt6::QuickControls2
+acp_add_cpp_test(tst_pages_bureau cpp/support/FauxHermes.cpp cpp/support/FauxHermes.h cpp/support/Fixtures.h)
+target_link_libraries(tst_pages_bureau PRIVATE Qt6::QuickControls2
     acp_designplugin acp_themeplugin acp_controlsplugin acp_componentsplugin
     acp_pagesplugin acp_stationplugin acp_desktop_qmlplugin)
-target_link_libraries(tst_desktop_interactions PRIVATE Qt6::QuickControls2
+target_compile_definitions(tst_pages_bureau PRIVATE ACP_TEST_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures")
+# Gestes réels (souris, clavier) sur les contrôles des pages, contre le faux Hermes.
+acp_add_cpp_test(tst_pages_interactions cpp/support/FauxHermes.cpp cpp/support/FauxHermes.h cpp/support/Fixtures.h)
+target_link_libraries(tst_pages_interactions PRIVATE Qt6::QuickControls2
     acp_designplugin acp_themeplugin acp_controlsplugin acp_componentsplugin
     acp_pagesplugin acp_stationplugin acp_desktop_qmlplugin)
-target_link_libraries(tst_desktop_pages PRIVATE Qt6::QuickControls2
-    acp_designplugin acp_themeplugin acp_controlsplugin acp_componentsplugin
-    acp_pagesplugin acp_stationplugin acp_desktop_qmlplugin)
-acp_add_cpp_test(tst_quotas_ui)
-target_link_libraries(tst_quotas_ui PRIVATE Qt6::QuickControls2
-    acp_designplugin acp_themeplugin acp_controlsplugin acp_componentsplugin
-    acp_pagesplugin acp_stationplugin acp_desktop_qmlplugin)
-target_compile_definitions(tst_quotas_ui PRIVATE
-    ACP_TEST_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures"
-)
-qt_add_executable(desktop_preview cpp/desktop_preview.cpp)
-target_link_libraries(desktop_preview PRIVATE acp_core Qt6::QuickControls2
-    acp_designplugin acp_themeplugin acp_controlsplugin acp_componentsplugin
-    acp_pagesplugin acp_stationplugin acp_desktop_qmlplugin)
+target_compile_definitions(tst_pages_interactions PRIVATE ACP_TEST_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures")
 acp_add_cpp_test(tst_api_errors)
+acp_add_cpp_test(tst_api_porteur cpp/support/FauxHermes.cpp cpp/support/FauxHermes.h)
+acp_add_cpp_test(tst_pkce)
+acp_add_cpp_test(tst_client_greffon cpp/support/FauxHermes.cpp cpp/support/FauxHermes.h)
+acp_add_cpp_test(tst_flux_natif cpp/support/FauxHermes.cpp cpp/support/FauxHermes.h
+    cpp/support/NavigateurTest.h)
+acp_add_cpp_test(tst_session_hermes cpp/support/FauxHermes.cpp cpp/support/FauxHermes.h
+    cpp/support/NavigateurTest.h cpp/support/CoffreMemoire.h)
+acp_add_cpp_test(tst_jetons_coffre cpp/support/CoffreMemoire.h)
+acp_add_cpp_test(tst_instance_unique)
+acp_add_cpp_test(tst_compatibilite_hermes cpp/support/FauxHermes.cpp cpp/support/FauxHermes.h)
+# Documents de référence du greffon (forme de meta.py, voir fixtures/hermes/README.md).
+target_compile_definitions(tst_compatibilite_hermes PRIVATE
+    ACP_TEST_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures"
+)
+acp_add_cpp_test(tst_sante cpp/support/FauxHermes.cpp cpp/support/FauxHermes.h)
+acp_add_cpp_test(tst_reglages_sans_secret cpp/support/FauxHermes.cpp cpp/support/FauxHermes.h
+    cpp/support/NavigateurTest.h cpp/support/CoffreMemoire.h)
+acp_add_cpp_test(tst_canal_jsonrpc)
+acp_add_cpp_test(tst_client_passerelle cpp/support/FauxHermes.cpp cpp/support/FauxHermes.h)
+acp_add_cpp_test(tst_temps_reel cpp/support/FauxHermes.cpp cpp/support/FauxHermes.h cpp/support/Fixtures.h)
+target_compile_definitions(tst_temps_reel PRIVATE ACP_TEST_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures")
+acp_add_cpp_test(tst_accueil cpp/support/FauxHermes.cpp cpp/support/FauxHermes.h cpp/support/Fixtures.h)
+target_compile_definitions(tst_accueil PRIVATE ACP_TEST_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures")
+acp_add_cpp_test(tst_projets cpp/support/FauxHermes.cpp cpp/support/FauxHermes.h cpp/support/Fixtures.h)
+target_compile_definitions(tst_projets PRIVATE ACP_TEST_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures")
+acp_add_cpp_test(tst_discussion cpp/support/FauxHermes.cpp cpp/support/FauxHermes.h)
+acp_add_cpp_test(tst_questions cpp/support/FauxHermes.cpp cpp/support/FauxHermes.h cpp/support/Fixtures.h)
+target_compile_definitions(tst_questions PRIVATE ACP_TEST_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures")
+acp_add_cpp_test(tst_discussions_attente cpp/support/FauxHermes.cpp cpp/support/FauxHermes.h cpp/support/Fixtures.h)
+target_compile_definitions(tst_discussions_attente PRIVATE ACP_TEST_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures")
+acp_add_cpp_test(tst_flux_invalidation cpp/support/FauxHermes.cpp cpp/support/FauxHermes.h cpp/support/Fixtures.h)
+target_compile_definitions(tst_flux_invalidation PRIVATE ACP_TEST_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures")
+acp_add_cpp_test(tst_poste cpp/support/FauxHermes.cpp cpp/support/FauxHermes.h cpp/support/Fixtures.h)
+target_compile_definitions(tst_poste PRIVATE ACP_TEST_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures")
+acp_add_cpp_test(tst_quotas cpp/support/FauxHermes.cpp cpp/support/FauxHermes.h cpp/support/Fixtures.h)
+target_compile_definitions(tst_quotas PRIVATE ACP_TEST_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures")
+acp_add_cpp_test(tst_routage cpp/support/FauxHermes.cpp cpp/support/FauxHermes.h cpp/support/Fixtures.h)
+target_compile_definitions(tst_routage PRIVATE ACP_TEST_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures")
+acp_add_cpp_test(tst_sauvegarde cpp/support/FauxHermes.cpp cpp/support/FauxHermes.h)
+acp_add_cpp_test(tst_diagnostics cpp/support/FauxHermes.cpp cpp/support/FauxHermes.h cpp/support/CoffreMemoire.h)
+target_compile_definitions(tst_diagnostics PRIVATE ACP_TEST_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures")
+acp_add_cpp_test(tst_openrpc_conformite)
+# Contrat JSON-RPC épinglé, lu à sa place dans hermes/contrat (jamais recopié).
+target_compile_definitions(tst_openrpc_conformite PRIVATE ACP_OPENRPC_FILE="${ACP_OPENRPC_FILE}")
 acp_add_cpp_test(tst_command_registry)
-acp_add_cpp_test(tst_session_state)
-target_compile_definitions(tst_session_state PRIVATE
-    ACP_TEST_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures"
-)
-acp_add_cpp_test(tst_compatibility)
-# Document /meta réel, versionné ; tests/test_desktop_meta_fixture.py (côté API) échoue si
-# la forme servie par le serveur s'en écarte.
-target_compile_definitions(tst_compatibility PRIVATE
-    ACP_TEST_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures"
-)
-acp_add_cpp_test(tst_cursors)
 acp_add_cpp_test(tst_redaction)
 acp_add_cpp_test(tst_backoff)
-acp_add_cpp_test(tst_readiness)
-target_compile_definitions(tst_readiness PRIVATE
-    ACP_TEST_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures"
-)
+acp_add_cpp_test(tst_modele_liste)
+acp_add_cpp_test(tst_oubli_local cpp/support/FauxHermes.cpp cpp/support/FauxHermes.h cpp/support/Fixtures.h)
+target_compile_definitions(tst_oubli_local PRIVATE ACP_TEST_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures")
+
+# --- Pilote du bout en bout local (cahier P8 § 10) ---------------------------------
+#
+# Compilé avec les tests (la CI prouve qu'il compile), mais JAMAIS déclaré à CTest ni
+# installé : seul apps/desktop/tests/e2e/e2e_desktop_windows.py le lance, contre la pile
+# locale (Authelia, Hermes de test, bord TLS factice). Il refuse de démarrer sans coffre et
+# portée de préférences DE TEST.
+qt_add_executable(acp_desktop_e2e e2e/acp_desktop_e2e.cpp)
+# Qt Test : clics et frappes sur les vrais contrôles des pages (réponse, discussion).
+target_link_libraries(acp_desktop_e2e PRIVATE acp_core Qt6::QuickControls2 Qt6::Test
+    acp_designplugin acp_themeplugin acp_controlsplugin acp_componentsplugin
+    acp_pagesplugin acp_stationplugin acp_desktop_qmlplugin)
+set_target_properties(acp_desktop_e2e PROPERTIES WIN32_EXECUTABLE FALSE)
 
 # --- Tests QML ----------------------------------------------------------------
 #

@@ -1,12 +1,304 @@
 # Journal des modifications
 
 Les changements notables d'Agent Company Platform sont consignés dans ce fichier.
-Le projet suit le versionnage sémantique ; tant que la version majeure reste à zéro,
-les interfaces peuvent encore évoluer entre deux versions mineures.
+Le projet suit le versionnage sémantique. Tant que la version majeure restait à zéro (jusqu'à la ligne 0.10),
+les interfaces pouvaient encore évoluer entre deux versions mineures ; depuis 1.0.0, l'engagement porte sur les
+interfaces que nomme la section 1.0.0 (D130), et une rupture de l'une d'elles appelle une nouvelle version majeure.
 
-## [Unreleased]
+## [1.0.0] - 2026-10-09 — refonte « Hermes au centre »
 
-### Quotas réels d'abonnement
+1.0.0 achève la refonte « Hermes au centre » (étapes P0 à P9). Hermes Agent 0.21.5, épinglé par le condensat de
+l'image `v2026.9.24`, est le seul serveur, le seul orchestrateur et la seule source de vérité ; ACP n'a plus de
+backend propre et fournit l'image dérivée et ses greffons, l'identité (Authelia), l'exécutant Railway, le poste
+Windows facultatif, la station Qt et l'interface française du tableau de bord. L'ancienne plateforme (ligne 0.10,
+ci-dessous) reste entière sous l'étiquette `archive/acp-0.10.0-avant-hermes`. **Rien n'est déployé sur Railway** : la
+publication précède le premier déploiement, geste du propriétaire (`docs/refonte/railway.md` § 4), et l'IaC déploie
+désormais `main` (D164). La fusion dans `main` et l'étiquette `v1.0.0` sont accordées par le propriétaire
+(9 octobre 2026) et suivent ce journal. Le journal de chaque étape, mot pour mot, est dans
+`docs/refonte/historique.md` (partie C) ; les preuves dans `docs/refonte/preuves-1.0.0.md`.
+
+À partir de 1.0.0, le versionnage sémantique porte sur **nos** interfaces (D130) : contrat `acp-poste/1` (routes
+`/api/plugins/acp-poste/v1/*`), protocole `acp-machine/1`, format `ACPB1`, commandes `acp-poste`, formats de
+`poste.toml` et d'`executant.toml`, variables Railway documentées (`docs/refonte/image.md` § 4). Les surfaces de
+Hermes (API du tableau de bord, JSON-RPC, SDK des greffons) suivent la version épinglée, hors de cet engagement. Une
+rupture de nos interfaces appellera 2.0.0.
+
+| Étape | Objet | PR | Commit de fusion |
+|---|---|---|---|
+| P0 | branche, élagage, gel du moteur | #13 | `29c95b5` |
+| P1 | image dérivée et CI de contrat | #14 | `21d13ee` |
+| P2 | agent sans outil d'exécution, identité, Railway en code | #15 | `21ac337` |
+| P3 | identité visuelle, français, catalogue | #16 | `f59f384` |
+| P4 | projets autonomes | #17 | `6c31522` |
+| P5 | poste connecté | #18 | `b3faac0` |
+| P6 | exécutant Railway | #19 | `7697a1c` |
+| P8 | station Qt rebranchée | #20 | `b715edb` |
+| P7 | questions, notifications, continuité ; dépôts réels | #21 | `b9779f1` |
+| SECU-TUI | correctif de sécurité : `.env` et sources de secrets du volume (D156, D157) | #23 | `5026a70` |
+| P8b | station Qt alignée sur P7 (D158, D159) | #22 | `8583642` |
+| P9 | exploitation, montée de version, publication | postérieure à ce journal (preuves, § 3) | postérieur à ce journal (preuves, § 3) |
+
+### Ajouté
+
+- **Image Hermes d'ACP** (P1, P2) : image Railway dérivée de `nousresearch/hermes-agent:v2026.9.24` épinglée par
+  condensat ; gardes de démarrage dans le crochet s6 `S6_STAGE2_HOOK` et refus en français ; managed scope
+  `/etc/hermes` régénérée et relue à chaque démarrage ; agent **sans outil d'exécution** sur Railway (managed scope,
+  `.env` géré, garde `pre_tool_call` en liste blanche) ; gardes de plateforme (PID 1, s6, volume) ; commande de
+  maintenance `diagnostiquer` ; contrat épinglé (`hermes/contrat/HERMES_VERSION`, OpenRPC de la passerelle).
+- **Identité** (P2) : `identite/`, Authelia 4.39.28 épinglé, un seul utilisateur, un seul client OIDC public, passkeys,
+  garde root en français, limite mémoire mesurée.
+- **Infrastructure Railway en code** (P2, P6, P7) : `.railway/railway.ts` (trois services, trois volumes, échec fermé
+  sur les libellés en gabarit), `verifier.mjs`, procédure du propriétaire `docs/refonte/railway.md` ; variables du
+  canal de notification déclarées par `preserve()` (D116).
+- **Interface** (P3, P4, P5, P7) : thème `acp` généré depuis `design/tokens`, persona française, greffons d'interface
+  `acp-interface` (Accueil), `acp-catalogue`, `acp-projets` (Projets et file Questions), `acp-poste-vues` (Poste,
+  Routage, Quotas) et `acp-discussion` (discussion réduite sur `/api/ws`), sources dans `apps/interface`, bundles
+  committés et vérifiés en CI ; décompte des chaînes de Hermes restées en anglais.
+- **Catalogue** (P3, P4) : 14 skills vendorisées à des commits épinglés, sous licence MIT, et 7 skills maison en
+  français (deux en P3, cinq pour les projets en P4) ; verrou `hermes/catalogue/catalogue.lock.json` et
+  `scripts/verifier_catalogue.py` ; context7, seul serveur MCP côté Hermes, distant ; refus de démarrer sur un
+  serveur MCP stdio ou hors catalogue (D8).
+- **Projets autonomes** (P4, P7) : greffon `acp-poste` : un tableau kanban par projet, graphe déterministe
+  (exploration, planification, implémentation et relecture croisée, synthèse), plafonds et cartes de décision,
+  routage des modèles, outils de l'agent, routes du propriétaire, émetteur de notifications (Telegram ou ntfy) ; en
+  P7 : file Questions à cinq sections, relancer une carte, qui répond, clore un projet, flux d'invalidation
+  `GET /v1/flux`, liens profonds des notifications, bilan quotidien par cron natif, Accueil agrégé ; base du greffon
+  au schéma 4.
+- **Machines** (P5, P6) : protocole `acp-machine/1` (enrôlement par code, réclamation en attente longue,
+  inventaire ; en P6 : `battement`, `terminer`, `question`, `bloquer`, `reprendre`, `arret`), fournisseur de
+  jeton machine ; client `apps/poste` : poste Windows (`poste.toml`, coffre DPAPI, sondes Codex et Claude Code,
+  installation `packaging/poste`) et exécutant Linux (un UID par agent, dépôts et worktrees, quarantaine des secrets,
+  `git bundle`, file de sortie persistante, purge) ; image `executant/` (Codex CLI 0.156.1 et Claude Code 2.1.283
+  vérifiés au build) ; visibilité des dépôts mesurée et outil `scripts/preuve_accord_requis.py` (P7).
+- **Station de travail Qt** (P8) : connexion native RFC 8252, porteur sur les API du tableau de bord et la façade du
+  greffon, JSON-RPC sur Qt WebSockets, pages Accueil, Projets, Questions, Discussion, Poste, Quotas, Routage,
+  Diagnostics et Sauvegarde (export chiffré `ACPB1`), bout en bout local `scripts/e2e-desktop-windows.ps1` ; en
+  P8b, alignée sur P7 : flux d'invalidation `GET /v1/flux` (D158), Accueil agrégé, file Questions à cinq sections et
+  ses gestes (relancer, revues, qui répond, clore), discussions en attente, bilan quotidien, étape P7 détectée par
+  `/v1/meta` avant d'être lue (D159).
+- **Exploitation** (P9) : `scripts/monter_hermes.py` (`verifier`, `ecrire`, `inventaire`, `derniere`) et sa
+  répétition à blanc à chaque construction ; concordance de toutes les épingles de Hermes
+  (`scripts/tests/test_epingles_hermes.py`) ; toute copie versionnée contrôlée (`scripts/tests/test_version_complete.py`) ;
+  tests de restauration de trois volumes, R1 à R4 (job `restauration` d'`image.yml`, à chaque construction : trois
+  volumes au même instant et à des instants différents, reconnexion du propriétaire, Hermes réimporté depuis son
+  export) ; témoin d'une release antérieure de Hermes (job `temoin`, `scripts/temoin_hermes.py`) ; montée de données
+  d'une version d'ACP à la suivante (job `montee`, chaque ligne d'avant comparée à un contrôle) ; manuel du
+  propriétaire `docs/exploitation.md` ; `docs/refonte/historique.md` et `docs/refonte/preuves-1.0.0.md`.
+- **CI** : `ci.yml` (moteur gelé, suites sous Linux et Windows, installeur du poste en simulation, interface,
+  balayage des secrets), `image.yml`, `executant.yml`, `desktop-ci.yml` ; `desktop-release.yml` crée à l'étiquette
+  un brouillon non signé (D131).
+
+### Modifié
+
+- Architecture : Hermes seul serveur et seule source de vérité ; ACP sans API, sans base, sans bus d'événements ni
+  CLI propres (P0 à P2) ; exécution principale sur le service Railway `executant`, poste Windows facultatif (P6,
+  D74).
+- `apps/worker` devient `apps/poste` (commande `acp-poste`), contrat des quotas dans
+  `hermes/plugins/acp-poste/contrat` (P0) ; `poste.toml` remplace les réglages `ACP_WORKER_*` (P5).
+- Station Qt : rebranchée sur Hermes, ancien client retiré (P8) ; pages relues sur signal du flux, comme le
+  navigateur (P8b).
+- Pages relues sur signal du flux au lieu du sondage de 15 s (gardé en repli) ; voie Codex ouverte seulement sur un
+  dépôt prouvé privé (P7, D103).
+- Contrôle des décisions documentées à trois chiffres (P7, P9 : D132).
+- Branche déployée par l'IaC : `main` au lieu de `refonte/hermes` (décision du propriétaire du 9 octobre 2026, D164,
+  qui remplace celle du 25 septembre 2026) : constante de `.railway/railway.ts`, valeur attendue du vérificateur,
+  test de l'IaC (qui exige aussi que les quatre workflows qu'attend « Wait for CI » se déclenchent sur un push vers
+  elle) et gestes de la procédure Railway ; rien n'est appliqué sur Railway.
+- Docker sur le poste de travail : arrêté le 8 octobre 2026 (D134), de nouveau permis avec sobriété le 9 octobre
+  2026 (D160 : une seule pile à la fois, ressources nommées et retirées) ; l'intégration continue reste la preuve qui
+  fait foi.
+
+**Retiré de l'ancienne plateforme** (tout reste sous l'étiquette `archive/acp-0.10.0-avant-hermes`) : en P0, API
+FastAPI, base et migrations, bus d'événements, passerelle de fournisseurs, CLI `acp`, interface web Vite (hors
+`apps/web/public/assets`), `packages/ui`, contrats TypeScript et Python (hors quotas), `agent-sdk`,
+`playwright-reporter`, `e2e`, déploiement Railway multi-services et scripts liés, documentation datée des lots A à
+H ; en P5, les réglages `ACP_WORKER_*` du poste (sauf `ACP_WORKER_CLAUDE_QUOTA_SNAPSHOT`) et
+`PosteConfig.from_env` ; en P8, l'ancien client Qt (`AuthManager`, cookie `acp_session`, `SessionPersistence`,
+`CompatibilityService`, ancien `EventStreamService`, `ArtifactDownload`, pages de l'ancienne API).
+
+### Corrigé
+
+Corrections des relectures indépendantes, une ligne par étape (détail : `docs/refonte/historique.md`, partie B) :
+- P0 : 5 défauts confirmés et corrigés (refus des NUL sans l'octet NUL, tests DPAPI réels rétablis, commande
+  `journal` sans source retirée, `acp-poste quotas` refusé sans accord avec le retrait d'un réglage sans effet,
+  « aucune connexion réseau » rectifié : Codex CLI, que lance `acp-poste quotas`, interroge le serveur d'OpenAI) ;
+- P1 : 5 constats, dont deux critiques (`/run/service` laissé à l'agent, `.env` du volume hors managed scope) :
+  4 corrigés, 1 en limite dite (port 9119 pris sous le même uid, paré depuis P2 par l'absence d'outil d'exécution) ;
+  plus l'élévation par le `PATH` des scripts root, trouvée à la vérification finale et corrigée ;
+- P2 : 21 constats de trois relectures (sécurité offensive, exactitude, exploitation), dont les `hooks/` et
+  `scripts/` de chaque profil rendus à root ; deux traités par la documentation seule (`vision_analyze`, qui lit
+  toute image locale, gardé par décision du propriétaire ; sauvegardes absentes de l'IaC) ;
+- P3 : 14 constats (4 moyens, 10 bas) ;
+- P4 : 21 constats, tous réels (projets qui s'arrêtaient en silence ou se disaient terminés à tort, redirections
+  suivies par les notifications) ;
+- P5 : 16 constats (un haut, quatre moyens, onze bas), décisions D67 à D73 ;
+- P6 : 19 constats (un critique, quatre hauts), tous réels, plus trois défauts trouvés en les vérifiant ; parmi
+  les corrections, l'`auth.json` de Codex n'est plus lisible par une commande de l'agent en régime A ;
+- P8 : 16 constats, chacun avec un test qui échoue sans la correction ;
+- P7 : relecture finale, 37 constats retenus : 33 corrigés, 3 en limite dite, 1 de procédure (D117 à D121) ;
+- SECU-TUI : contre-vérification d'un sceptique (failles traitées par D156 et D157 ; l'écriture d'une clé épinglée
+  par `PUT /api/env`, en partie réfutée par la mesure : Hermes la refuse) et audit défensif du 9 octobre 2026
+  (variables d'emplacement et d'exécution comme `HERMES_HOME`, lecture des `.env` comme Hermes : deux manques
+  prouvés rouges, corrigés par `2c4e2d4`) ;
+- P8b : deux relectures, 12 constats (desktop-1 à desktop-12), chacun vérifié dans le code puis traité, les
+  constats de code avec un test relevé rouge sans la correction ;
+- P9 : relecture de l'outillage de version (six constats sur `scripts/monter_hermes.py` et `image.yml`, chacun avec
+  un test rouge d'abord) et vérification factuelle du manuel (19 constats recoupés et corrigés) ; défaut du produit
+  trouvé par la montée de données : la reconstruction d'une table du greffon (`notifications`, schéma 4) ramenait
+  son compteur `AUTOINCREMENT` (de 7 à 5), corrigé (`fdb41c9`, D153, test d'image rouge sur le code d'avant) ;
+  défauts des tests trouvés à leur premier passage en CI, corrigés avant le premier vert (dont un import de l'export
+  réputé réussi qui n'avait rien restauré : le test refuse désormais tout import incomplet) ; une attente qui passait
+  avec un exécutant non enrôlé (vue que Hermes garde de l'exécutant d'avant) dans la montée, puis la même lecture
+  sans attente dans R1, corrigées (`8e58ac9`, `83394a9`) ; la seule différence de la release témoin que rien
+  n'attrapait (`config.yaml` sans `_config_version`) attrapée par un test nouveau (`d07753b`) ; critique et
+  contre-vérification d'un sceptique des preuves de B et C : listes « jamais vu rouge » complétées, 33 runs de
+  témoins de mutation au total (20 pour la restauration, 13 pour la montée) et un inventaire mécanique des
+  vérifications (`docs/exploitation.md` § 6.6 et § 10) ; relecture finale de toute P9 (9 octobre 2026) : 34 constats
+  retenus, tous traités, aucun réfuté, dont `scripts/monter_hermes.py derniere` aveugle aux étiquettes `vX.Y.Z`
+  (v0.21.6 manquée ; corrigé avec des tests rouges d'abord, D161), le retour arrière d'une montée rendu sûr et durable
+  (Rollback à la place du retour à la normale, PR de retour), la sonde R0 remise avant tout apply, deux gardes de
+  dérive du correctif SECU-TUI, et les textes des pages Routage (navigateur et station) et Réglages (station), avec
+  des tests rouges d'abord (constats et traitement : `docs/refonte/preuves-1.0.0.md` § 3).
+
+### Sécurité
+
+- Agent sans outil d'exécution sur Railway, garde en liste blanche ; `PATH` des scripts root sans répertoire du
+  volume ; managed scope régénérée à chaque démarrage ; Hermes jamais hors de s6 en PID 1.
+- Chantier SECU-TUI (PR #23) : toute clé que la managed scope épingle est retirée par root des `.env` et `.op.env`
+  du volume, au démarrage et à chaque relance d'un service, noms journalisés, valeurs jamais (D156) ; variables
+  d'emplacement et d'exécution (`HERMES_HOME`, valeurs imposées par l'image, noms que Hermes refuse d'écrire)
+  refusées dans ces fichiers ; source externe de secrets activée dans un `config.yaml` du volume : refus de démarrer
+  et de relancer (D157).
+- Connexion par OIDC auto-hébergé seulement (Authelia, un utilisateur, passkeys) ; aucun fournisseur `basic` ni Nous.
+- Jetons : coffres Windows (DPAPI, Gestionnaire d'identification) sur le poste et la station ; fichiers 0600 de root
+  sur le volume de l'exécutant, jamais en variable (D92) ; aucun secret dans Git (balayage en CI).
+- Exécutant : un UID par agent, bac à sable, binaires vérifiés au build, crochets git coupés, `https` seul, **aucun
+  push** (D82) ; fichiers de pilotage soumis à revue ; secret détecté : quarantaine, y compris dans chaque commit non
+  poussé (D118, D119).
+- Hermes et Authelia épinglés par condensat ; montée de version par PR seulement, répétée à blanc à chaque
+  construction.
+
+### Vérifié localement
+
+Et en intégration continue : chaque étape a été fusionnée sur des runs verts ; identifiants, compteurs et relectures
+dans `docs/refonte/preuves-1.0.0.md`.
+- P0 à P8 et P7 : runs des PR #13 à #21 et des commits de fusion (preuves, § 1 et § 2) ; SECU-TUI et P8b : runs
+  des PR #23 et #22 et de leurs commits de fusion (preuves, § 1).
+- P9, parts A et D : outillage de version vert en CI (répétition à blanc « Aucun écart », Image Hermes
+  `37004128839` puis `37028491959`) ; ébauche du manuel relue contre le code et la documentation de Railway.
+- P9, part B : test de restauration (job `restauration` d'`image.yml`, R1 à R4) vert depuis `27d2123` (run
+  `37768789724`) et sur la tête réunie `90102b1` (run `37908787791`) ; 20 runs de témoins de mutation, chacun rouge
+  pour sa raison.
+- P9, part C : témoin `v2026.9.21` rouge comme attendu (5 écarts, tous attrapés) et son contrôle sur `v2026.9.24`
+  vert (runs `37769347253` et `37769357764`, jobs « temoin ») ; montée de données de la fin de P8 (schéma 3) au
+  schéma 4 verte (run `37784839347`), rejouée sur la tête réunie depuis `b715edb` et depuis `8583642` (runs
+  `37908841650`, « migration de schéma : oui », et `37908855369`, « non ») ; 13 runs de témoins de mutation.
+- Réunion de P9 avec SECU-TUI et P8b (9 octobre 2026), tête `90102b1` : CI, Image de l'exécutant, Desktop CI et
+  Image Hermes verts (le job « image » à sa seconde tentative, voir « Limites connues ») ; en local, sur Docker de
+  nouveau permis (D160) : pytest dans l'image 874 réussis, contrat de sécurité 68, contrat de restauration 13.
+- Tête de la relecture finale de P9, `0f5e7be` (9 octobre 2026), quatre workflows verts à la 1re tentative :
+  CI `37951285143` (Windows 1 191 réussis et 87 ignorés, Linux 1 224 et 54 ignorés, interface 204 tests, moteur 74),
+  Image Hermes `37951290888` (876 dans l'image, 194 au contrat, 10 au navigateur, « Aucun écart » ; restauration 13
+  et R3 1), Image de l'exécutant `37951296304` (43, puis 831 réussis et 20 ignorés en root), Desktop CI
+  `37951300582` (36 suites sur 36).
+- Les trois derniers commits de P9 (branche déployée `main`, D164 ; ouverture ; ce journal), en local le
+  9 octobre 2026 : suite du dépôt verte avant chacun (1 200 réussis, 84 ignorés) ; test de l'IaC rouge d'abord sur
+  les deux constantes, puis `npm run --prefix .railway verifier` vert (graphe d'essai sur la branche `main`) ;
+  interface : 21 fichiers, 204 tests, bundles à jour ; station Qt reconstruite en Release, 36 suites CTest sur 36 ;
+  sur Docker local (D160), images de l'ouverture : pytest dans l'image 875 réussis et un échec de précondition de
+  mesure, sans lien avec l'ouverture (« Limites connues ») ; au contrat, les deux tests qui lisent la version dans
+  l'image et `hermes/tests/contrat/test_machine_contrat.py` (11) verts.
+- Runs des deux commits qui précèdent ce journal, tous verts à la 1re tentative (compteurs lus dans les journaux des
+  jobs) : `e1fdd3f` (branche déployée) : CI `37961606845` (Windows 1 197 réussis et 87 ignorés, Linux 1 230 et 54
+  ignorés, interface 204, moteur 74), Image Hermes `37961606843` (vérificateur de l'IaC : « branche main » ; 876 dans
+  l'image, 194 au contrat, 10 au navigateur, « Aucun écart » ; restauration 13 et R3 1) ; `f4cf02c` (ouverture) : CI
+  `37965264193` (mêmes compteurs), Image Hermes `37965264194` (876, 194, 10, « Aucun écart » ; restauration 13 et
+  R3 1), Image de l'exécutant `37965264221` (43, puis 831 réussis et 20 ignorés), Desktop CI `37965264067` (36 suites
+  sur 36 ; installeur et archive portable 1.0.0 produits, non signés).
+- Runs de ce journal, de la PR de `refonte/hermes-p9` vers `refonte/hermes`, puis de `refonte/hermes` vers `main`
+  (quatre workflows) : postérieurs à ce journal (un commit ne peut citer les runs que son propre push déclenche, et
+  le compléter après la fusion déplacerait l'étiquette hors du commit de fusion) ; ils vont dans
+  `docs/refonte/preuves-1.0.0.md`, § 3 et § 4, complétés après l'étiquette par une PR de documentation seule (D163),
+  et le corps de la PR vers `main` les cite d'ici là.
+
+### Limites connues
+
+- **Rien n'est déployé sur Railway** : tout ce qui ne se prouve que là reste non prouvé (`docs/refonte/railway.md`
+  § 12 et § 14.7, `docs/exploitation.md` § 10) : bord et PID 1 réels, sonde R0 (régime de l'exécutant, donc ouverture
+  de la voie Codex), sauvegardes réelles, répétition de restauration et reconnexions réelles, notification et
+  parcours réels sur le téléphone, premier dépôt réel, coût réel. **Aucun vrai compte** n'a servi (abonnement ChatGPT
+  de Hermes, Codex, Claude Code, GitHub, canal de notification) : tous les tests emploient un agent, des CLI et des
+  comptes factices.
+- **Constat de sécurité corrigé, avec une limite** : une fois, après un redémarrage du conteneur sur un volume
+  piégé, la session du tableau de bord a reçu les outils d'exécution posés par le `.env` du volume (deuxième des
+  trois couches de la défense de P2, `docs/refonte/image.md` § 5), alors que l'api_server les refusait (Image Hermes
+  `37784838264`, tentative 1, test `test_volume_piege_apres_relance`). Le chantier SECU-TUI en a prouvé la cause sans
+  course : Hermes publie la valeur du `.env` du volume avant d'appliquer la portée gérée (run jetable `37831355746`,
+  rouge attendu sur le code de P7) ; il y mesure que la garde `pre_tool_call` aurait refusé l'appel. Correctif et
+  refus d'une seconde faille hors des trois couches (D156, D157, rubrique « Sécurité ») fusionnés par la PR #23
+  (`5026a70`, 9 octobre 2026). Reste, non corrigée : root ne retire les clés épinglées des `.env` du volume qu'au
+  démarrage et à chaque relance d'un service ; une écriture **directe** d'un `.env` du volume pendant la vie d'un
+  service (faille de Hermes, ou shell du propriétaire) rouvrirait donc la fenêtre jusqu'à la relance suivante ;
+  quelques variables ni épinglées ni refusées dans le volume restent non mesurées (`docs/refonte/image.md` § 10).
+- Binaires de la station **non signés** (aucun certificat) : l'installeur et l'archive portable sont fabriqués par
+  chaque Desktop CI (empaquetage « à blanc » : produits, ni signés ni publiés), jamais installés ni lancés sur un
+  Windows propre ; `Desktop Release` n'a jamais tourné (premier run à l'étiquette, brouillon non signé : D131).
+- Les bouts en bout locaux du poste (dernier passage : P5) et de la station (P8), les témoins négatifs de P4 à P6 et
+  la recompilation du verrou Python sont des scripts à Docker local qu'aucun workflow n'appelle : arrêtés avec Docker
+  le 8 octobre 2026 (D134), ils peuvent de nouveau tourner depuis le 9 octobre 2026 (D160), mais n'ont été rejoués
+  ni sur le code de P7 ni sur celui de P9.
+- Tests instables connus, verts sur la tête : le test navigateur de la connexion (course avec la relecture
+  périodique du tableau de bord de Hermes, qui renvoie la page à la connexion après la déconnexion : rouge une fois,
+  Image Hermes `37908787791`, tentative 1) ; sous Windows, `apps/poste/tests/contrat/test_enrolement.py:78` (faux
+  serveur TLS) ; des tests temporisés du poste sous forte charge locale ; en local seulement, le 9 octobre 2026,
+  `test_concurrence_reelle_d_un_rechargeur_et_du_fil_d_une_session` (`hermes/tests/image/test_secu_env.py`) n'a pas
+  rempli sa précondition de mesure (1 lecture en 4 s, au lieu de plus de 20 : le premier appel de la résolution
+  des outils de Hermes prend environ 3 s sur ce poste, l'image ne portant aucun bytecode), sur l'image d'avant
+  l'ouverture comme sur celle d'après, sans jamais rendre `terminal` ; vert en intégration continue (1 025 lectures
+  sur `f4cf02c`).
+- Cookies de Hermes sans `Secure` tant que `trusted_proxies` est vide ; jeton de rafraîchissement rejoué : 503
+  persistant jusqu'à la déconnexion ou l'effacement des cookies (`docs/refonte/identite.md` § 12).
+- Pages natives de Hermes en partie en anglais ; rendu éprouvé dans Chromium seulement.
+- Station Qt : flux et gestes de P7 (P8b) prouvés contre le faux Hermes de ses tests natifs et les fixtures
+  partagées seulement, jamais face à un vrai greffon P7 (`docs/refonte/desktop.md`, « Non prouvé ») ; MCP côté
+  exécutant reporté.
+- `preserve()` sur une variable jamais posée : supposé sans effet (D116).
+- Test de restauration, hors Railway : il ne prouve ni le second arrêt brutal d'une même carte (lu dans le code), ni
+  un fichier de root illisible par Hermes dans le volume exporté, ni l'identité et Hermes restaurés à des instants
+  différents (supposé), ni la station Qt après une restauration de l'identité (`docs/exploitation.md` § 10).
+- Le travail d'un projet ne quitte l'exécutant que par un geste du propriétaire depuis un ordinateur (`railway ssh`,
+  `git bundle`, push et PR par lui : `docs/refonte/railway.md` § 13.7, D82) ; le téléphone suit et répond, sans
+  récupérer.
+- Formulaire « Nouveau projet » : pour un projet sur un dépôt, l'exploration part toujours d'un choix explicite
+  (exécutant, et modèle exigé pour Claude : D73, encore à confirmer), résolu avant la table de routage, contrairement
+  au plan d'autonomie ; la discussion laisse Hermes choisir. Le texte de la page Routage le dit depuis la relecture
+  finale de P9.
+- Station Qt sans page Catalogue ni cartes « Garde d'exécution », « Persona » et « Catalogue » de l'Accueil web
+  (`docs/refonte/desktop.md`, « Écarts assumés »).
+- **Hermes v0.21.6 est publiée depuis le 8 octobre 2026** (étiquette git, image Docker Hub, release GitHub) ; 1.0.0
+  reste sur Hermes 0.21.5 (`v2026.9.24`, D161). `scripts/monter_hermes.py derniere` ne retenait que la forme
+  `vAAAA.M.J` et a conclu à tort, le 9 octobre 2026, qu'aucune release plus récente n'existait ; corrigé le même jour
+  (`6ee8871`, tests rouges d'abord). Le relevé de v0.21.6 est **refusé** par l'outil : l'image `v0.21.6` de Docker Hub
+  est construite depuis `a28a5d03`, 39 commits avant celui de l'étiquette (`818c13be`). Aucune montée vers une
+  release postérieure à `v2026.9.24` n'est donc faite ni prouvée ; montée de données depuis `v2026.9.21` non lancée
+  (D147) ; montée d'Authelia non prouvée (D152) ; retour arrière par Rollback non prouvé ; un vrai agent jamais
+  employé.
+- Signature cosign de Codex non vérifiée (identité non établie).
+- Moteur Pixel Office gelé ; Godot hors périmètre.
+
+## 0.10 — ligne archivée, jamais étiquetée
+
+Ancienne plateforme (API, base, interface web Vite, CLI `acp`, client Qt d'avant la refonte) : ses trois sections,
+autrefois « [Unreleased] », « 0.10.0 (préparation) » et « 0.9.1 (préparation) », sont gardées telles quelles, à
+deux retouches près : titres abaissés d'un niveau, et **trois liens réécrits** (`docs/subscription-quotas.md`,
+`docs/desktop-chat-projects-2026-09-23.md` et `docs/functional-completion-2026-09-23.md`, retirés de l'arbre
+depuis P0), qui mènent désormais à ces fichiers sous l'étiquette `archive/acp-0.10.0-avant-hermes`
+(`blob/60a49b6…`). Aucune n'a été publiée ni étiquetée ; leurs fonctions n'existent plus depuis P0, et les autres
+documents qu'elles citent restent consultables sous la même étiquette.
+
+### [Unreleased]
+
+#### Quotas réels d'abonnement
 
 - écran desktop « Quotas », réservé au propriétaire de la plateforme : une jauge
   par fenêtre de limite (utilisé et restant), remise à zéro en heure locale avec
@@ -28,9 +320,9 @@ les interfaces peuvent encore évoluer entre deux versions mineures.
 Le chemin « compte connecté » de Codex n'est éprouvé qu'avec un faux `app-server`
 validé contre les schémas officiels : le profil dédié attend la connexion du
 titulaire. Figma et les crédits d'API ne sont pas mesurés. Détails et mise en place
-dans [`docs/subscription-quotas.md`](docs/subscription-quotas.md).
+dans [`docs/subscription-quotas.md`](https://github.com/Paul-Berdier/agent-company-platform/blob/60a49b6c5ab2ca5d73cfdf55919c85903a261330/docs/subscription-quotas.md).
 
-### Interface conversations et projets
+#### Interface conversations et projets
 
 - accueil à deux entrées : chat libre sans titre préalable ou projet à créer/reprendre ;
 - identité native graphite/ivoire/sarcelle et pictogrammes originaux ;
@@ -45,9 +337,9 @@ dans [`docs/subscription-quotas.md`](docs/subscription-quotas.md).
 - suite Python complète : 3 037 réussis, 70 ignorés ; 492 tests Node réussis, typage et build verts ;
 - 23 suites Qt vertes, deux parcours UI Windows et parcours Qt/API réelle avec création sans titre ;
 - recette de l'interface et limites dans
-  [`docs/desktop-chat-projects-2026-09-23.md`](docs/desktop-chat-projects-2026-09-23.md).
+  [`docs/desktop-chat-projects-2026-09-23.md`](https://github.com/Paul-Berdier/agent-company-platform/blob/60a49b6c5ab2ca5d73cfdf55919c85903a261330/docs/desktop-chat-projects-2026-09-23.md).
 
-### Intégration fonctionnelle desktop et poste local
+#### Intégration fonctionnelle desktop et poste local
 
 - formulaires Qt Standard, Codex, Claude et équipe ; conversations générales ou
   de projet, arrêt visible et commentaires actualisés ;
@@ -67,17 +359,17 @@ dans [`docs/subscription-quotas.md`](docs/subscription-quotas.md).
 - 22 suites Qt vertes, interactions réelles avec captures et parcours API jetable.
 
 Les preuves détaillées et limites sont dans
-[`docs/functional-completion-2026-09-23.md`](docs/functional-completion-2026-09-23.md).
+[`docs/functional-completion-2026-09-23.md`](https://github.com/Paul-Berdier/agent-company-platform/blob/60a49b6c5ab2ca5d73cfdf55919c85903a261330/docs/functional-completion-2026-09-23.md).
 Hermes répond localement, mais son diagnostic est dégradé ; aucune génération réelle
 payante, reprise automatique d'équipe interrompue, fusion automatique des branches
 produites ou publication finale 0.10.0 n'est annoncée.
 
-## 0.10.0 (préparation) - 2026-09-23
+### 0.10.0 (préparation) - 2026-09-23
 
 Client natif Qt : intégration du Lot H et parcours métier reliés à l'API.
 Cette version reste en préparation ; elle n'annonce pas une recette Railway achevée.
 
-### Ajouté
+#### Ajouté
 
 - écrans natifs de projets, conversations, missions/tentatives, Studio et livrables ;
 - inventaire des agents, workers et fournisseurs, liaisons MCP et compétences ;
@@ -87,14 +379,14 @@ Cette version reste en préparation ; elle n'annonce pas une recette Railway ach
 - tests HTTP loopback, chargement QML et parcours du client Qt contre une vraie API
   SQLite jetable ; projection hachée du verrou Python pour cette recette en CI Windows.
 
-### Modifié
+#### Modifié
 
 - contexte de projet partagé par les écrans, navigation et palette de commandes ;
 - arrêt, relance et envois incertains rapprochés avec la même clé pendant la session ;
 - README, documentation de parité, sécurité, construction, installation et reprise
   alignés sur les fonctions présentes et les limites observées.
 
-### Corrigé
+#### Corrigé
 
 - réponses et réessais d'une ancienne origine annulés après changement de serveur ;
 - reprise de session préservant le contexte connu, refus 401/403 terminaux uniques,
@@ -105,7 +397,7 @@ Cette version reste en préparation ; elle n'annonce pas une recette Railway ach
 - droits effectifs de création de projet et de liaison d'extensions vérifiés avant envoi ;
 - DLL redistribuables MSVC x64 embarquées dans le paquet portable, avec contrôle de version.
 
-### Sécurité
+#### Sécurité
 
 - aucun cookie ACP transmis à GitHub ; notes de publication et contenus métier rendus
   en texte brut, liens de publication limités au dépôt officiel ;
@@ -113,7 +405,7 @@ Cette version reste en préparation ; elle n'annonce pas une recette Railway ach
 - téléchargement de livrable atomique et borné, contrôles de taille/SHA-256, redirections refusées ;
 - un corps HTML ou une redirection ne peut plus apparaître comme un flux SSE en direct.
 
-### Vérifié localement
+#### Vérifié localement
 
 - backend combiné : 2 896 tests réussis, 70 ignorés ; contrats desktop : 6 réussis ;
 - compilation MSVC Release et 21 suites natives réussies en 54,82 secondes ;
@@ -125,7 +417,7 @@ Cette version reste en préparation ; elle n'annonce pas une recette Railway ach
 - résultats finaux de compilation, CI et empaquetage dans
   `docs/desktop-validation-2026-09-23.md` ; les tentatives échouées y restent distinguées.
 
-### Limites connues
+#### Limites connues
 
 - recette Railway, fournisseur/worker réels, Windows propre et signature de code non prouvés ;
 - première revue visuelle interrompue par l'expiration de l'autorisation de capture ;
@@ -135,12 +427,12 @@ Cette version reste en préparation ; elle n'annonce pas une recette Railway ach
 - aucune publication 0.10.0 ni fin de la Desktop V1 annoncée ; Pixel Office conservé à part ;
 - les 26 constats ouverts du Lot H demeurent suivis dans `docs/lot-h-091-review-status.md`.
 
-## 0.9.1 (préparation) - 2026-09-22
+### 0.9.1 (préparation) - 2026-09-22
 
 Durcissement du Lot H en cours. L'inventaire des constats, des corrections reprises
 et des travaux encore ouverts figure dans `docs/lot-h-091-review-status.md`.
 
-### Ajouté
+#### Ajouté
 
 - migration PostgreSQL 0003 pour les tailles, durées, codes de sortie et séquences
   sur 64 bits, ainsi que les références longues ; schéma SQLite historique conservé ;
@@ -148,7 +440,7 @@ et des travaux encore ouverts figure dans `docs/lot-h-091-review-status.md`.
   réservation concurrente ; suites et parcours PostgreSQL dans l'intégration continue ;
 - validation commune des bornes de stockage, des horodatages UTC et des NUL.
 
-### Modifié
+#### Modifié
 
 - événements métier numérotés et journalisés au commit ; verrous de projet
   budgétaires compatibles avec les insertions filles tout en sérialisant les décisions ;
@@ -157,7 +449,7 @@ et des travaux encore ouverts figure dans `docs/lot-h-091-review-status.md`.
 - installation CI Python depuis le verrou haché, sans résolution des dépendances
   locales, puis vérification de cohérence des distributions et des déclarations.
 
-### Corrigé
+#### Corrigé
 
 - messages d'outbox illisibles isolés en lettre morte ; une panne du consommateur
   n'épuise plus les essais d'un message valide ; hôtes HTTP internes autorisés explicitement ;
@@ -171,7 +463,7 @@ et des travaux encore ouverts figure dans `docs/lot-h-091-review-status.md`.
   de volume absent, déduplication des livraisons concurrentes et refus temporaires 503
   pour les interblocages et l'épuisement du pool.
 
-### Sécurité
+#### Sécurité
 
 - diagnostics de messages illisibles expurgés de leur contenu et des détails SQL ;
 - exclusions Docker récursives des données locales, secrets et éléments sous licence,
@@ -179,7 +471,7 @@ et des travaux encore ouverts figure dans `docs/lot-h-091-review-status.md`.
 - les garde-fous de schéma ne déclarent pas une base utilisable sur la seule présence
   d'une estampille Alembic.
 
-### Vérifié localement
+#### Vérifié localement
 
 - SQLite : 2 852 tests réussis et 70 ignorés ; PostgreSQL : 2 862 réussis et 60 ignorés,
   après suites complètes et reprises ciblées documentées, sans modification du produit ;
@@ -188,7 +480,7 @@ et des travaux encore ouverts figure dans `docs/lot-h-091-review-status.md`.
 - rapports initiaux, incidents de validation et limitations détaillés dans
   `docs/lot-h-091-review-status.md` ; les exécutions interrompues n'y valent pas succès.
 
-### Limites connues
+#### Limites connues
 
 - 0.9.1 n'est pas publiée ; plusieurs constats de sauvegarde, rétention, déploiement,
   reprise du worker et routes asynchrones restent ouverts dans l'inventaire ;
@@ -892,7 +1184,8 @@ Les tags `v0.2.0` à `v0.8.0` existent sur `origin` ; le Lot G a été finalisé
 (fusion `e71ebf6`) après observation d'une CI verte, et son tag annoté `v0.8.0` a été posé
 sur ce commit le 18 septembre 2026. Le tag `v0.9.0` ne sera posé qu'après fusion du Lot H.
 
-[Unreleased]: https://github.com/Paul-Berdier/agent-company-platform/compare/v0.9.0...HEAD
+[1.0.0]: https://github.com/Paul-Berdier/agent-company-platform/compare/v0.9.0...v1.0.0
+[Unreleased]: https://github.com/Paul-Berdier/agent-company-platform/compare/v0.9.0...archive/acp-0.10.0-avant-hermes
 [0.9.0]: https://github.com/Paul-Berdier/agent-company-platform/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/Paul-Berdier/agent-company-platform/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/Paul-Berdier/agent-company-platform/compare/v0.6.0...v0.7.0

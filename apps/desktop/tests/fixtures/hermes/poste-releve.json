@@ -1,0 +1,134 @@
+{
+  "poste": {
+    "pause_reclamations": false,
+    "cartes_en_attente": 0,
+    "etat": "en_ligne",
+    "machine": "poste-simule",
+    "derniere_vue": 1790423039,
+    "derniere_vue_lisible": "26/09/2026 13:43",
+    "hors_ligne_depuis": null,
+    "source": "simule"
+  },
+  "catalogue": {
+    "etat": "connu",
+    "voies": {
+      "poste-codex": {
+        "etat": "a_jour",
+        "releve_le": 1790423039,
+        "releve_le_lisible": "26/09/2026 13:43",
+        "age_s": 0,
+        "perime": false,
+        "source": "releve_factice",
+        "version_cli": "0.0.0-factice",
+        "modeles": [
+          {
+            "id": "factice-codex-1",
+            "displayName": "Factice codex 1",
+            "isDefault": true,
+            "supportedReasoningEfforts": [
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "max",
+              "extreme"
+            ],
+            "defaultReasoningEffort": "medium",
+            "serviceTiers": [
+              "default",
+              "priority"
+            ],
+            "defaultServiceTier": "default"
+          },
+          {
+            "id": "factice-codex-2",
+            "displayName": null,
+            "isDefault": false,
+            "supportedReasoningEfforts": [
+              "low"
+            ],
+            "defaultReasoningEffort": null,
+            "serviceTiers": [],
+            "defaultServiceTier": null
+          }
+        ],
+        "quotas": null,
+        "depots": [
+          "jetable"
+        ]
+      },
+      "poste-claude": {
+        "etat": "a_jour",
+        "releve_le": 1790423039,
+        "releve_le_lisible": "26/09/2026 13:43",
+        "age_s": 0,
+        "perime": false,
+        "source": "releve_factice",
+        "version_cli": "0.0.0-factice",
+        "modeles": [
+          {
+            "id": "factice-claude-1",
+            "displayName": "Factice claude 1",
+            "isDefault": true,
+            "supportedReasoningEfforts": [
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "max",
+              "extreme"
+            ],
+            "defaultReasoningEffort": "medium",
+            "serviceTiers": [
+              "default",
+              "priority"
+            ],
+            "defaultServiceTier": "default"
+          },
+          {
+            "id": "factice-claude-2",
+            "displayName": null,
+            "isDefault": false,
+            "supportedReasoningEfforts": [
+              "low"
+            ],
+            "defaultReasoningEffort": null,
+            "serviceTiers": [],
+            "defaultServiceTier": null
+          }
+        ],
+        "quotas": null,
+        "depots": [
+          "jetable"
+        ]
+      }
+    },
+    "hermes": {
+      "modele": "modèle par défaut du profil"
+    },
+    "routage": {
+      "valide": false,
+      "classes": {}
+    },
+    "politique": {
+      "efforts_interdits": [
+        "max",
+        "ultra",
+        "ultracode"
+      ],
+      "paliers_admis": [
+        "default"
+      ],
+      "voies_par_classe": {
+        "exploration": [
+          "poste-claude",
+          "poste-codex"
+        ],
+        "planification": [
+          "hermes"
+        ]
+      }
+    },
+    "releve_factice": true
+  }
+}

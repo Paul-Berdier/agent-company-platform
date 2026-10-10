@@ -1,0 +1,103 @@
+{
+  "projet": {
+    "id": "p_367e23fd51b7",
+    "titre": "Outil",
+    "tableau": "acp-outil-3dd5",
+    "etat": "actif",
+    "profil": "base",
+    "depot": "jetable",
+    "reponses": "proprietaire",
+    "tour": 0,
+    "origine": "tableau_de_bord",
+    "objectif": "Écrire outil.py.",
+    "etat_derive": "exploration",
+    "plafonds": {
+      "tours": 3,
+      "cartes": 30,
+      "corrections": 2
+    },
+    "restants": {
+      "tours": 3,
+      "cartes": 28
+    },
+    "cartes_creees": 2,
+    "compteurs": {
+      "faites": 0,
+      "total": 2
+    },
+    "exploration": "Question ouverte (ACP) : q_b627a3c245ec",
+    "tours": [],
+    "cartes": [
+      {
+        "carte": "t_7aa28f61",
+        "titre": "Exploration du dépôt « jetable »",
+        "role": "exploration",
+        "classe": "exploration",
+        "tour": 0,
+        "ref": "exploration",
+        "voie": "poste-claude",
+        "statut": "scheduled",
+        "modele": "factice-claude-1",
+        "effort": "low",
+        "effort_carte": "low",
+        "palier": "default",
+        "source_routage": "choix_explicite",
+        "mention": "quota inconnu",
+        "modele_servi": "Non observé",
+        "relue": null,
+        "resume": "Question ouverte (ACP) : q_b627a3c245ec",
+        "resume_longueur": 38,
+        "resume_tronque": false
+      },
+      {
+        "carte": "t_342c81eb",
+        "titre": "Planification — Outil",
+        "role": "planification",
+        "classe": "planification",
+        "tour": 0,
+        "ref": "planification",
+        "voie": "hermes",
+        "statut": "todo",
+        "modele": "modèle par défaut du profil",
+        "effort": null,
+        "effort_carte": null,
+        "palier": "default",
+        "source_routage": "profil",
+        "mention": null,
+        "modele_servi": "Non observé",
+        "relue": null,
+        "resume": null,
+        "resume_longueur": null,
+        "resume_tronque": false
+      }
+    ],
+    "resultat": null,
+    "questions_ouvertes": [
+      {
+        "id": "q_b627a3c245ec",
+        "carte": "t_7aa28f61",
+        "etat": "escaladee",
+        "texte": "Quelle version de Python viser ?",
+        "carte_repondre": null
+      }
+    ],
+    "cree_le": 1790423039,
+    "termine_le": null,
+    "journal": [
+      {
+        "quand": 1790423039,
+        "acteur": "acp-poste",
+        "action": "question_escaladee",
+        "cible": "q_b627a3c245ec",
+        "detail": "politique du projet : le propriétaire répond lui-même"
+      },
+      {
+        "quand": 1790423039,
+        "acteur": "proprietaire:proprietaire-test",
+        "action": "lancement",
+        "cible": "acp-outil-3dd5",
+        "detail": "{\"origine\": \"tableau_de_bord\", \"depot\": \"jetable\", \"profil\": \"base\"}"
+      }
+    ]
+  }
+}

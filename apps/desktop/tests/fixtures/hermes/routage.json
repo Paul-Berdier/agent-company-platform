@@ -1,0 +1,507 @@
+{
+  "voies": {
+    "poste-codex": {
+      "etat": "a_jour",
+      "releve_id": 1,
+      "releve_le": 1790451620,
+      "releve_le_lisible": "26/09/2026 21:40",
+      "age_s": 0,
+      "perime": false,
+      "source": "poste",
+      "version_cli": "0.156.1",
+      "modeles": [
+        {
+          "id": "factice-codex-1",
+          "displayName": "Factice 1",
+          "isDefault": true,
+          "supportedReasoningEfforts": [
+            "low",
+            "medium",
+            "high"
+          ],
+          "defaultReasoningEffort": "medium",
+          "serviceTiers": [
+            "default",
+            "priority"
+          ],
+          "defaultServiceTier": "default",
+          "modele": "factice-codex-1",
+          "cache": false,
+          "remplace_par": null,
+          "retrait_le": null,
+          "nature": "catalogue_compte",
+          "resolution_documentee": null,
+          "source_efforts": "releve"
+        },
+        {
+          "id": "factice-codex-2",
+          "displayName": "Factice 2",
+          "isDefault": false,
+          "supportedReasoningEfforts": [
+            "low",
+            "medium"
+          ],
+          "defaultReasoningEffort": "low",
+          "serviceTiers": [
+            "default"
+          ],
+          "defaultServiceTier": "default",
+          "modele": "factice-codex-2",
+          "cache": false,
+          "remplace_par": null,
+          "retrait_le": null,
+          "nature": "catalogue_compte",
+          "resolution_documentee": null,
+          "source_efforts": "releve"
+        }
+      ],
+      "quotas": {
+        "pourcentage_utilise": 41,
+        "remise_a_zero": "2026-09-26T12:00:00Z"
+      },
+      "depots": [
+        "jetable"
+      ],
+      "etat_releve": "ok",
+      "origine_liste": "compte",
+      "detail": null,
+      "documentation_lue_le": null,
+      "compteurs": [
+        {
+          "provider": "codex",
+          "status": "ok",
+          "source": "codex_app_server",
+          "plan": "prolite",
+          "limit_id": "codex",
+          "windows": [
+            {
+              "key": "primary",
+              "used_percent": 41,
+              "window_minutes": 300,
+              "resets_at": "2026-09-26T12:00:00Z"
+            },
+            {
+              "key": "secondary",
+              "used_percent": 12,
+              "window_minutes": 10080,
+              "resets_at": "2026-09-30T08:00:00Z"
+            }
+          ],
+          "credits": null,
+          "limit_reached": false,
+          "reached_type": null,
+          "observed_at": "2026-09-26T19:40:20Z",
+          "detail": null
+        }
+      ],
+      "badge": "releve_du_compte",
+      "badge_libelle": "Relevé du compte"
+    },
+    "poste-claude": {
+      "etat": "a_jour",
+      "releve_id": 2,
+      "releve_le": 1790451620,
+      "releve_le_lisible": "26/09/2026 21:40",
+      "age_s": 0,
+      "perime": false,
+      "source": "poste",
+      "version_cli": "2.1.280",
+      "modeles": [
+        {
+          "id": "opus",
+          "displayName": "opus",
+          "isDefault": null,
+          "supportedReasoningEfforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
+          "defaultReasoningEffort": "medium",
+          "serviceTiers": [],
+          "defaultServiceTier": null,
+          "modele": null,
+          "cache": false,
+          "remplace_par": null,
+          "retrait_le": null,
+          "nature": "alias_documente",
+          "resolution_documentee": "claude-opus-5-5",
+          "source_efforts": "documentation"
+        },
+        {
+          "id": "opus[1m]",
+          "displayName": "opus[1m]",
+          "isDefault": null,
+          "supportedReasoningEfforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
+          "defaultReasoningEffort": "medium",
+          "serviceTiers": [],
+          "defaultServiceTier": null,
+          "modele": null,
+          "cache": false,
+          "remplace_par": null,
+          "retrait_le": null,
+          "nature": "alias_documente",
+          "resolution_documentee": "claude-opus-5-5",
+          "source_efforts": "documentation"
+        },
+        {
+          "id": "haiku",
+          "displayName": "haiku",
+          "isDefault": null,
+          "supportedReasoningEfforts": [],
+          "defaultReasoningEffort": null,
+          "serviceTiers": [],
+          "defaultServiceTier": null,
+          "modele": null,
+          "cache": false,
+          "remplace_par": null,
+          "retrait_le": null,
+          "nature": "alias_documente",
+          "resolution_documentee": null,
+          "source_efforts": "documentation"
+        }
+      ],
+      "quotas": null,
+      "depots": [
+        "jetable"
+      ],
+      "etat_releve": "ok",
+      "origine_liste": "alias_documentes",
+      "detail": null,
+      "documentation_lue_le": "2026-09-26",
+      "compteurs": [],
+      "badge": "alias_documentes",
+      "badge_libelle": "Alias documentés"
+    }
+  },
+  "releves": {
+    "poste-codex": 1,
+    "poste-claude": 2
+  },
+  "classes": {
+    "exploration": {
+      "etat": "non_validee",
+      "entrees": [],
+      "source": null,
+      "valide_le": null,
+      "valide_par": null,
+      "voies": [
+        "poste-claude",
+        "poste-codex"
+      ],
+      "suggestion": {
+        "entrees": [
+          {
+            "voie": "poste-codex",
+            "modele": "factice-codex-1",
+            "effort": "medium",
+            "palier": "default"
+          }
+        ],
+        "remarques": [
+          "Aucune suggestion : le relevé Claude ne désigne pas de modèle par défaut."
+        ],
+        "libelle": "Suggestion calculée depuis le relevé du 26/09/2026 21:40."
+      }
+    },
+    "planification": {
+      "etat": "non_validee",
+      "entrees": [],
+      "source": null,
+      "valide_le": null,
+      "valide_par": null,
+      "voies": [
+        "hermes"
+      ],
+      "suggestion": {
+        "entrees": [
+          {
+            "voie": "hermes",
+            "modele": null,
+            "effort": null,
+            "palier": "default"
+          }
+        ],
+        "remarques": [],
+        "libelle": null
+      }
+    },
+    "synthese": {
+      "etat": "non_validee",
+      "entrees": [],
+      "source": null,
+      "valide_le": null,
+      "valide_par": null,
+      "voies": [
+        "hermes"
+      ],
+      "suggestion": {
+        "entrees": [
+          {
+            "voie": "hermes",
+            "modele": null,
+            "effort": null,
+            "palier": "default"
+          }
+        ],
+        "remarques": [],
+        "libelle": null
+      }
+    },
+    "repondre": {
+      "etat": "non_validee",
+      "entrees": [],
+      "source": null,
+      "valide_le": null,
+      "valide_par": null,
+      "voies": [
+        "hermes"
+      ],
+      "suggestion": {
+        "entrees": [
+          {
+            "voie": "hermes",
+            "modele": null,
+            "effort": null,
+            "palier": "default"
+          }
+        ],
+        "remarques": [],
+        "libelle": null
+      }
+    },
+    "recherche_web": {
+      "etat": "non_validee",
+      "entrees": [],
+      "source": null,
+      "valide_le": null,
+      "valide_par": null,
+      "voies": [
+        "hermes"
+      ],
+      "suggestion": {
+        "entrees": [
+          {
+            "voie": "hermes",
+            "modele": null,
+            "effort": null,
+            "palier": "default"
+          }
+        ],
+        "remarques": [],
+        "libelle": null
+      }
+    },
+    "architecture": {
+      "etat": "non_validee",
+      "entrees": [],
+      "source": null,
+      "valide_le": null,
+      "valide_par": null,
+      "voies": [
+        "poste-codex",
+        "poste-claude",
+        "hermes"
+      ],
+      "suggestion": {
+        "entrees": [
+          {
+            "voie": "poste-codex",
+            "modele": "factice-codex-1",
+            "effort": "medium",
+            "palier": "default"
+          },
+          {
+            "voie": "hermes",
+            "modele": null,
+            "effort": null,
+            "palier": "default"
+          }
+        ],
+        "remarques": [
+          "Aucune suggestion : le relevé Claude ne désigne pas de modèle par défaut."
+        ],
+        "libelle": "Suggestion calculée depuis le relevé du 26/09/2026 21:40."
+      }
+    },
+    "implementation": {
+      "etat": "non_validee",
+      "entrees": [],
+      "source": null,
+      "valide_le": null,
+      "valide_par": null,
+      "voies": [
+        "poste-codex",
+        "poste-claude"
+      ],
+      "suggestion": {
+        "entrees": [
+          {
+            "voie": "poste-codex",
+            "modele": "factice-codex-1",
+            "effort": "medium",
+            "palier": "default"
+          }
+        ],
+        "remarques": [
+          "Aucune suggestion : le relevé Claude ne désigne pas de modèle par défaut."
+        ],
+        "libelle": "Suggestion calculée depuis le relevé du 26/09/2026 21:40."
+      }
+    },
+    "debogage_tests": {
+      "etat": "non_validee",
+      "entrees": [],
+      "source": null,
+      "valide_le": null,
+      "valide_par": null,
+      "voies": [
+        "poste-codex",
+        "poste-claude"
+      ],
+      "suggestion": {
+        "entrees": [
+          {
+            "voie": "poste-codex",
+            "modele": "factice-codex-1",
+            "effort": "medium",
+            "palier": "default"
+          }
+        ],
+        "remarques": [
+          "Aucune suggestion : le relevé Claude ne désigne pas de modèle par défaut."
+        ],
+        "libelle": "Suggestion calculée depuis le relevé du 26/09/2026 21:40."
+      }
+    },
+    "petite_tache": {
+      "etat": "non_validee",
+      "entrees": [],
+      "source": null,
+      "valide_le": null,
+      "valide_par": null,
+      "voies": [
+        "poste-codex",
+        "poste-claude"
+      ],
+      "suggestion": {
+        "entrees": [
+          {
+            "voie": "poste-codex",
+            "modele": "factice-codex-1",
+            "effort": "medium",
+            "palier": "default"
+          }
+        ],
+        "remarques": [
+          "Aucune suggestion : le relevé Claude ne désigne pas de modèle par défaut."
+        ],
+        "libelle": "Suggestion calculée depuis le relevé du 26/09/2026 21:40."
+      }
+    },
+    "documentation": {
+      "etat": "non_validee",
+      "entrees": [],
+      "source": null,
+      "valide_le": null,
+      "valide_par": null,
+      "voies": [
+        "poste-codex",
+        "poste-claude",
+        "hermes"
+      ],
+      "suggestion": {
+        "entrees": [
+          {
+            "voie": "poste-codex",
+            "modele": "factice-codex-1",
+            "effort": "medium",
+            "palier": "default"
+          },
+          {
+            "voie": "hermes",
+            "modele": null,
+            "effort": null,
+            "palier": "default"
+          }
+        ],
+        "remarques": [
+          "Aucune suggestion : le relevé Claude ne désigne pas de modèle par défaut."
+        ],
+        "libelle": "Suggestion calculée depuis le relevé du 26/09/2026 21:40."
+      }
+    },
+    "relecture": {
+      "etat": "non_validee",
+      "entrees": [],
+      "source": null,
+      "valide_le": null,
+      "valide_par": null,
+      "voies": [
+        "poste-codex",
+        "poste-claude"
+      ],
+      "suggestion": {
+        "entrees": [
+          {
+            "voie": "poste-codex",
+            "modele": "factice-codex-1",
+            "effort": "medium",
+            "palier": "default"
+          }
+        ],
+        "remarques": [
+          "Aucune suggestion : le relevé Claude ne désigne pas de modèle par défaut."
+        ],
+        "libelle": "Suggestion calculée depuis le relevé du 26/09/2026 21:40."
+      }
+    }
+  },
+  "politique_hermes": {
+    "efforts_interdits": [
+      "max",
+      "ultra",
+      "ultracode"
+    ],
+    "paliers_admis": [
+      "default"
+    ],
+    "efforts_hors_enveloppe": [
+      "max",
+      "ultra",
+      "ultracode"
+    ],
+    "confirmation": "J'accepte une dépense hors enveloppe"
+  },
+  "politique_poste": {
+    "alias_claude_permis": [
+      "opus",
+      "opus[1m]",
+      "sonnet",
+      "haiku"
+    ],
+    "efforts_interdits": [
+      "max",
+      "ultra",
+      "ultracode"
+    ],
+    "executants": [
+      "codex",
+      "claude"
+    ],
+    "modeles_codex_permis": [],
+    "paliers_admis": [
+      "default"
+    ],
+    "reseau_executants": false
+  },
+  "surcharges": [],
+  "releve_factice": false
+}

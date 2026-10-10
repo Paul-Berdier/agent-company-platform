@@ -5,6 +5,7 @@
 #include <QJsonObject>
 #include <QJsonParseError>
 #include <QJsonValue>
+#include <QRegularExpression>
 #include <QStringList>
 
 namespace acp {
@@ -23,6 +24,28 @@ QString clamp(QString text)
         text.append(QStringLiteral(" […]"));
     }
     return text;
+}
+
+QJsonObject objetJson(const QByteArray &body)
+{
+    if (body.isEmpty()) {
+        return {};
+    }
+    QJsonParseError parseError{};
+    const QJsonDocument document = QJsonDocument::fromJson(body, &parseError);
+    if (parseError.error != QJsonParseError::NoError || !document.isObject()) {
+        return {};
+    }
+    return document.object();
+}
+
+bool estFournisseurInjoignable(const QString &detailBrut)
+{
+    // routes.py `/auth/native/refresh` et request_utils.unreachable_response :
+    // « Auth provider '<nom>' unreachable ».
+    static const QRegularExpression motif(
+        QStringLiteral("^Auth provider .* unreachable$"));
+    return motif.match(detailBrut.trimmed()).hasMatch();
 }
 
 } // namespace
@@ -76,6 +99,33 @@ ApiError ApiError::fromHttpStatus(int httpStatus, const QString &serverDetail)
     return ApiError(kind, serverDetail, httpStatus);
 }
 
+ApiError ApiError::fromResponse(int httpStatus, const QByteArray &body)
+{
+    const QJsonObject objet = objetJson(body);
+    ApiError error = fromHttpStatus(httpStatus, extractProblemDetail(body));
+    error.m_body = body;
+
+    const QJsonValue detail = objet.value(QStringLiteral("detail"));
+    if (detail.isObject()) {
+        // Greffon acp-poste : {"detail": {"code", "message", "refus"?}}.
+        const QJsonObject contenu = detail.toObject();
+        error.m_code = contenu.value(QStringLiteral("code")).toString();
+        error.m_refusals = contenu.value(QStringLiteral("refus")).toArray();
+    }
+    const QJsonValue gateError = objet.value(QStringLiteral("error"));
+    if (gateError.isString() && error.m_code.isEmpty()) {
+        error.m_code = gateError.toString();
+    }
+    const QJsonValue reason = objet.value(QStringLiteral("reason"));
+    if (httpStatus == 401 && reason.isString() && !reason.toString().isEmpty()) {
+        error.m_gateReason = reason.toString();
+    }
+    if (httpStatus == 503 && detail.isString() && estFournisseurInjoignable(detail.toString())) {
+        error.m_kind = ApiFailure::IdentityProviderUnavailable;
+    }
+    return error;
+}
+
 ApiError ApiError::refusal(QString reason)
 {
     return ApiError(ApiFailure::ClientRefusal, std::move(reason), 0);
@@ -114,6 +164,8 @@ QString ApiError::title() const
         return QStringLiteral("Version incompatible");
     case ApiFailure::InvalidResponse:
         return QStringLiteral("Réponse inexploitable");
+    case ApiFailure::IdentityProviderUnavailable:
+        return QStringLiteral("Fournisseur d'identité injoignable");
     }
     // Aucune valeur d'énumération ne doit manquer ; si l'on arrive ici, le dire.
     return QStringLiteral("Erreur non classée");
@@ -135,6 +187,7 @@ bool ApiError::isRetryable() const
     case ApiFailure::RateLimited:
     case ApiFailure::ServerError:
     case ApiFailure::ServiceUnavailable:
+    case ApiFailure::IdentityProviderUnavailable:
         return true;
     case ApiFailure::None:
     case ApiFailure::ClientRefusal:
@@ -151,19 +204,181 @@ bool ApiError::isRetryable() const
     return false;
 }
 
+QString libelleErreurReseau(QNetworkReply::NetworkError code)
+{
+    QString libelle;
+    switch (code) {
+    case QNetworkReply::ConnectionRefusedError:
+        libelle = QStringLiteral("connexion refusée : aucun service n'écoute à cette adresse");
+        break;
+    case QNetworkReply::RemoteHostClosedError:
+        libelle = QStringLiteral("le serveur a fermé la connexion");
+        break;
+    case QNetworkReply::HostNotFoundError:
+        libelle = QStringLiteral("hôte introuvable : vérifiez l'adresse du serveur");
+        break;
+    case QNetworkReply::TimeoutError:
+        libelle = QStringLiteral("délai de connexion dépassé");
+        break;
+    case QNetworkReply::OperationCanceledError:
+        libelle = QStringLiteral("opération interrompue avant la réponse");
+        break;
+    case QNetworkReply::SslHandshakeFailedError:
+        libelle = QStringLiteral("connexion sécurisée (TLS) impossible : certificat refusé ou négociation échouée");
+        break;
+    case QNetworkReply::TemporaryNetworkFailureError:
+    case QNetworkReply::NetworkSessionFailedError:
+        libelle = QStringLiteral("réseau du poste indisponible");
+        break;
+    case QNetworkReply::TooManyRedirectsError:
+    case QNetworkReply::InsecureRedirectError:
+        libelle = QStringLiteral("redirection refusée");
+        break;
+    case QNetworkReply::ProxyConnectionRefusedError:
+    case QNetworkReply::ProxyConnectionClosedError:
+    case QNetworkReply::ProxyNotFoundError:
+    case QNetworkReply::ProxyTimeoutError:
+    case QNetworkReply::ProxyAuthenticationRequiredError:
+    case QNetworkReply::UnknownProxyError:
+        libelle = QStringLiteral("mandataire (proxy) injoignable ou refusant la connexion");
+        break;
+    case QNetworkReply::ProtocolUnknownError:
+    case QNetworkReply::ProtocolInvalidOperationError:
+    case QNetworkReply::ProtocolFailure:
+        libelle = QStringLiteral("réponse du serveur illisible (protocole HTTP)");
+        break;
+    default:
+        libelle = QStringLiteral("erreur réseau");
+        break;
+    }
+    return QStringLiteral("%1 (erreur réseau %2)").arg(libelle).arg(static_cast<int>(code));
+}
+
+QString libelleErreurSocket(QAbstractSocket::SocketError code)
+{
+    QString libelle;
+    switch (code) {
+    case QAbstractSocket::ConnectionRefusedError:
+        libelle = QStringLiteral("connexion refusée : aucun service n'écoute à cette adresse");
+        break;
+    case QAbstractSocket::RemoteHostClosedError:
+        libelle = QStringLiteral("le serveur a fermé la connexion");
+        break;
+    case QAbstractSocket::HostNotFoundError:
+        libelle = QStringLiteral("hôte introuvable : vérifiez l'adresse du serveur");
+        break;
+    case QAbstractSocket::SocketTimeoutError:
+    case QAbstractSocket::ProxyConnectionTimeoutError:
+        libelle = QStringLiteral("délai de connexion dépassé");
+        break;
+    case QAbstractSocket::SslHandshakeFailedError:
+    case QAbstractSocket::SslInternalError:
+    case QAbstractSocket::SslInvalidUserDataError:
+        libelle = QStringLiteral("connexion sécurisée (TLS) impossible : certificat refusé ou négociation échouée");
+        break;
+    case QAbstractSocket::NetworkError:
+    case QAbstractSocket::TemporaryError:
+        libelle = QStringLiteral("réseau du poste indisponible");
+        break;
+    case QAbstractSocket::AddressInUseError:
+    case QAbstractSocket::SocketAddressNotAvailableError:
+        libelle = QStringLiteral("adresse locale indisponible");
+        break;
+    case QAbstractSocket::SocketAccessError:
+        libelle = QStringLiteral("accès réseau refusé par le système");
+        break;
+    case QAbstractSocket::ProxyAuthenticationRequiredError:
+    case QAbstractSocket::ProxyConnectionRefusedError:
+    case QAbstractSocket::ProxyConnectionClosedError:
+    case QAbstractSocket::ProxyNotFoundError:
+    case QAbstractSocket::ProxyProtocolError:
+        libelle = QStringLiteral("mandataire (proxy) injoignable ou refusant la connexion");
+        break;
+    default:
+        libelle = QStringLiteral("erreur réseau");
+        break;
+    }
+    return QStringLiteral("%1 (erreur de socket %2)").arg(libelle).arg(static_cast<int>(code));
+}
+
+QString traduireMessageHermes(const QString &message)
+{
+    const QString brut = message.trimmed();
+    // Messages fixes de hermes_cli/dashboard_auth (routes.py, middleware.py), Hermes 0.21.5.
+    static const QList<QPair<QString, QString>> fixes = {
+        {QStringLiteral("Unauthorized"), QStringLiteral("non autorisé par la porte de Hermes")},
+        {QStringLiteral("Refresh token expired or invalid; start a new sign-in."),
+         QStringLiteral("jeton de rafraîchissement expiré ou invalide ; reconnectez-vous")},
+        {QStringLiteral("Invalid or expired authorization code."),
+         QStringLiteral("code de connexion invalide ou expiré")},
+        {QStringLiteral("refresh_token required"),
+         QStringLiteral("jeton de rafraîchissement manquant")},
+        {QStringLiteral("no auth providers registered"),
+         QStringLiteral("aucun fournisseur de connexion n'est enregistré sur ce serveur")},
+        {QStringLiteral("Native login expired or unknown; restart sign-in."),
+         QStringLiteral("connexion native expirée ou inconnue ; recommencez")},
+        {QStringLiteral("too many pending native authorizations from this address"),
+         QStringLiteral("trop de connexions en attente depuis cette adresse ; réessayez dans "
+                        "10 minutes")},
+        {QStringLiteral("native-flow authorization store at capacity"),
+         QStringLiteral("trop de connexions en attente sur ce serveur ; réessayez plus tard")},
+        {QStringLiteral("code_challenge_method must be S256"),
+         QStringLiteral("méthode PKCE refusée : S256 est exigée")},
+        {QStringLiteral("code_challenge required"), QStringLiteral("défi PKCE manquant")},
+        {QStringLiteral("redirect_uri required"), QStringLiteral("adresse de retour manquante")},
+        // Sauvegarde et fichiers gérés (hermes_cli/web_routers/ops.py, files.py, web_server_files.py).
+        {QStringLiteral("Backup not found"), QStringLiteral("archive de sauvegarde introuvable sur le serveur")},
+        {QStringLiteral("Invalid backup path"), QStringLiteral("chemin d'archive refusé par Hermes")},
+        {QStringLiteral("Backup is outside the dashboard backup directory"),
+         QStringLiteral("archive hors du répertoire des sauvegardes de Hermes")},
+        {QStringLiteral("Path not found"), QStringLiteral("fichier introuvable sur le volume de Hermes")},
+        {QStringLiteral("Path outside managed files root"),
+         QStringLiteral("chemin hors de la racine des fichiers gérés par Hermes")},
+        {QStringLiteral("Cannot delete the managed files root"),
+         QStringLiteral("la racine des fichiers gérés ne peut pas être supprimée")},
+        {QStringLiteral("Path must be absolute"), QStringLiteral("chemin absolu exigé")},
+        {QStringLiteral("Path cannot contain '..'"), QStringLiteral("chemin contenant « .. » refusé")},
+    };
+    for (const auto &[anglais, francais] : fixes) {
+        if (brut == anglais) {
+            return francais;
+        }
+    }
+    // Messages à préfixe fixe suivi d'un détail du système (rendu tel quel, comme donnée).
+    static const QList<QPair<QString, QString>> prefixes = {
+        {QStringLiteral("Could not delete path: "), QStringLiteral("suppression impossible sur le volume de Hermes : ")},
+        {QStringLiteral("Failed to run backup: "), QStringLiteral("lancement de la sauvegarde impossible : ")},
+        {QStringLiteral("Could not create backup directory: "),
+         QStringLiteral("répertoire des sauvegardes impossible à créer : ")},
+    };
+    for (const auto &[anglais, francais] : prefixes) {
+        if (brut.startsWith(anglais)) {
+            return francais + brut.mid(anglais.size());
+        }
+    }
+    static const QRegularExpression injoignable(
+        QStringLiteral("^Auth provider '?(.*?)'? unreachable$"));
+    const QRegularExpressionMatch correspondance = injoignable.match(brut);
+    if (correspondance.hasMatch()) {
+        return QStringLiteral("fournisseur d'identité « %1 » injoignable")
+            .arg(correspondance.captured(1));
+    }
+    return message;
+}
+
 QString extractProblemDetail(const QByteArray &body)
 {
-    if (body.isEmpty()) {
+    const QJsonObject objet = objetJson(body);
+    if (objet.isEmpty()) {
         return {};
     }
-    QJsonParseError parseError{};
-    const QJsonDocument document = QJsonDocument::fromJson(body, &parseError);
-    if (parseError.error != QJsonParseError::NoError || !document.isObject()) {
-        return {};
-    }
-    const QJsonValue detail = document.object().value(QStringLiteral("detail"));
+    const QJsonValue detail = objet.value(QStringLiteral("detail"));
     if (detail.isString()) {
-        return detail.toString();
+        return traduireMessageHermes(detail.toString());
+    }
+    if (detail.isObject()) {
+        // Greffon acp-poste : le message est déjà en français.
+        return detail.toObject().value(QStringLiteral("message")).toString();
     }
     if (detail.isArray()) {
         // Forme de validation FastAPI : on assemble les messages en conservant leur

@@ -1,0 +1,16 @@
+{
+  "availableModels": ["opus", "sonnet"],
+  "permissions": {
+    "deny": [
+      "Read(//donnees/codex/**)",
+      "Read(//donnees/claude/**)",
+      "Read(//donnees/acp/**)",
+      "Read(//etc/acp/**)",
+      "Read(//proc/**)",
+      "Edit(//donnees/codex/**)",
+      "Edit(//donnees/claude/**)",
+      "Edit(//donnees/acp/**)",
+      "Edit(//etc/acp/**)"
+    ]
+  }
+}

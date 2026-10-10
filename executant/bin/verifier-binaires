@@ -1,0 +1,274 @@
+#!/usr/bin/env python3
+"""Téléchargement et contrôle des binaires de l'exécutant (cahier P6 § 8.2) : Codex CLI et Claude Code.
+
+    verifier-binaires --telecharger --sortie /opt/acp/outils [--binaires binaires.toml] [--source <dossier>]
+    verifier-binaires --controler /opt/acp/outils [--binaires binaires.toml]
+
+Bibliothèque standard seulement (plus ``gpg`` pour la signature de Claude Code). ÉCHEC FERMÉ : la moindre différence
+avec ``binaires.toml`` (taille, SHA-256, version du manifeste, empreinte de la clé, signature) arrête tout, avec un
+message en français et le code 1 ; rien n'est installé à moitié (écriture dans un dossier temporaire, puis
+déplacement).
+
+- **Codex** : archive ``.tar.gz`` de la publication GitHub ; taille et SHA-256 exigés ; seul le membre déclaré est
+  extrait (fichier ordinaire). La signature « keyless » (``.sigstore``) n'est PAS vérifiée tant que l'identité du
+  certificat n'est pas établie dans ``binaires.toml`` : le journal le dit.
+- **Claude Code** : clé publique du dépôt (``cles/claude-code.asc``) importée dans un trousseau JETABLE, empreinte
+  comparée ; ``manifest.json`` vérifié par sa signature détachée (``[GNUPG:] VALIDSIG`` de cette empreinte exigé) et
+  par son SHA-256 ; version, plateforme, taille et SHA-256 du binaire lus dans le manifeste ET comparés à
+  ``binaires.toml`` ; puis binaire téléchargé et contrôlé. Sans signature valide, le build échoue.
+
+``--source`` (tests seulement) : les fichiers sont pris dans un dossier local, sous le nom final de chaque adresse,
+au lieu d'être téléchargés. ``--controler`` rejoue le contrôle des empreintes des binaires installés (dans le
+conteneur, sans réseau ni gpg).
+"""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import os
+import shutil
+import subprocess
+import sys
+import tarfile
+import tempfile
+import time
+import tomllib
+import urllib.error
+import urllib.request
+from pathlib import Path, PurePosixPath
+from urllib.parse import urlsplit
+
+ICI = Path(__file__).resolve().parent
+BLOC = 1024 * 1024
+DELAI_S = 120
+ESSAIS = 3
+
+
+class Refus(Exception):
+    """Contrôle en échec : message français, code 1."""
+
+
+def journal(message: str) -> None:
+    print(f"[acp] {message}", flush=True)
+
+
+def charger(chemin: Path) -> dict:
+    try:
+        donnees = tomllib.loads(chemin.read_text(encoding="utf-8"))
+    except (OSError, tomllib.TOMLDecodeError) as exc:
+        raise Refus(f"binaires.toml illisible ({type(exc).__name__}) : rien n'est téléchargé.") from None
+    for section, cles in (("codex", ("version", "url", "sha256", "taille", "membre", "installe", "cosign")),
+                          ("claude", ("version", "cle", "empreinte_cle", "manifeste", "signature", "sha256_manifeste",
+                                      "plateforme", "url", "sha256", "taille", "installe"))):
+        bloc = donnees.get(section)
+        if not isinstance(bloc, dict) or any(cle not in bloc for cle in cles):
+            raise Refus(f"binaires.toml : section [{section}] incomplète (attendu : {', '.join(cles)}).")
+        for cle in ("sha256", "sha256_manifeste"):
+            if cle in bloc and (len(bloc[cle]) != 64 or any(c not in "0123456789abcdef" for c in bloc[cle])):
+                raise Refus(f"binaires.toml : [{section}] {cle} n'est pas un SHA-256 hexadécimal en minuscules.")
+        for cle in ("url", "manifeste", "signature"):
+            if cle in bloc and urlsplit(bloc[cle]).scheme != "https":
+                raise Refus(f"binaires.toml : [{section}] {cle} doit être une adresse https.")
+        installe = PurePosixPath(bloc["installe"])
+        if installe.is_absolute() or ".." in installe.parts:
+            raise Refus(f"binaires.toml : [{section}] installe doit être un chemin relatif sans « .. ».")
+    empreinte = donnees["claude"]["empreinte_cle"]
+    if len(empreinte) != 40 or any(c not in "0123456789ABCDEF" for c in empreinte):
+        raise Refus("binaires.toml : [claude] empreinte_cle doit compter 40 chiffres hexadécimaux en majuscules.")
+    return donnees
+
+
+def sha256_fichier(chemin: Path) -> str:
+    condensat = hashlib.sha256()
+    with chemin.open("rb") as flux:
+        while bloc := flux.read(BLOC):
+            condensat.update(bloc)
+    return condensat.hexdigest()
+
+
+def obtenir(url: str, cible: Path, source: Path | None, taille_max: int) -> Path:
+    """Fichier ``url`` dans ``cible`` : copié depuis ``source`` (tests) ou téléchargé en HTTPS, borné à
+    ``taille_max`` octets (jamais de redirection vers un autre schéma que https)."""
+    nom = PurePosixPath(urlsplit(url).path).name
+    if source is not None:
+        origine = source / nom
+        if not origine.is_file():
+            raise Refus(f"{nom} absent du dossier source : rien n'est installé.")
+        if origine.stat().st_size > taille_max:
+            raise Refus(f"{nom} : taille {origine.stat().st_size} au-delà de la borne {taille_max} : refusé.")
+        shutil.copyfile(origine, cible)
+        return cible
+    derniere = None
+    for essai in range(1, ESSAIS + 1):
+        try:
+            requete = urllib.request.Request(url, headers={"User-Agent": "acp-verifier-binaires/1"})
+            with urllib.request.urlopen(requete, timeout=DELAI_S) as reponse:
+                if urlsplit(reponse.geturl()).scheme != "https":
+                    raise Refus(f"{nom} : redirection hors https refusée.")
+                recu = 0
+                with cible.open("wb") as flux:
+                    while bloc := reponse.read(BLOC):
+                        recu += len(bloc)
+                        if recu > taille_max:
+                            raise Refus(f"{nom} : plus de {taille_max} octets reçus : refusé.")
+                        flux.write(bloc)
+            return cible
+        except (urllib.error.URLError, TimeoutError, ConnectionError) as exc:
+            derniere = exc
+            journal(f"téléchargement de {nom} interrompu (essai {essai}/{ESSAIS}, {type(exc).__name__}).")
+            time.sleep(2 * essai)
+    raise Refus(f"{nom} : téléchargement impossible après {ESSAIS} essais ({type(derniere).__name__}).")
+
+
+def exiger_empreinte(chemin: Path, sha256: str, taille: int | None, libelle: str) -> None:
+    reelle_taille = chemin.stat().st_size
+    if taille is not None and reelle_taille != taille:
+        raise Refus(f"{libelle} : taille {reelle_taille} octets, attendu {taille} : refusé.")
+    reel = sha256_fichier(chemin)
+    if reel != sha256:
+        raise Refus(f"{libelle} : SHA-256 {reel}, attendu {sha256} : empreinte fausse, refusé.")
+
+
+def gpg(dossier: Path, *arguments: str) -> subprocess.CompletedProcess:
+    try:
+        return subprocess.run(["gpg", "--batch", "--no-tty", "--homedir", str(dossier), *arguments],
+                              capture_output=True, text=True, timeout=60, check=False)
+    except FileNotFoundError:
+        raise Refus("gpg introuvable : la signature du manifeste de Claude Code ne peut pas être vérifiée.") from None
+
+
+def verifier_signature(cle: Path, empreinte: str, manifeste: Path, signature: Path) -> None:
+    """Signature détachée du manifeste, par la SEULE clé attendue, dans un trousseau jetable."""
+    with tempfile.TemporaryDirectory(prefix="acp-gpg-") as dossier:
+        trousseau = Path(dossier)
+        os.chmod(trousseau, 0o700)
+        if gpg(trousseau, "--import", str(cle)).returncode != 0:
+            raise Refus("Clé publique de Claude Code illisible : rien n'est installé.")
+        empreintes = [ligne.split(":")[9] for ligne in gpg(trousseau, "--with-colons", "--fingerprint").stdout
+                      .splitlines() if ligne.startswith("fpr:")]
+        if not empreintes or empreintes[0] != empreinte:
+            raise Refus(f"Clé publique de Claude Code d'empreinte {empreintes[0] if empreintes else 'inconnue'}, "
+                        f"attendu {empreinte} : refusé.")
+        verif = gpg(trousseau, "--status-fd", "1", "--trust-model", "always", "--verify", str(signature),
+                    str(manifeste))
+        statuts = [ligne.split() for ligne in verif.stdout.splitlines() if ligne.startswith("[GNUPG:] ")]
+        valides = [s for s in statuts if len(s) >= 3 and s[1] == "VALIDSIG"
+                   and empreinte in (s[2], s[11] if len(s) > 11 else "")]
+        if verif.returncode != 0 or not valides or any(s[1] in ("BADSIG", "ERRSIG") for s in statuts):
+            raise Refus("Signature du manifeste de Claude Code absente ou invalide pour la clé attendue : refusé.")
+
+
+def installer(fichier: Path, destination: Path) -> None:
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(fichier, destination)
+    os.chmod(destination, 0o755)
+
+
+def codex(regles: dict, sortie: Path, travail: Path, source: Path | None) -> dict:
+    archive = obtenir(regles["url"], travail / "codex.tar.gz", source, regles["taille"])
+    exiger_empreinte(archive, regles["sha256"], regles["taille"], f"Codex {regles['version']} (archive)")
+    with tarfile.open(archive, "r:gz") as tar:
+        membres = [m for m in tar.getmembers() if m.name.lstrip("./") == regles["membre"]]
+        if len(membres) != 1 or not membres[0].isfile():
+            raise Refus(f"Archive de Codex : membre « {regles['membre']} » absent ou non ordinaire : refusé.")
+        flux = tar.extractfile(membres[0])
+        binaire = travail / "codex"
+        with binaire.open("wb") as cible:
+            shutil.copyfileobj(flux, cible)
+    empreinte = sha256_fichier(binaire)
+    installer(binaire, sortie / regles["installe"])
+    journal(f"Codex {regles['version']} vérifié (archive SHA-256 {regles['sha256']}, {regles['taille']} octets).")
+    if regles["cosign"] != "verifiee":
+        journal("signature cosign de Codex non vérifiée : identité du certificat non établie (binaires.toml).")
+    return {"version": regles["version"], "url": regles["url"], "sha256_archive": regles["sha256"],
+            "sha256": empreinte, "installe": regles["installe"], "cosign": regles["cosign"]}
+
+
+def claude(regles: dict, sortie: Path, travail: Path, source: Path | None, racine: Path) -> dict:
+    cle = (racine / regles["cle"]).resolve()
+    if not cle.is_file():
+        raise Refus("Clé publique de Claude Code absente : rien n'est installé.")
+    manifeste = obtenir(regles["manifeste"], travail / "manifest.json", source, 1024 * 1024)
+    signature = obtenir(regles["signature"], travail / "manifest.json.sig", source, 64 * 1024)
+    verifier_signature(cle, regles["empreinte_cle"], manifeste, signature)
+    exiger_empreinte(manifeste, regles["sha256_manifeste"], None, f"Manifeste de Claude Code {regles['version']}")
+    try:
+        contenu = json.loads(manifeste.read_text(encoding="utf-8"))
+        plateforme = contenu["platforms"][regles["plateforme"]]
+        version, sha256, taille = contenu["version"], plateforme["checksum"], plateforme["size"]
+    except (ValueError, KeyError, TypeError):
+        raise Refus("Manifeste de Claude Code illisible ou sans la plateforme attendue : refusé.") from None
+    if version != regles["version"] or sha256 != regles["sha256"] or taille != regles["taille"]:
+        raise Refus(f"Manifeste signé de Claude Code ({version}, {sha256}, {taille} octets) différent de "
+                    f"binaires.toml ({regles['version']}, {regles['sha256']}, {regles['taille']}) : refusé.")
+    binaire = obtenir(regles["url"], travail / "claude", source, regles["taille"])
+    exiger_empreinte(binaire, regles["sha256"], regles["taille"], f"Claude Code {regles['version']}")
+    installer(binaire, sortie / regles["installe"])
+    journal(f"Claude Code {regles['version']} vérifié (manifeste signé par {regles['empreinte_cle']}, binaire "
+            f"SHA-256 {regles['sha256']}).")
+    return {"version": regles["version"], "url": regles["url"], "sha256": regles["sha256"],
+            "installe": regles["installe"], "manifeste_signe_par": regles["empreinte_cle"]}
+
+
+def telecharger(binaires: Path, sortie: Path, source: Path | None) -> None:
+    regles = charger(binaires)
+    sortie.parent.mkdir(parents=True, exist_ok=True)
+    provisoire = Path(tempfile.mkdtemp(prefix=".acp-outils-", dir=sortie.parent))
+    try:
+        with tempfile.TemporaryDirectory(prefix="acp-binaires-") as dossier:
+            travail = Path(dossier)
+            provenance = {"codex": codex(regles["codex"], provisoire, travail, source),
+                          "claude": claude(regles["claude"], provisoire, travail, source, binaires.parent)}
+        (provisoire / "PROVENANCE.json").write_text(json.dumps(provenance, ensure_ascii=False, indent=2) + "\n",
+                                                   encoding="utf-8")
+        if sortie.exists():
+            raise Refus(f"{sortie} existe déjà : rien n'est remplacé.")
+        os.replace(provisoire, sortie)
+        os.chmod(sortie, 0o755)
+    finally:
+        shutil.rmtree(provisoire, ignore_errors=True)
+    journal(f"binaires installés dans {sortie} (provenance : PROVENANCE.json).")
+
+
+def controler(binaires: Path, outils: Path) -> None:
+    regles = charger(binaires)
+    try:
+        provenance = json.loads((outils / "PROVENANCE.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        raise Refus("PROVENANCE.json absent ou illisible : binaires non contrôlables.") from None
+    for outil in ("codex", "claude"):
+        attendu = provenance[outil]["sha256"]
+        if outil == "claude" and attendu != regles["claude"]["sha256"]:
+            raise Refus("Provenance de Claude Code différente de binaires.toml : refusé.")
+        if outil == "codex" and provenance["codex"].get("sha256_archive") != regles["codex"]["sha256"]:
+            raise Refus("Provenance de Codex différente de binaires.toml : refusé.")
+        exiger_empreinte(outils / regles[outil]["installe"], attendu, None, f"{outil} installé")
+        journal(f"{outil} {regles[outil]['version']} : empreinte conforme ({attendu}).")
+
+
+def main(argv: list[str]) -> int:
+    analyseur = argparse.ArgumentParser(prog="verifier-binaires")
+    mode = analyseur.add_mutually_exclusive_group(required=True)
+    mode.add_argument("--telecharger", action="store_true")
+    mode.add_argument("--controler", type=Path, metavar="DOSSIER")
+    analyseur.add_argument("--sortie", type=Path)
+    analyseur.add_argument("--binaires", type=Path, default=ICI.parent / "binaires.toml")
+    analyseur.add_argument("--source", type=Path, help="tests seulement : fichiers locaux au lieu du réseau")
+    options = analyseur.parse_args(argv)
+    try:
+        if options.telecharger:
+            if options.sortie is None:
+                raise Refus("--sortie est obligatoire avec --telecharger.")
+            telecharger(options.binaires, options.sortie, options.source)
+        else:
+            controler(options.binaires, options.controler)
+    except Refus as exc:
+        print(f"[acp] REFUS : {exc}", file=sys.stderr, flush=True)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv[1:]))

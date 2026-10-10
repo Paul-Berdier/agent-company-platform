@@ -1,0 +1,16 @@
+# Contexte de executant/tests/Dockerfile (racine du dépôt) : liste blanche, comme l'image de l'exécutant.
+*
+!requirements/python-3.12.lock.txt
+!pytest.ini
+!VERSION
+!apps/poste
+!hermes/plugins/acp-poste
+!scripts/balayer_secrets.py
+!hermes/tests/outils/fixtures_machine
+!executant
+!packaging/poste
+!.railway/railway.ts
+**/__pycache__
+**/*.pyc
+**/*.egg-info
+**/.pytest_cache

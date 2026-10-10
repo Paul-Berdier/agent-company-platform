@@ -1,8 +1,6 @@
 // Diagnostics : uniquement des valeurs réelles.
 //
-// Deux listes, toutes deux alimentées par des faits :
-//   - les cinq contrôles de `/ready`, avec la raison française donnée par le serveur ;
-//   - l'inventaire de la station, du lien, de la session, des flux et du stockage.
+// Une liste alimentée par des faits : l'inventaire de la station, du lien et du stockage.
 //
 // Une valeur jamais mesurée s'affiche en gris et porte « Inconnu ». Aucune ligne n'est
 // fabriquée pour remplir l'écran.
@@ -17,6 +15,10 @@ import Acp.Controls
 
 Item {
     id: page
+
+    // Les compteurs (trames, refus -32601) et le contrôle des préférences n'émettent aucun
+    // signal : ils sont relus à l'ouverture de la page, sur demande et avant chaque rapport.
+    Component.onCompleted: Diagnostics.refresh()
 
     ColumnLayout {
         anchors.fill: parent
@@ -45,9 +47,16 @@ Item {
             }
 
             AcpButton {
+                objectName: "diagnostics-actualiser"
+                label: qsTr("Actualiser")
+                onTriggered: Diagnostics.refresh()
+            }
+
+            AcpButton {
                 label: qsTr("Copier le rapport")
                 onTriggered: {
                     // Le rapport est expurgé par la couche C++ avant de sortir.
+                    Diagnostics.refresh();
                     reportField.text = Diagnostics.buildReport();
                     reportField.selectAll();
                     reportField.copy();
@@ -63,66 +72,6 @@ Item {
             visible: false
             width: 0
             height: 0
-        }
-
-        SectionHeader {
-            Layout.fillWidth: true
-            title: qsTr("Contrôles de disponibilité du serveur")
-            subtitle: Health.readinessChecks !== null
-                ? qsTr("Rendus par /ready. Les raisons sont celles du serveur, affichées "
-                       + "telles quelles.")
-                : qsTr("Inconnu")
-        }
-
-        Rectangle {
-            Layout.fillWidth: true
-            Layout.preferredHeight: Math.max(Space.densityRowHeightRegular,
-                                             readyList.contentHeight + Space.space4)
-            Layout.maximumHeight: page.height * 0.28
-            color: Colors.surfacePanel
-            radius: Radius.radiusMd
-            border.width: Space.layoutBorderWidth
-            border.color: Colors.borderDefault
-            clip: true
-
-            ListView {
-                id: readyList
-                anchors.fill: parent
-                anchors.margins: Space.space2
-                model: Health.readinessChecks
-                clip: true
-
-                delegate: Item {
-                    id: readyRow
-                    required property string name
-                    required property string status
-                    required property string detail
-                    required property bool healthy
-
-                    width: readyList.width
-                    implicitHeight: readyValueRow.implicitHeight
-                    height: readyValueRow.implicitHeight
-
-                    KeyValueRow {
-                        id: readyValueRow
-                        width: parent.width
-                        label: readyRow.name
-                        // La raison vient du serveur et est affichée telle quelle.
-                        value: readyRow.detail.length > 0
-                            ? readyRow.status + " — " + readyRow.detail
-                            : readyRow.status
-                        known: readyRow.status.length > 0
-                    }
-                }
-            }
-
-            EmptyState {
-                anchors.fill: parent
-                visible: readyList.count === 0
-                title: qsTr("Aucun contrôle relevé")
-                body: qsTr("Le serveur n'a pas encore été interrogé, ou il n'a détaillé aucun "
-                           + "contrôle. Aucune ligne n'est inventée pour remplir cet espace.")
-            }
         }
 
         SectionHeader {

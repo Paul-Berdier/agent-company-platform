@@ -1,12 +1,13 @@
 #include "api/ApiClient.h"
 
 #include "api/IdempotencyKey.h"
-#include "api/SessionCookieJar.h"
+#include "storage/CredentialVault.h"
 
 #include <QHostAddress>
 #include <QJsonParseError>
 #include <QNetworkAccessManager>
 #include <QNetworkCookie>
+#include <QNetworkCookieJar>
 #include <QNetworkProxy>
 #include <QNetworkReply>
 #include <QNetworkRequest>
@@ -25,6 +26,7 @@ const QList<QByteArray> kRetainedHeaders = {
     QByteArrayLiteral("content-length"),
     QByteArrayLiteral("content-range"),
     QByteArrayLiteral("retry-after"),
+    QByteArrayLiteral("date"), // heure du serveur : échéance des jetons jugée contre elle
     QByteArrayLiteral("etag"),
     QByteArrayLiteral("last-event-id"),
 };
@@ -37,6 +39,20 @@ bool isLoopbackHost(const QString &host)
     QHostAddress address(host);
     return !address.isNull() && address.isLoopback();
 }
+
+/*!
+    Pot de cookies qui refuse tout : la station ne détient aucun cookie. Les attributs
+    de requête désactivent déjà le chargement et l'enregistrement ; ce pot est la seconde
+    barrière, pour qu'un oubli ne réintroduise jamais une session par cookie.
+*/
+class PotSansCookie final : public QNetworkCookieJar
+{
+public:
+    using QNetworkCookieJar::QNetworkCookieJar;
+
+    QList<QNetworkCookie> cookiesForUrl(const QUrl &) const override { return {}; }
+    bool setCookiesFromUrl(const QList<QNetworkCookie> &, const QUrl &) override { return false; }
+};
 
 } // namespace
 
@@ -70,14 +86,10 @@ void ApiCall::abort()
 ApiClient::ApiClient(QObject *parent)
     : QObject(parent)
     , m_manager(new QNetworkAccessManager(this))
-    , m_cookieJar(new SessionCookieJar(this))
 {
-    // QNetworkAccessManager prend la propriété du pot ; le pot reste néanmoins enfant du
-    // client, ce que Qt accepte : setCookieJar reparente l'objet sur le gestionnaire.
-    m_manager->setCookieJar(m_cookieJar);
+    m_manager->setCookieJar(new PotSansCookie(m_manager));
     m_manager->setProxy(QNetworkProxy(QNetworkProxy::NoProxy));
-    // Les réponses sont détruites explicitement par le client, jamais par le gestionnaire :
-    // le flux SSE lit un QNetworkReply sur une longue durée et doit contrôler sa fin.
+    // Les réponses sont détruites explicitement par le client, jamais par le gestionnaire.
     m_manager->setAutoDeleteReplies(false);
 }
 
@@ -89,7 +101,7 @@ ApiError ApiClient::setBaseUrl(const QUrl &url)
 {
     if (url.isEmpty()) {
         m_baseUrl = QUrl();
-        clearSessionState();
+        invalidatePendingCalls();
         emit baseUrlChanged();
         return {};
     }
@@ -137,8 +149,8 @@ ApiError ApiClient::setBaseUrl(const QUrl &url)
         return {};
     }
     m_baseUrl = normalized;
-    // Une session n'appartient jamais à deux serveurs : changer d'URL purge tout.
-    clearSessionState();
+    // Une session n'appartient jamais à deux serveurs : changer d'URL invalide tout.
+    invalidatePendingCalls();
     emit baseUrlChanged();
     return {};
 }
@@ -154,8 +166,12 @@ void ApiClient::setUseSystemProxy(bool enabled)
         return;
     }
     m_useSystemProxy = enabled;
-    m_manager->setProxy(enabled ? QNetworkProxy(QNetworkProxy::DefaultProxy)
-                                : QNetworkProxy(QNetworkProxy::NoProxy));
+    m_manager->setProxy(proxyDesSockets());
+}
+
+QNetworkProxy ApiClient::proxyDesSockets() const
+{
+    return m_useSystemProxy ? QNetworkProxy(QNetworkProxy::DefaultProxy) : QNetworkProxy(QNetworkProxy::NoProxy);
 }
 
 void ApiClient::setUserAgent(const QByteArray &userAgent)
@@ -163,26 +179,30 @@ void ApiClient::setUserAgent(const QByteArray &userAgent)
     m_userAgent = userAgent;
 }
 
-void ApiClient::setCsrfToken(const QString &token)
+void ApiClient::setBearerProvider(BearerProvider provider)
 {
-    if (m_csrfToken == token) {
-        return;
+    m_bearerProvider = std::move(provider);
+}
+
+void ApiClient::refreshFinished(bool succeeded, const ApiError &failure)
+{
+    m_refreshPending = false;
+    const QList<QPointer<ApiCall>> waiting = std::exchange(m_awaitingRefresh, {});
+    for (const QPointer<ApiCall> &call : waiting) {
+        if (!call || call->m_finished) {
+            continue;
+        }
+        if (succeeded) {
+            // Réémission UNIQUE, avec le jeton que la session vient de recevoir.
+            startAttempt(call);
+        } else {
+            const ApiError expired(ApiFailure::Unauthorized,
+                                   QStringLiteral("la session n'a pas pu être renouvelée ; "
+                                                  "reconnectez-vous"),
+                                   401);
+            finishWithError(call, failure.isError() ? failure : expired);
+        }
     }
-    m_csrfToken = token;
-    emit csrfTokenChanged();
-}
-
-void ApiClient::clearCsrfToken()
-{
-    setCsrfToken(QString());
-}
-
-void ApiClient::clearSessionState()
-{
-    invalidatePendingCalls();
-    m_cookieJar->clearAll();
-    clearCsrfToken();
-    emit sessionStateCleared();
 }
 
 void ApiClient::invalidatePendingCalls()
@@ -190,10 +210,9 @@ void ApiClient::invalidatePendingCalls()
     ++m_sessionGeneration;
     const bool alreadyInvalidating = m_invalidating;
     m_invalidating = true;
+    m_awaitingRefresh.clear();
+    m_refreshPending = false;
     const auto calls = m_inFlight;
-    m_pendingRotating.clear();
-    m_pendingUnsafe.clear();
-    m_rotatingCall = nullptr;
     for (const QPointer<ApiCall> &call : calls) {
         if (call && !call->m_finished) {
             call->abort();
@@ -219,6 +238,46 @@ QUrl ApiClient::resolve(const QString &path, const QUrlQuery &query) const
         url.setQuery(query);
     }
     return url;
+}
+
+QNetworkReply *ApiClient::ouvrirFlux(const QString &path, const QUrlQuery &query, ApiError *refus,
+                                     const QByteArray &accept, const QList<QPair<QByteArray, QByteArray>> &entetes)
+{
+    const QUrl url = resolve(path, query);
+    if (url.isEmpty()) {
+        if (refus) {
+            *refus = ApiError::refusal(QStringLiteral("Aucune adresse de serveur n'est configurée."));
+        }
+        return nullptr;
+    }
+    QByteArray token = m_bearerProvider ? m_bearerProvider() : QByteArray();
+    if (token.isEmpty()) {
+        if (refus) {
+            *refus = ApiError::refusal(QStringLiteral("Aucune session : connectez-vous."));
+        }
+        return nullptr;
+    }
+    QNetworkRequest networkRequest(url);
+    networkRequest.setAttribute(QNetworkRequest::CookieLoadControlAttribute, QNetworkRequest::Manual);
+    networkRequest.setAttribute(QNetworkRequest::CookieSaveControlAttribute, QNetworkRequest::Manual);
+    networkRequest.setRawHeader(QByteArrayLiteral("Accept"), accept);
+    if (!m_userAgent.isEmpty()) {
+        networkRequest.setRawHeader(QByteArrayLiteral("User-Agent"), m_userAgent);
+    }
+    for (const auto &[nom, valeur] : entetes) {
+        const QByteArray minuscule = nom.toLower();
+        if (minuscule == "authorization" || minuscule == "cookie" || minuscule == "origin") {
+            continue; // jamais par cette voie : le porteur est posé ci-dessous, le reste est interdit
+        }
+        networkRequest.setRawHeader(nom, valeur);
+    }
+    networkRequest.setRawHeader(QByteArrayLiteral("Authorization"), QByteArrayLiteral("Bearer ") + token);
+    CredentialVault::wipe(token);
+    networkRequest.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
+                                QVariant::fromValue(QNetworkRequest::ManualRedirectPolicy));
+    // Délai d'INACTIVITÉ : un flux long reste vivant tant que des octets arrivent.
+    networkRequest.setTransferTimeout(std::chrono::milliseconds(120000));
+    return m_manager->get(networkRequest);
 }
 
 int ApiClient::inFlightCount() const
@@ -264,8 +323,7 @@ std::chrono::milliseconds ApiClient::retryDelay(const ApiError &error, int attem
     if (const std::optional<int> &after = error.retryAfterSeconds(); after && *after >= 0) {
         return std::chrono::milliseconds(*after * 1000);
     }
-    // Recul progressif borné, avec gigue : 500 ms, 1 s, 2 s, plafonné à 8 s. La gigue
-    // évite qu'une flotte de postes reconnectés en même temps frappe en cadence.
+    // Recul progressif borné, avec gigue : 500 ms, 1 s, 2 s, plafonné à 8 s.
     const int exponent = qBound(0, attempt - 1, 4);
     const qint64 base = qMin<qint64>(500LL << exponent, 8000LL);
     const qint64 jitter = QRandomGenerator::global()->bounded(static_cast<int>(base / 4) + 1);
@@ -294,10 +352,14 @@ ApiError ApiClient::validateBeforeSend(const ApiRequest &request) const
         return ApiError::refusal(QStringLiteral(
             "Clé d'idempotence invalide : 1 à 200 caractères ASCII visibles sont attendus."));
     }
-    if (!request.isSafeMethod() && !request.publicEndpoint && m_csrfToken.isEmpty()) {
+    if (!request.publicEndpoint && (!m_bearerProvider || m_bearerProvider().isEmpty())) {
+        // Hors session, une route protégée part en refus local, sans appel réseau.
+        return ApiError::refusal(QStringLiteral("Aucune session : connectez-vous."));
+    }
+    if (!request.isSafeMethod() && !request.body.isNull()
+        && request.body.toJson(QJsonDocument::Compact).size() > kMaxWriteBodyBytes) {
         return ApiError::refusal(QStringLiteral(
-            "Aucun jeton CSRF n'est détenu : l'écriture est refusée tant que la session "
-            "n'est pas établie."));
+            "Corps de plus de 64 Kio : refusé par la station avant l'envoi."));
     }
     return {};
 }
@@ -319,47 +381,16 @@ ApiCall *ApiClient::send(const ApiRequest &request)
 
     m_inFlight.append(call);
     emit inFlightCountChanged();
-
-    // Une mutation demandée pendant une rotation du jeton CSRF attend : le serveur a
-    // peut-être déjà fait tourner le jeton que nous détenons encore.
-    if (!request.isSafeMethod() && m_rotatingCall) {
-        m_pendingUnsafe.enqueue(call);
-        return call;
-    }
-    dispatch(call);
-    return call;
-}
-
-ApiCall *ApiClient::sendCsrfRotating(const ApiRequest &request)
-{
-    auto *call = new ApiCall(request, this);
-    call->m_maxAttempts = plannedAttempts(request);
-    call->m_sessionGeneration = m_sessionGeneration;
-    call->m_url = resolve(request.path, request.query);
-
-    const ApiError refusal = validateBeforeSend(request);
-    if (refusal.isError()) {
-        QTimer::singleShot(0, call, [this, call, refusal] { finishWithError(call, refusal); });
-        return call;
-    }
-
-    m_inFlight.append(call);
-    emit inFlightCountChanged();
-
-    if (m_rotatingCall) {
-        // Un seul appel rotatif en vol : les suivants attendent leur tour, en ordre.
-        m_pendingRotating.enqueue(call);
-        return call;
-    }
-    m_rotatingCall = call;
-    dispatch(call);
-    return call;
-}
-
-void ApiClient::dispatch(ApiCall *call)
-{
     call->m_attempt = 0;
     startAttempt(call);
+    return call;
+}
+
+ApiCall *ApiClient::reject(const ApiError &error)
+{
+    auto *call = new ApiCall(ApiRequest{}, this);
+    QTimer::singleShot(0, call, [this, call, error] { finishWithError(call, error); });
+    return call;
 }
 
 void ApiClient::startAttempt(ApiCall *call)
@@ -383,37 +414,56 @@ void ApiClient::startAttempt(ApiCall *call)
     }
 
     QNetworkRequest networkRequest(url);
-    // Qt ne doit pas appliquer un Set-Cookie AVANT le contrôle de génération : une
-    // réponse de connexion retardée pourrait autrement rétablir une session purgée.
+    // Aucun cookie, ni envoyé, ni enregistré.
+    networkRequest.setAttribute(QNetworkRequest::CookieLoadControlAttribute,
+                                QNetworkRequest::Manual);
     networkRequest.setAttribute(QNetworkRequest::CookieSaveControlAttribute,
                                 QNetworkRequest::Manual);
     networkRequest.setRawHeader(QByteArrayLiteral("Accept"), request.accept);
     if (!m_userAgent.isEmpty()) {
         networkRequest.setRawHeader(QByteArrayLiteral("User-Agent"), m_userAgent);
     }
-    if (!request.body.isNull()) {
+    const bool isWrite = !request.isSafeMethod();
+    const bool bodyless = request.method == QByteArrayLiteral("DELETE") && request.body.isNull();
+    if (isWrite && !bodyless) {
+        // Toute écriture est JSON, même sans champ : la garde du greffon rend 415 sinon.
         networkRequest.setHeader(QNetworkRequest::ContentTypeHeader,
                                  QStringLiteral("application/json"));
     }
-    // X-CSRF-Token sur les seules méthodes non sûres et non publiques, exactement comme
-    // `require_csrf` l'exige côté serveur.
-    if (!request.isSafeMethod() && !request.publicEndpoint && !m_csrfToken.isEmpty()) {
-        networkRequest.setRawHeader(QByteArrayLiteral("X-CSRF-Token"), m_csrfToken.toUtf8());
+    call->m_bearerPresented = false;
+    if (!request.publicEndpoint) {
+        QByteArray token = m_bearerProvider ? m_bearerProvider() : QByteArray();
+        if (token.isEmpty()) {
+            finishWithError(call, ApiError::refusal(QStringLiteral("Aucune session : connectez-vous.")));
+            return;
+        }
+        networkRequest.setRawHeader(QByteArrayLiteral("Authorization"),
+                                    QByteArrayLiteral("Bearer ") + token);
+        CredentialVault::wipe(token);
+        call->m_bearerPresented = true;
     }
-    if (!request.clientAnnouncement.isEmpty()) {
-        networkRequest.setRawHeader(QByteArrayLiteral("X-ACP-Client"), request.clientAnnouncement);
+    if (!request.cookieDeconnexion.isEmpty()) {
+        // Seul cookie jamais émis par la station : la révocation par POST /auth/logout.
+        networkRequest.setRawHeader(QByteArrayLiteral("Cookie"),
+                                    QByteArrayLiteral("hermes_session_rt=")
+                                        + request.cookieDeconnexion);
+        CredentialVault::wipe(call->m_request.cookieDeconnexion);
     }
     if (!request.idempotencyKey.isEmpty()) {
         networkRequest.setRawHeader(QByteArrayLiteral("Idempotency-Key"),
                                     request.idempotencyKey.toUtf8());
     }
-    // Aucune redirection suivie : une redirection inattendue est une anomalie, pas un
-    // chemin nominal. Le CLI se comporte déjà ainsi.
+    // Aucune redirection suivie : une redirection inattendue est une anomalie.
     networkRequest.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
                                 QVariant::fromValue(QNetworkRequest::ManualRedirectPolicy));
     networkRequest.setTransferTimeout(request.timeout);
 
-    const QByteArray payload = request.body.isNull() ? QByteArray() : request.body.toJson(QJsonDocument::Compact);
+    QByteArray payload;
+    if (!request.body.isNull()) {
+        payload = request.body.toJson(QJsonDocument::Compact);
+    } else if (isWrite && !bodyless) {
+        payload = QByteArrayLiteral("{}");
+    }
 
     QNetworkReply *reply = nullptr;
     if (request.method == QByteArrayLiteral("GET")) {
@@ -425,7 +475,6 @@ void ApiClient::startAttempt(ApiCall *call)
     } else if (request.method == QByteArrayLiteral("DELETE") && payload.isEmpty()) {
         reply = m_manager->deleteResource(networkRequest);
     } else {
-        // PATCH, et DELETE avec corps : sendCustomRequest est la voie documentée.
         reply = m_manager->sendCustomRequest(networkRequest, request.method, payload);
     }
 
@@ -452,8 +501,6 @@ void ApiClient::handleReply(ApiCall *call, QNetworkReply *reply)
     const QVariant statusAttribute = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute);
     const int httpStatus = statusAttribute.isValid() ? statusAttribute.toInt() : 0;
     const QNetworkReply::NetworkError networkError = reply->error();
-    // Lu AVANT toute destruction différée : la chaîne appartient à la réponse.
-    const QString networkErrorText = reply->errorString();
 
     ApiResponse response;
     response.httpStatus = httpStatus;
@@ -463,26 +510,14 @@ void ApiClient::handleReply(ApiCall *call, QNetworkReply *reply)
             response.headers.insert(name, reply->rawHeader(name));
         }
     }
-    QList<QNetworkCookie> cookies;
-    for (const auto &header : reply->rawHeaderPairs()) {
-        if (header.first.compare(QByteArrayLiteral("set-cookie"), Qt::CaseInsensitive) == 0)
-            cookies.append(QNetworkCookie::parseCookies(header.second));
-    }
-    if (!cookies.isEmpty()) m_cookieJar->setCookiesFromUrl(cookies, call->m_url);
     reply->deleteLater();
-
-    if (call->m_aborted || call->m_sessionGeneration != m_sessionGeneration) {
-        finishWithError(call,
-                        ApiError(ApiFailure::Cancelled, QStringLiteral("Appel interrompu.")));
-        return;
-    }
 
     // --- Échec de transport, sans code HTTP ---------------------------------
     if (httpStatus == 0) {
         ApiError error = networkError == QNetworkReply::OperationCanceledError
             ? ApiError(ApiFailure::Timeout,
                        QStringLiteral("Le serveur n'a pas répondu dans le délai imparti."))
-            : ApiError(ApiFailure::Network, networkErrorText);
+            : ApiError(ApiFailure::Network, libelleErreurReseau(networkError));
         if (shouldRetry(call->m_request, error, call->m_attempt)) {
             const auto delay = retryDelay(error, call->m_attempt);
             QTimer::singleShot(delay, call, [this, call] { startAttempt(call); });
@@ -492,7 +527,12 @@ void ApiClient::handleReply(ApiCall *call, QNetworkReply *reply)
         return;
     }
 
-    // --- Redirection : anomalie, jamais suivie ------------------------------
+    // --- Redirection : jamais suivie ----------------------------------------
+    if (httpStatus >= 300 && httpStatus < 400 && call->m_request.redirectionAttendue) {
+        // POST /auth/logout : le 302 vers /login est la réponse nominale de CET appel.
+        finishWithResponse(call, response);
+        return;
+    }
     if (httpStatus >= 300 && httpStatus < 400) {
         finishWithError(call,
                         ApiError(ApiFailure::InvalidResponse,
@@ -503,8 +543,7 @@ void ApiClient::handleReply(ApiCall *call, QNetworkReply *reply)
 
     // --- Erreur applicative -------------------------------------------------
     if (httpStatus >= 400) {
-        ApiError error = ApiError::fromHttpStatus(httpStatus, extractProblemDetail(body));
-        error.setBody(body);
+        ApiError error = ApiError::fromResponse(httpStatus, body);
         if (response.headers.contains(QByteArrayLiteral("retry-after"))) {
             bool parsed = false;
             const int seconds = response.header(QByteArrayLiteral("retry-after")).toInt(&parsed);
@@ -513,20 +552,7 @@ void ApiClient::handleReply(ApiCall *call, QNetworkReply *reply)
             }
         }
         if (httpStatus == 401) {
-            // Le terminal doit précéder la purge réentrante provoquée par le signal.
-            // Sinon abort() remplacerait le 401 par Cancelled pour cet appel même.
-            call->m_finished = true;
-            emit unauthorizedObserved();
-            emit call->failed(error);
-            releaseCall(call);
-            call->deleteLater();
-            return;
-        } else if (httpStatus == 403) {
-            call->m_finished = true;
-            emit forbiddenObserved();
-            emit call->failed(error);
-            releaseCall(call);
-            call->deleteLater();
+            handleUnauthorized(call, error);
             return;
         }
         if (shouldRetry(call->m_request, error, call->m_attempt)) {
@@ -552,6 +578,28 @@ void ApiClient::handleReply(ApiCall *call, QNetworkReply *reply)
         }
     }
     finishWithResponse(call, response);
+}
+
+void ApiClient::handleUnauthorized(ApiCall *call, const ApiError &error)
+{
+    // Un 401 de la porte sur un appel porteur, jamais encore réémis : un rafraîchissement
+    // puis UNE réémission. La porte répond avant tout gestionnaire (middleware.py) : même
+    // une mutation n'a rien exécuté, la réémettre ne fait pas de double effet.
+    if (call->m_bearerPresented && error.isGateRejection() && !call->m_replayedAfterRefresh
+        && m_bearerProvider) {
+        call->m_replayedAfterRefresh = true;
+        m_awaitingRefresh.append(call);
+        if (!m_refreshPending) {
+            m_refreshPending = true;
+            emit refreshRequested();
+        }
+        return;
+    }
+    const bool bearer = call->m_bearerPresented;
+    finishWithError(call, error);
+    if (bearer) {
+        emit bearerRejected(error);
+    }
 }
 
 void ApiClient::finishWithError(ApiCall *call, const ApiError &error)
@@ -586,34 +634,6 @@ void ApiClient::releaseCall(ApiCall *call)
         return entry.isNull() || entry.data() == call;
     });
     emit inFlightCountChanged();
-
-    if (m_rotatingCall == call) {
-        m_rotatingCall = nullptr;
-        drainPending();
-    }
-}
-
-void ApiClient::drainPending()
-{
-    if (m_invalidating) return;
-    // Priorité au prochain appel rotatif : il renouvelle le jeton dont les mutations
-    // retenues ont besoin.
-    while (!m_pendingRotating.isEmpty()) {
-        const QPointer<ApiCall> next = m_pendingRotating.dequeue();
-        if (!next || next->m_finished || next->m_aborted) {
-            continue;
-        }
-        m_rotatingCall = next;
-        dispatch(next);
-        return;
-    }
-    while (!m_pendingUnsafe.isEmpty()) {
-        const QPointer<ApiCall> next = m_pendingUnsafe.dequeue();
-        if (!next || next->m_finished || next->m_aborted) {
-            continue;
-        }
-        dispatch(next);
-    }
 }
 
 } // namespace acp

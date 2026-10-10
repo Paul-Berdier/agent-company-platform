@@ -1,0 +1,157 @@
+{
+  "protocole": "acp-machine/1",
+  "version_poste": "1.0.0",
+  "releve_le": "2026-09-26T09:14:04Z",
+  "poste": {
+    "nom": "Poste Windows",
+    "compte": "dedie",
+    "windows": "10.0.19045",
+    "python": "3.12.10",
+    "politique_empreinte": "9c2e41ab07d3",
+    "hermes_meme_enveloppe_que_codex": false
+  },
+  "depots": [{"alias": "jetable"}],
+  "releves": [
+    {
+      "voie": "poste-codex",
+      "source": "poste",
+      "version_cli": "0.156.1",
+      "releve_le": "2026-09-26T09:14:04Z",
+      "origine_liste": "compte",
+      "etat": "ok",
+      "detail": null,
+      "documentation_lue_le": null,
+      "modeles": [
+        {
+          "id": "factice-codex-1",
+          "modele": "factice-codex-1",
+          "displayName": "Factice 1",
+          "isDefault": true,
+          "supportedReasoningEfforts": ["low", "medium", "high"],
+          "defaultReasoningEffort": "medium",
+          "serviceTiers": ["default", "priority"],
+          "defaultServiceTier": "default",
+          "cache": false,
+          "remplace_par": null,
+          "retrait_le": null,
+          "nature": "catalogue_compte",
+          "resolution_documentee": null,
+          "source_efforts": "releve"
+        },
+        {
+          "id": "factice-codex-2",
+          "modele": "factice-codex-2",
+          "displayName": "Factice 2",
+          "isDefault": false,
+          "supportedReasoningEfforts": ["low", "medium"],
+          "defaultReasoningEffort": "low",
+          "serviceTiers": ["default"],
+          "defaultServiceTier": "default",
+          "cache": false,
+          "remplace_par": null,
+          "retrait_le": null,
+          "nature": "catalogue_compte",
+          "resolution_documentee": null,
+          "source_efforts": "releve"
+        }
+      ],
+      "quotas": null,
+      "compteurs": [
+        {
+          "provider": "codex",
+          "status": "ok",
+          "source": "codex_app_server",
+          "plan": "prolite",
+          "limit_id": "codex",
+          "windows": [
+            {"key": "primary", "used_percent": 41, "window_minutes": 300, "resets_at": "2026-09-26T12:00:00Z"},
+            {"key": "secondary", "used_percent": 12, "window_minutes": 10080, "resets_at": "2026-09-30T08:00:00Z"}
+          ],
+          "credits": null,
+          "limit_reached": false,
+          "reached_type": null,
+          "observed_at": "2026-09-26T09:14:04Z",
+          "detail": null
+        }
+      ],
+      "depots": [{"alias": "jetable"}],
+      "resolutions_observees": []
+    },
+    {
+      "voie": "poste-claude",
+      "source": "poste",
+      "version_cli": "2.1.280",
+      "releve_le": "2026-09-26T09:14:03Z",
+      "origine_liste": "alias_documentes",
+      "etat": "ok",
+      "detail": null,
+      "documentation_lue_le": "2026-09-26",
+      "modeles": [
+        {
+          "id": "opus",
+          "displayName": "opus",
+          "isDefault": null,
+          "supportedReasoningEfforts": ["low", "medium", "high", "xhigh", "max"],
+          "defaultReasoningEffort": "medium",
+          "serviceTiers": [],
+          "defaultServiceTier": null,
+          "nature": "alias_documente",
+          "resolution_documentee": "claude-opus-5-5",
+          "source_efforts": "documentation"
+        },
+        {
+          "id": "opus[1m]",
+          "displayName": "opus[1m]",
+          "isDefault": null,
+          "supportedReasoningEfforts": ["low", "medium", "high", "xhigh", "max"],
+          "defaultReasoningEffort": "medium",
+          "serviceTiers": [],
+          "defaultServiceTier": null,
+          "nature": "alias_documente",
+          "resolution_documentee": "claude-opus-5-5",
+          "source_efforts": "documentation"
+        },
+        {
+          "id": "haiku",
+          "displayName": "haiku",
+          "isDefault": null,
+          "supportedReasoningEfforts": [],
+          "defaultReasoningEffort": null,
+          "serviceTiers": [],
+          "defaultServiceTier": null,
+          "nature": "alias_documente",
+          "resolution_documentee": null,
+          "source_efforts": "documentation"
+        }
+      ],
+      "quotas": null,
+      "compteurs": [],
+      "depots": [{"alias": "jetable"}],
+      "resolutions_observees": []
+    }
+  ],
+  "bac_a_sable_codex": {
+    "readiness": "ready",
+    "mode_lu": "elevated",
+    "origine_mode": "sessionFlags",
+    "palier_lu": "default",
+    "stockage_identifiants_lu": "keyring",
+    "ecriture_admise": true,
+    "raison": null,
+    "lu_le": "2026-09-26T09:14:04Z"
+  },
+  "isolement_linux": null,
+  "connexions": {"codex": "compte_chatgpt", "plan_codex": "prolite", "claude": "jeton_reconnu"},
+  "versions": {
+    "codex": {"lue": "0.156.1", "testee": "0.156.1", "conforme": true},
+    "claude": {"lue": "2.1.280", "testee": "2.1.280", "conforme": true}
+  },
+  "politique": {
+    "executants": ["codex", "claude"],
+    "efforts_interdits": ["max", "ultra", "ultracode"],
+    "paliers_admis": ["default"],
+    "modeles_codex_permis": [],
+    "alias_claude_permis": ["opus", "opus[1m]", "sonnet", "haiku"],
+    "reseau_executants": false
+  }
+}

@@ -5,6 +5,7 @@
 
 #include "app/Application.h"
 #include "app/BuildConfig.h"
+#include "app/GardeInstance.h"
 #include "diagnostics/Redaction.h"
 
 #include <QGuiApplication>
@@ -14,6 +15,17 @@
 #include <QtGlobal>
 
 #include <cstdio>
+#include <string>
+
+#ifdef Q_OS_WIN
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
 
 namespace {
 
@@ -64,6 +76,19 @@ int main(int argc, char *argv[])
     QGuiApplication::setOrganizationDomain(QStringLiteral("agent-company-platform.local"));
     QGuiApplication::setApplicationName(QStringLiteral("Station de travail"));
     QGuiApplication::setApplicationVersion(QString::fromLatin1(ACP_DESKTOP_VERSION));
+
+    // Une seule station par poste : deux instances rejoueraient le même jeton de
+    // rafraîchissement, et Authelia révoquerait la session (identite.md § 12.1).
+    acp::GardeInstance garde(acp::GardeInstance::cheminParDefaut());
+    QString refusInstance;
+    if (!garde.acquerir(&refusInstance)) {
+        QTextStream(stderr) << refusInstance << Qt::endl;
+#ifdef Q_OS_WIN
+        const std::wstring texte = refusInstance.toStdWString();
+        ::MessageBoxW(nullptr, texte.c_str(), L"Station de travail", MB_OK | MB_ICONINFORMATION);
+#endif
+        return acp::GardeInstance::kCodeSecondeInstance;
+    }
 
     // Style Qt Quick Controls : « Basic » est le seul style entièrement personnalisable
     // par les jetons du produit. Les styles natifs imposent leurs propres couleurs et

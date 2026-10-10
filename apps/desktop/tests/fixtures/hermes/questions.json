@@ -1,0 +1,68 @@
+{
+  "questions": [
+    {
+      "id": "q_b627a3c245ec",
+      "projet": "p_367e23fd51b7",
+      "projet_titre": "Outil",
+      "tableau": "acp-outil-3dd5",
+      "carte": "t_7aa28f61",
+      "carte_titre": "Exploration du dépôt « jetable »",
+      "etat": "escaladee",
+      "texte": "Quelle version de Python viser ?",
+      "contexte": "Le dépôt cible Python 3.11 et 3.12 dans sa CI.",
+      "carte_repondre": null,
+      "motif_escalade": "politique du projet : le propriétaire répond lui-même",
+      "cree_le": 1790423039,
+      "chez": "proprietaire",
+      "carte_repondre_statut": null
+    }
+  ],
+  "triage": [
+    {
+      "projet": "p_a35a8b99fb0e",
+      "projet_titre": "Veille LLM",
+      "tableau": "acp-veille-llm-b43a",
+      "carte": "t_0c1d2e3f",
+      "titre": "Plafond atteint : tours — votre décision est attendue",
+      "assigne": "default",
+      "abandonnee": false,
+      "raison": "3 tours planifiés",
+      "genre": "tours",
+      "actions": [
+        "prolonger",
+        "conclure"
+      ]
+    }
+  ],
+  "bloquees": [
+    {
+      "projet": "p_a35a8b99fb0e",
+      "projet_titre": "Veille LLM",
+      "tableau": "acp-veille-llm-b43a",
+      "carte": "t_9a8b7c6d",
+      "titre": "Carte à la main",
+      "assigne": "poste-codex",
+      "abandonnee": false,
+      "raison": "Refusé par ACP : carte poste-* non émise par le greffon acp-poste ; seul le greffon crée les cartes du poste.",
+      "relancable": false,
+      "refus_relance": "Carte non émise par ACP : ACP ne la relance pas.",
+      "executant": false
+    }
+  ],
+  "tableaux_illisibles": [],
+  "revues": [],
+  "discussions": {
+    "suivies": true,
+    "requetes_ouvertes": 0,
+    "message": null,
+    "limite": "Les questions posées dans la discussion en terminal (/chat) ne sont visibles que dans cette discussion."
+  },
+  "compteurs": {
+    "questions": 1,
+    "decisions": 1,
+    "revues": 0,
+    "arretees": 1,
+    "chez_hermes": 0,
+    "a_traiter": 3
+  }
+}

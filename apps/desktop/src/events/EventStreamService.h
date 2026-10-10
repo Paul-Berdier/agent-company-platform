@@ -1,208 +1,185 @@
-// Client SSE de la station : abonnements, reprise par curseur, repli par interrogation.
+// Temps réel de la station : ce qui existe vraiment (cahier P8 § 6 ; étape P7 pour le flux).
 //
-// La séquence imposée par l'audit (section 4.4) est implémentée telle quelle :
+// | Source                                   | Rôle dans la station                                   |
+// |------------------------------------------|--------------------------------------------------------|
+// | passerelle `/api/ws` (GatewayClient)     | Discussion ; `sessions.changed` relit les sessions     |
+// | kanban `/api/plugins/kanban/events`      | signal d'invalidation du projet affiché (VeilleKanban) |
+// | flux SSE du greffon `GET /v1/flux`       | signal d'invalidation par sujet (FluxInvalidation) :   |
+// |                                          | ouvert seulement s'il est annoncé par /v1/meta         |
+// | routes REST du greffon                   | vérité de toutes les pages, relues sur signal du flux  |
+// |                                          | et par sondage (Sondage, repli et relecture de sûreté) |
 //
-//   1. RATTRAPAGE  — lire le journal durable de la portée jusqu'à `has_more == false`,
-//                    en retenant `next_cursor`.
-//   2. OUVERTURE   — ouvrir le flux avec `Last-Event-ID` (prioritaire) ou `?after_seq=`.
-//   3. CONSOMMATION— traiter `acp.event` ; sur `acp.stream.rotate`, reconnecter au
-//                    curseur porté par la trame ; sur `acp.stream.closed`, S'ARRÊTER et
-//                    le dire honnêtement — une fermeture de flux n'est PAS un arrêt de
-//                    mission.
-//   4. COUPURE     — ne JAMAIS rejouer une mutation. La reprise se fait par curseur de
-//                    lecture. Ce service n'émet d'ailleurs aucune méthode non sûre : il
-//                    ne peut pas relancer une mission, structurellement.
-//   5. MULTIPLEXAGE— une connexion par portée réellement affichée, réutilisée par tous
-//                    les panneaux. Le serveur ferme au-delà de 4 flux par utilisateur
-//                    (429 + Retry-After: 5) ; ce compteur est local au processus serveur
-//                    et ne tient que par `numReplicas: 1`.
-//
-// Ce que le service NE fait pas, volontairement : il n'interprète aucun payload métier.
-// Il rend des `StreamEvent` bruts ; leur projection en modèles appartient aux couches
-// supérieures.
+// Ce service :
+//  - porte le sondage LÉGER de `GET /v1/accueil` (60 s, session établie ; Accueil agrégé de
+//    l'étape P7) qui alimente la barre d'état et le badge de la file Questions, même hors des
+//    pages : le badge compte « À traiter par vous » (compteurs du greffon : questions à vous,
+//    décisions, revues, cartes arrêtées ; plus les discussions en attente lues par la passerelle,
+//    DiscussionsEnAttente, et le libellé dit quand elles n'ont pas pu l'être). L'Accueil qui vient
+//    de lire `/v1/accueil` le lui signale
+//    (noterAccueil) ; la page Projets, qui lit `/v1/projets`, met à jour le poste et la pause
+//    seulement (noterProjets), jamais le compteur, qui n'a qu'une source ;
+//  - dit aux pages si elles peuvent sonder (`pagesActives` : session établie ET fenêtre non
+//    réduite) et quand relire (`lienRetabli`, `sessionsChangees`, `tableauChange`) ;
+//  - ouvre le flux d'invalidation quand une page peut lire et que /v1/meta l'annonce
+//    (setAnnonceFlux) ; le sondage léger le suit pour tous les sujets ;
+//  - relaie aux pages l'état de l'étape P7 lu dans /v1/meta (setEtapeP7, clé `accueil`) : le
+//    sondage léger ne lit `/v1/accueil` que sur l'annonce ; sinon le badge dit « Non disponible
+//    sur ce serveur » ou « Inconnu », jamais un compteur ;
+//  - publie l'état de chaque source, sans secret, pour les diagnostics.
 
 #pragma once
 
-#include "api/ApiError.h"
-#include "app/QmlEnums.h"
-#include "events/Backoff.h"
-#include "events/SseParser.h"
-#include "events/StreamScope.h"
-
-#include <QDateTime>
-#include <QHash>
 #include <QJsonObject>
 #include <QObject>
-#include <QPointer>
 #include <QString>
 
-#include <memory>
-
-class QNetworkReply;
-class QTimer;
+#include <chrono>
 
 namespace acp {
 
 class ApiClient;
+class ClientGreffonPoste;
+class DiscussionsEnAttente;
+class FluxInvalidation;
+class GatewayClient;
+class Sondage;
+class VeilleKanban;
 
-/*!
-    Bornes de flux annoncées par le serveur.
-
-    Valeurs par défaut = valeurs relevées dans `apps/api/src/acp_api/streams.py` à la date
-    de l'audit. Elles sont REMPLACÉES dès que le point d'entrée de compatibilité les
-    annonce : le client dimensionne son multiplexeur sur la valeur annoncée, pas sur une
-    constante figée dans un binaire installé sur un poste.
-*/
-struct StreamLimits
-{
-    int maxConnectionsPerUser = 4;
-    int keepAliveSeconds = 15;
-    int maxStreamSeconds = 900;
-    int pollIntervalMilliseconds = 400;
-    int pageLimit = 500;
-};
-
-/*! Abonnement vivant à une portée. Créé par le service, jamais par un écran. */
-class StreamSubscription : public QObject
-{
-    Q_OBJECT
-    Q_PROPERTY(int status READ statusValue NOTIFY statusChanged)
-    Q_PROPERTY(QString statusLabel READ statusLabel NOTIFY statusChanged)
-    Q_PROPERTY(QString scopeLabel READ scopeLabelText CONSTANT)
-    Q_PROPERTY(qint64 cursor READ cursorValue NOTIFY cursorChanged)
-    Q_PROPERTY(QString lastError READ lastError NOTIFY statusChanged)
-    Q_PROPERTY(QDateTime lastEventAt READ lastEventAt NOTIFY cursorChanged)
-    Q_PROPERTY(bool journalHasGaps READ journalHasGaps NOTIFY cursorChanged)
-
-public:
-    StreamSubscription(StreamScope scope, ApiClient *client, StreamLimits limits,
-                       QObject *parent = nullptr);
-    ~StreamSubscription() override;
-
-    [[nodiscard]] const StreamScope &scope() const { return m_scope; }
-    [[nodiscard]] QString key() const { return scopeKey(m_scope); }
-    [[nodiscard]] StreamStatus::State status() const { return m_status; }
-    [[nodiscard]] int statusValue() const { return static_cast<int>(m_status); }
-    [[nodiscard]] QString statusLabel() const;
-    [[nodiscard]] QString scopeLabelText() const { return scopeLabel(m_scope); }
-    [[nodiscard]] qint64 cursorValue() const { return scopeCursorValue(m_scope); }
-    [[nodiscard]] const QString &lastError() const { return m_lastError; }
-    [[nodiscard]] const QDateTime &lastEventAt() const { return m_lastEventAt; }
-
-    /*! Vrai si une page de journal a été rendue avec des événements dépourvus de
-        `sequence`. L'audit le signale (limite 9) : une base ancienne montre des trous.
-        L'interface les présente, elle ne les masque pas. */
-    [[nodiscard]] bool journalHasGaps() const { return m_journalHasGaps; }
-
-    /*! Démarre la séquence complète : rattrapage puis flux. */
-    void start();
-
-    /*! Ferme proprement. La fermeture propre est une OBLIGATION : le jeton de connexion
-        du serveur n'est libéré que par le `finally` de son générateur, et un flux
-        abandonné reste compté jusqu'à 900 s. */
-    void stop();
-
-signals:
-    void statusChanged();
-    void cursorChanged();
-
-    /*! Un événement du journal, tel que le serveur l'a rendu, sans réinterprétation. */
-    void journalEvent(const QJsonObject &event);
-
-    /*! Le serveur a fermé le flux de son propre chef. `reason` vaut `unauthorized`
-        quand la session ou l'appartenance ont été révoquées. */
-    void serverClosed(const QString &reason);
-
-    /*! Un refus définitif : l'abonnement ne sera pas repris tout seul. */
-    void refused(const acp::ApiError &error);
-
-private:
-    void setStatus(StreamStatus::State status, const QString &detail = {});
-    void beginCatchUp();
-    void requestJournalPage();
-    void openStream();
-    void handleStreamBytes();
-    void handleStreamFinished();
-    void refuseStream(const acp::ApiError &error);
-    void handleFrames(const QList<SseEvent> &frames);
-    void scheduleReconnect(const QString &reason);
-    void enterPolling(const QString &reason);
-    void leavePolling();
-    void closeReply();
-    [[nodiscard]] qint64 parseRotateCursor(const QString &payload) const;
-
-    StreamScope m_scope;
-    ApiClient *m_client = nullptr;
-    StreamLimits m_limits;
-
-    SseParser m_parser;
-    QPointer<QNetworkReply> m_reply;
-    QTimer *m_reconnectTimer = nullptr;
-    QTimer *m_pollTimer = nullptr;
-    QTimer *m_silenceTimer = nullptr;
-    Backoff m_backoff;
-
-    StreamStatus::State m_status = StreamStatus::Idle;
-    QString m_lastError;
-    QDateTime m_lastEventAt;
-    bool m_catchUpInProgress = false;
-    bool m_journalHasGaps = false;
-    bool m_stopped = true;
-};
-
-/*!
-    Multiplexeur d'abonnements.
-
-    Une seule connexion par portée, quel que soit le nombre de panneaux qui l'affichent.
-    Au-delà de la borne annoncée par le serveur, une demande supplémentaire est REFUSÉE
-    localement avec un message français, plutôt que d'aller chercher un 429 qui bloquerait
-    ensuite l'utilisateur pendant cinq secondes.
-*/
 class EventStreamService : public QObject
 {
     Q_OBJECT
-    Q_PROPERTY(int activeCount READ activeCount NOTIFY subscriptionsChanged)
-    Q_PROPERTY(int maxConnections READ maxConnections NOTIFY limitsChanged)
+    Q_PROPERTY(bool fenetreActive READ fenetreActive WRITE setFenetreActive NOTIFY fenetreActiveChange)
+    Q_PROPERTY(bool pagesActives READ pagesActives NOTIFY pagesActivesChange)
+    Q_PROPERTY(QString etapeP7 READ etapeP7 NOTIFY etapeP7Change)
+    // Résumé du sondage léger (barre d'état, badge de navigation).
+    Q_PROPERTY(int aTraiter READ aTraiter NOTIFY resumeChange)
+    Q_PROPERTY(QString libelleATraiter READ libelleATraiter NOTIFY resumeChange)
+    Q_PROPERTY(QString descriptionATraiter READ descriptionATraiter NOTIFY resumeChange)
+    Q_PROPERTY(QString libellePoste READ libellePoste NOTIFY resumeChange)
+    Q_PROPERTY(QString clePoste READ clePoste NOTIFY resumeChange)
+    Q_PROPERTY(int pauseGenerale READ pauseGenerale NOTIFY resumeChange)
+    Q_PROPERTY(QString libelleResume READ libelleResume NOTIFY resumeChange)
+    // Sources (diagnostics).
+    Q_PROPERTY(QString etatPasserelle READ etatPasserelle NOTIFY sourcesChange)
+    Q_PROPERTY(QString etatVeille READ etatVeille NOTIFY sourcesChange)
+    Q_PROPERTY(QString etatSondage READ etatSondage NOTIFY sourcesChange)
+    // Flux d'invalidation du greffon (barre d'état, diagnostics).
+    Q_PROPERTY(bool tempsReel READ tempsReel NOTIFY sourcesChange)
+    Q_PROPERTY(QString libelleTempsReel READ libelleTempsReel NOTIFY sourcesChange)
+    Q_PROPERTY(QString etatFlux READ etatFlux NOTIFY sourcesChange)
 
 public:
-    explicit EventStreamService(ApiClient *client, QObject *parent = nullptr);
+    //! Valeur de `pauseGenerale` quand l'état n'a pas encore été lu.
+    static constexpr int kInconnu = -1;
+    static constexpr std::chrono::milliseconds kIntervalleFond{60000};
 
-    /*! Applique les bornes annoncées par le serveur. */
-    void setLimits(const StreamLimits &limits);
-    [[nodiscard]] const StreamLimits &limits() const { return m_limits; }
-    [[nodiscard]] int maxConnections() const { return m_limits.maxConnectionsPerUser; }
+    EventStreamService(ApiClient *client, ClientGreffonPoste *greffon, GatewayClient *passerelle,
+                       QObject *parent = nullptr);
+    ~EventStreamService() override;
 
-    /*! Abonne la portée « tentative ». Renvoie l'abonnement existant s'il y en a un. */
-    StreamSubscription *subscribeRun(const QString &runId);
+    [[nodiscard]] VeilleKanban *veille() const { return m_veille; }
+    [[nodiscard]] Sondage *sondageFond() const { return m_fond; }
+    [[nodiscard]] FluxInvalidation *invalidation() const { return m_invalidation; }
+    /*! Discussions en attente (`session.active_list`), partagées par le badge, l'Accueil et la file Questions. */
+    [[nodiscard]] DiscussionsEnAttente *discussions() const { return m_discussions; }
+    /*! Annonce du flux lue dans /v1/meta (CompatibiliteHermes::etatFlux et annonceFlux). */
+    void setAnnonceFlux(const QString &etat, const QJsonObject &annonce);
+    /*!
+        État de l'étape P7 lu dans /v1/meta (CompatibiliteHermes::etatEtapeP7) : « annonce », « absent »,
+        « illisible » ou « inconnu ». Hors annonce, le sondage léger s'arrête et oublie ce qu'il avait lu.
+        `etapeP7Change` est émis à chaque changement de l'état OU du blocage du greffon (les pages en
+        tirent ce qu'elles disent).
+    */
+    void setEtapeP7(const QString &etat);
+    [[nodiscard]] const QString &etapeP7() const { return m_etapeP7; }
+    [[nodiscard]] bool etapeP7Annoncee() const { return m_etapeP7 == QLatin1String("annonce"); }
+    void setIntervalleFond(std::chrono::milliseconds intervalle);
 
-    /*! Abonne la portée « projet ». Le desktop en est le premier consommateur
-        applicatif ; l'audit le dit et prévient que cela n'a jamais été éprouvé en réel. */
-    StreamSubscription *subscribeProject(const QString &projectId);
+    // --- Cycle de vie (Application) -------------------------------------------------
+    /*! Session établie : sondage léger actif, pages autorisées à sonder. */
+    void demarrer();
+    /*! Session perdue : tout s'arrête, le résumé redevient « Inconnu ». */
+    void arreter();
+    /*! État du lien ; un retour en ligne émet `lienRetabli`. */
+    void signalerLien(bool enLigne);
 
-    /*! Ferme et oublie un abonnement. */
-    Q_INVOKABLE void unsubscribe(const QString &key);
+    [[nodiscard]] bool fenetreActive() const { return m_fenetreActive; }
+    void setFenetreActive(bool active);
+    [[nodiscard]] bool sessionOuverte() const { return m_sessionOuverte; }
+    [[nodiscard]] bool pagesActives() const { return m_sessionOuverte && m_fenetreActive; }
 
-    /*! Ferme TOUS les abonnements. Appelé à la déconnexion, à la révocation et à la
-        fermeture de l'application : un flux non refermé reste compté par le serveur. */
-    void closeAll();
+    /*! L'Accueil vient de lire `GET /v1/accueil` : le résumé suit sans attendre. */
+    void noterAccueil(const QJsonObject &accueil);
+    /*! La page Projets vient de lire `GET /v1/projets` : poste et pause suivent (jamais le compteur). */
+    void noterProjets(const QJsonObject &liste);
+    /*! Le résumé redevient « Inconnu » (session perdue, serveur changé, greffon bloqué). */
+    void oublierResume();
 
-    [[nodiscard]] int activeCount() const { return static_cast<int>(m_subscriptions.size()); }
+    // --- Résumé ----------------------------------------------------------------------
+    /*! « À traiter par vous » (discussions en attente comprises quand elles sont connues), ou -1 si inconnu. */
+    [[nodiscard]] int aTraiter() const;
+    [[nodiscard]] QString libelleATraiter() const;
+    /*!
+        Ce que compte `aTraiter`, pour le nom accessible de la pastille de la file Questions :
+        « demandes à traiter par vous », suivi de « (discussions non comptées) » seulement quand
+        les discussions en attente ne sont pas lues (relecture de P8b, constat desktop-5).
+    */
+    [[nodiscard]] QString descriptionATraiter() const;
+    [[nodiscard]] const QString &libellePoste() const { return m_libellePoste; }
+    [[nodiscard]] const QString &clePoste() const { return m_clePoste; }
+    /*! 1 engagée, 0 levée, -1 inconnue. */
+    [[nodiscard]] int pauseGenerale() const { return m_pauseGenerale; }
+    [[nodiscard]] QString libelleResume() const;
 
-    /*! Dernier refus opposé par le multiplexeur lui-même, à afficher tel quel. */
-    [[nodiscard]] const QString &lastRefusal() const { return m_lastRefusal; }
+    // --- Sources -----------------------------------------------------------------------
+    [[nodiscard]] QString etatPasserelle() const;
+    [[nodiscard]] QString etatVeille() const;
+    [[nodiscard]] QString etatSondage() const;
+    /*! État du flux d'invalidation (FluxInvalidation::libelleEtat). */
+    [[nodiscard]] QString etatFlux() const;
+    [[nodiscard]] bool tempsReel() const;
+    /*!
+        Libellé court de la barre d'état (« Temps réel », « Sondage (aucun flux) », « Aucun flux (greffon
+        bloqué) »…), vide hors session.
+    */
+    [[nodiscard]] QString libelleTempsReel() const;
 
 signals:
-    void subscriptionsChanged();
-    void limitsChanged();
-    void subscriptionRefused(const QString &message);
+    void fenetreActiveChange();
+    void pagesActivesChange();
+    void resumeChange();
+    void sourcesChange();
+    /*! Le lien vient de revenir : les pages visibles relisent tout de suite. */
+    void lienRetabli();
+    /*! `sessions.changed` de la passerelle : relire les listes de sessions. */
+    void sessionsChangees();
+    /*! Le kanban du tableau surveillé a bougé (après regroupement). */
+    void tableauChange(const QString &tableau);
+    /*! L'état de l'étape P7 (ou le blocage du greffon) a changé : voir setEtapeP7. */
+    void etapeP7Change();
 
 private:
-    StreamSubscription *acquire(StreamScope scope);
+    void lireResume(const QJsonObject &accueil);
+    void lirePosteEtPause(const QJsonValue &etatPoste, const QJsonValue &pause, bool pauseIllisible);
+    //! Le sondage léger lit seulement session ouverte ET étape P7 annoncée.
+    void majFond();
 
-    ApiClient *m_client = nullptr;
-    StreamLimits m_limits;
-    QHash<QString, StreamSubscription *> m_subscriptions;
-    QString m_lastRefusal;
+    ClientGreffonPoste *m_greffon = nullptr;
+    GatewayClient *m_passerelle = nullptr;
+    VeilleKanban *m_veille = nullptr;
+    FluxInvalidation *m_invalidation = nullptr;
+    DiscussionsEnAttente *m_discussions = nullptr;
+    Sondage *m_fond = nullptr;
+    bool m_fenetreActive = true;
+    bool m_sessionOuverte = false;
+    bool m_lienEnLigne = false;
+    bool m_lienConnu = false;
+    QString m_etapeP7 = QStringLiteral("inconnu");
+    bool m_greffonBloque = false; //!< blocage vu au dernier setEtapeP7
+    int m_aTraiterGreffon = -1;
+    QString m_libellePoste;
+    QString m_clePoste;
+    int m_pauseGenerale = kInconnu;
 };
 
 } // namespace acp

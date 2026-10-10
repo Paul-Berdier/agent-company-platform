@@ -1,0 +1,11 @@
+# Dépendances d'EXÉCUTION du poste Windows (apps/poste et son contrat), étape P5, décision D53.
+#
+# C'est le seul verrou que l'installeur du poste applique (packaging/poste/Installer-PosteAcp.ps1 :
+# pip install --no-deps --require-hashes --target) : ni pytest, ni cryptography, ni outil de construction.
+# Mêmes versions que le verrou du dépôt (contraintes ci-dessous), vérifié par scripts/check_lock.py.
+#
+# Recompilation (dans un conteneur python:3.12-slim, jamais sur le poste) :
+#   scripts/lock_python.ps1   ou   scripts/lock_python.sh
+-c constraints.txt
+
+pydantic>=2.7

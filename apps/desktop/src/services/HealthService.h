@@ -1,11 +1,11 @@
-// État du lien avec le serveur : /health et /ready.
+// État du lien avec Hermes : `GET /api/health` puis `GET /api/status`.
 //
-// Ce que l'audit garantit sur ces deux routes :
-//   - `GET /health` : liveness pure, `{"status":"ok","service":"api"}`, PUBLIQUE, et
-//     elle NE PORTE AUCUNE VERSION. On ne peut donc rien en déduire sur la compatibilité ;
-//   - `GET /ready`  : readiness — base, migrations, stockage livrables, stockage skills,
-//     outbox — 200 ou 503, raisons en français, ni chemin ni URL ni secret. C'est la
-//     seule source honnête de l'écran des cinq contrôles.
+// Deux routes PUBLIQUES de Hermes (hermes_cli/web_routers/status.py) :
+//   - `/api/health` : `{ok, version, auth_required}`, vivacité du processus ;
+//   - `/api/status` : état de la passerelle (`gateway_running`, `gateway_state`) et nombre
+//     de sessions actives (`active_sessions`), rendus tels quels.
+// Elles ne disent rien de la session ni des greffons : ce sont des contrôles de vivacité,
+// pas de compatibilité.
 //
 // Le hors ligne est l'état du LIEN, pas un état de tâche. Il vit en permanence dans la
 // barre basse, avec l'horodatage du dernier échange réussi, et les données déjà reçues
@@ -15,61 +15,17 @@
 
 #include "app/QmlEnums.h"
 
-#include <QAbstractListModel>
 #include <QDateTime>
-#include <QList>
 #include <QObject>
 #include <QString>
+
+#include <optional>
 
 class QTimer;
 
 namespace acp {
 
 class ApiClient;
-
-/*! Les contrôles rendus par `/ready`, tels que le serveur les nomme. */
-class ReadinessModel : public QAbstractListModel
-{
-    Q_OBJECT
-
-public:
-    enum Roles {
-        NameRole = Qt::UserRole + 1,
-        StatusRole,   //!< Verdict en français : « Sain », « En échec » ou « Inconnu ».
-        DetailRole,   //!< Raison française donnée par le serveur, telle quelle.
-        HealthyRole,
-    };
-    Q_ENUM(Roles)
-
-    struct Check
-    {
-        QString name;
-        QString status;
-        QString detail;
-        bool healthy = false;
-    };
-
-    using QAbstractListModel::QAbstractListModel;
-
-    [[nodiscard]] int rowCount(const QModelIndex &parent = {}) const override;
-    [[nodiscard]] QVariant data(const QModelIndex &index, int role) const override;
-    [[nodiscard]] QHash<int, QByteArray> roleNames() const override;
-
-    void setChecks(const QList<Check> &checks);
-    void clear();
-
-    /*!
-        Lit les contrôles d'un corps `/ready`, en 200 comme en 503.
-
-        Forme servie par l'API (`acp_api/readiness.py`) : `checks.<nom>` est un objet
-        portant `ok` (booléen) et `reason` (français), plus des champs propres au contrôle.
-        Un contrôle sans `ok` booléen reste « Inconnu » et n'est jamais compté sain.
-    */
-    [[nodiscard]] static QList<Check> parseChecks(const QJsonObject &payload);
-
-private:
-    QList<Check> m_checks;
-};
 
 class HealthService : public QObject
 {
@@ -79,7 +35,9 @@ class HealthService : public QObject
     Q_PROPERTY(QString detail READ detail NOTIFY changed)
     Q_PROPERTY(QDateTime lastSuccessAt READ lastSuccessAt NOTIFY changed)
     Q_PROPERTY(QString lastSuccessLabel READ lastSuccessLabel NOTIFY changed)
-    Q_PROPERTY(QObject *readinessChecks READ readinessChecksObject CONSTANT)
+    Q_PROPERTY(QString hermesVersion READ hermesVersion NOTIFY changed)
+    Q_PROPERTY(QString gatewayLabel READ gatewayLabel NOTIFY changed)
+    Q_PROPERTY(QString activeSessionsLabel READ activeSessionsLabel NOTIFY changed)
 
 public:
     explicit HealthService(ApiClient *client, QObject *parent = nullptr);
@@ -93,8 +51,16 @@ public:
     /*! « Jamais » tant qu'aucun échange n'a réussi. Jamais « à l'instant » par défaut. */
     [[nodiscard]] QString lastSuccessLabel() const;
 
-    [[nodiscard]] ReadinessModel *readinessChecks() { return m_readiness; }
-    [[nodiscard]] QObject *readinessChecksObject() { return m_readiness; }
+    /*! Version annoncée par `/api/health`, ou « Inconnu ». */
+    [[nodiscard]] QString hermesVersion() const;
+
+    /*! « En marche (état) », « Arrêtée (état) » ou « Inconnu », d'après /api/status. */
+    [[nodiscard]] QString gatewayLabel() const;
+    /*! Nombre de sessions actives rendu par /api/status, ou « Inconnu ». */
+    [[nodiscard]] QString activeSessionsLabel() const;
+
+    /*! `auth_required` lu au dernier contrôle réussi ; absent tant qu'il n'a pas été lu. */
+    [[nodiscard]] std::optional<bool> authRequired() const { return m_authRequired; }
 
     /*! Lance un contrôle immédiat. */
     Q_INVOKABLE void probeNow();
@@ -107,13 +73,17 @@ signals:
 
 private:
     void setStatus(LinkStatus::State status, const QString &detail);
-    void probeReady();
+    void probeStatus();
 
     ApiClient *m_client = nullptr;
-    ReadinessModel *m_readiness = nullptr;
     QTimer *m_timer = nullptr;
     LinkStatus::State m_status = LinkStatus::Unknown;
     QString m_detail;
+    QString m_hermesVersion;
+    std::optional<bool> m_authRequired;
+    std::optional<bool> m_gatewayRunning;
+    QString m_gatewayState;
+    std::optional<int> m_activeSessions;
     QDateTime m_lastSuccessAt;
 };
 

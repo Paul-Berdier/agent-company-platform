@@ -1,0 +1,148 @@
+{
+  "genere_le": "2026-10-01T20:35:46Z",
+  "a_traiter": {
+    "total": 1,
+    "questions": 1,
+    "decisions": 0,
+    "revues": 0,
+    "arretees": 0,
+    "premieres": [
+      {
+        "genre": "question",
+        "projet": "p_7886b97a0890",
+        "projet_titre": "Outil jetable",
+        "titre": "Exploration du dépôt « jetable »",
+        "cible": "/projets?vue=questions&q=q_bf237cb06b85"
+      }
+    ],
+    "tableaux_illisibles": []
+  },
+  "chez_hermes": 0,
+  "discussions": {
+    "suivies": true,
+    "requetes_ouvertes": 0,
+    "message": null,
+    "limite": "Les questions posées dans la discussion en terminal (/chat) ne sont visibles que dans cette discussion."
+  },
+  "projets": {
+    "en_cours": 1,
+    "en_pause": 0,
+    "termines_7j": 0,
+    "liste": [
+      {
+        "id": "p_7886b97a0890",
+        "titre": "Outil jetable",
+        "etat": "actif",
+        "etat_derive": "exploration",
+        "faites": 0,
+        "total": 2,
+        "derniere_note": null,
+        "derniere_note_tronquee": false,
+        "questions_ouvertes": 1,
+        "depot": "jetable",
+        "branche_prete": null
+      }
+    ]
+  },
+  "executant": {
+    "etat": "en_ligne",
+    "message": null,
+    "nom": "Exécutant Railway",
+    "plateforme": "linux",
+    "hote": "railway",
+    "derniere_vue": 1790886944,
+    "hors_ligne_depuis": null,
+    "cartes_en_attente": 0,
+    "pause_reclamations": false,
+    "peut_executer": true,
+    "carte_en_cours": {
+      "titre": "Exploration du dépôt « jetable »",
+      "projet": "p_7886b97a0890",
+      "projet_titre": "Outil jetable",
+      "statut": "scheduled",
+      "voie": "poste-claude",
+      "connue": true
+    },
+    "voies_fermees": {
+      "poste-codex": "isolement de l'exécutant (régime B) : Bac à sable Linux refusé par la plateforme (régime B) : voie Codex fermée en écriture."
+    }
+  },
+  "quotas": {
+    "poste-codex": {
+      "etat": "releve",
+      "releve_le": 1790886944,
+      "compteurs": [
+        {
+          "provider": "codex",
+          "status": "ok",
+          "source": "codex_app_server",
+          "plan": "prolite",
+          "limit_id": "codex",
+          "windows": [
+            {
+              "key": "primary",
+              "used_percent": 41,
+              "window_minutes": 300,
+              "resets_at": "2026-09-26T12:00:00Z",
+              "remaining_percent": 59
+            },
+            {
+              "key": "secondary",
+              "used_percent": 12,
+              "window_minutes": 10080,
+              "resets_at": "2026-09-30T08:00:00Z",
+              "remaining_percent": 88
+            }
+          ],
+          "credits": null,
+          "limit_reached": false,
+          "reached_type": null,
+          "observed_at": "2026-10-01T20:35:44Z",
+          "detail": null,
+          "worker_id": "m9bddf458d68",
+          "worker_name": "Exécutant Railway",
+          "received_at": "2026-10-01T20:35:44Z",
+          "stale": false
+        }
+      ],
+      "seuil_pct": 90,
+      "source": "codex_app_server",
+      "source_libelle": "Compteurs de votre compte ChatGPT, lus par Codex (app-server) sur la machine qui exécute",
+      "releve_le_lisible": "01/10/2026 22:35",
+      "releve_id": 1,
+      "etat_releve": "ok",
+      "detail": null,
+      "source_releve": "poste",
+      "resume": {
+        "pourcentage_utilise": 41.0,
+        "remise_a_zero": "2026-09-26T12:00:00Z"
+      }
+    },
+    "poste-claude": {
+      "etat": "releve",
+      "releve_le": 1790886944,
+      "compteurs": [],
+      "seuil_pct": 90,
+      "source": "claude_code_rate_limit_event",
+      "source_libelle": "Dernier événement de limite des cartes Claude de l'exécutant Railway (inconnu tant qu'aucune carte Claude n'y a tourné)",
+      "releve_le_lisible": "01/10/2026 22:35",
+      "releve_id": 2,
+      "etat_releve": "ok",
+      "detail": null,
+      "source_releve": "poste",
+      "resume": null
+    },
+    "hermes": {
+      "etat": "meme_enveloppe_que_codex",
+      "libelle": "Même enveloppe que Codex (déclaré dans poste.toml)"
+    }
+  },
+  "notifications": {
+    "canal": "ntfy",
+    "configure": true,
+    "connu": true,
+    "message": null
+  },
+  "pause_generale": null,
+  "illisibles": {}
+}

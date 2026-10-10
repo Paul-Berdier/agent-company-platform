@@ -1,4 +1,15 @@
-"""Vérifie que tous les composants publiables portent la version du produit."""
+"""Vérifie que tous les composants publiables portent la version du produit.
+
+Refonte « Hermes au centre » : seuls les composants conservés sont vérifiés. Le
+client desktop lit directement le fichier ``VERSION`` (``apps/desktop/cmake/
+AcpVersion.cmake``) et n'en garde aucune copie.
+
+``packages/pixel-office-engine`` est volontairement ABSENT de cette liste : le moteur
+est gelé octet pour octet sur l'étiquette ``archive/acp-0.10.0-avant-hermes``
+(``scripts/check_engine_frozen.py``). S'il y figurait, chaque hausse de version
+obligerait à modifier son ``package.json``, donc à rompre le gel. Son entrée dans
+``package-lock.json`` garde de même la version que déclare son ``package.json``.
+"""
 
 from __future__ import annotations
 
@@ -13,44 +24,38 @@ ROOT = Path(__file__).resolve().parents[1]
 EXPECTED = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
 
 PYPROJECTS = (
-    "apps/api/pyproject.toml",
-    "apps/cli/pyproject.toml",
-    "apps/event-service/pyproject.toml",
-    "apps/worker/pyproject.toml",
-    "packages/agent-sdk/pyproject.toml",
-    "packages/contracts/pyproject.toml",
-    "packages/database/pyproject.toml",
-    "packages/event-sdk/pyproject.toml",
-    "packages/provider-sdk/pyproject.toml",
-    "services/provider-gateway/pyproject.toml",
+    "apps/poste/pyproject.toml",
+    "hermes/plugins/acp-poste/contrat/pyproject.toml",
 )
 
 PACKAGE_JSONS = (
     "package.json",
-    "apps/web/package.json",
-    "packages/contracts/package.json",
-    "packages/pixel-office-engine/package.json",
-    "packages/playwright-reporter/package.json",
-    "packages/ui/package.json",
+    "hermes/plugins/acp-poste/dashboard/manifest.json",
+    # Étape P3 : greffons d'interface et leurs sources (hors des workspaces npm de la racine).
+    "hermes/plugins/acp-interface/dashboard/manifest.json",
+    "hermes/plugins/acp-catalogue/dashboard/manifest.json",
+    # Étape P4 : page Projets.
+    "hermes/plugins/acp-projets/dashboard/manifest.json",
+    "hermes/plugins/acp-poste-vues/dashboard/manifest.json",
+    # Étape P7 : discussion réduite.
+    "hermes/plugins/acp-discussion/dashboard/manifest.json",
+    "apps/interface/package.json",
 )
 
-FASTAPI_APPS = (
-    "apps/api/src/acp_api/main.py",
-    "apps/api/src/acp_api/preview.py",
-    "apps/event-service/src/acp_event_service/main.py",
-    "services/provider-gateway/src/acp_provider_gateway/main.py",
-)
+# Manifestes YAML des greffons groupés de l'image Hermes (champ ``version`` de premier
+# niveau, lu sans PyYAML : ce script ne dépend que de la bibliothèque standard).
+PLUGIN_YAMLS = ("hermes/plugins/acp-poste/plugin.yaml",)
+_VERSION_YAML = re.compile(r'^version:\s*"?([^"\s#]+)"?\s*(?:#.*)?$', re.MULTILINE)
 
-PYTHON_VERSION_MODULES = ("apps/cli/src/acp_cli/__init__.py",)
+# Étape P5 : version annoncée par le poste Windows à Hermes (``version_poste``, en-tête ``User-Agent``).
+PYTHON_MODULES = ("apps/poste/src/acp_poste/__init__.py",)
+_VERSION_PYTHON = re.compile(r'^__version__ = "([^"]+)"$', re.MULTILINE)
 
-LOCK_PACKAGES = (
-    "",
-    "apps/web",
-    "packages/contracts",
-    "packages/pixel-office-engine",
-    "packages/playwright-reporter",
-    "packages/ui",
-)
+# Verrous npm qui portent la version du produit ; seul leur paquet racine est versionné par le produit.
+# Étape P9 : le verrou des sources de l'interface, oublié jusqu'ici (aucun contrôle ne le comparait à
+# apps/interface/package.json), est contrôlé comme celui de la racine (scripts/tests/test_version_complete.py).
+LOCKS = ("package-lock.json", "apps/interface/package-lock.json")
+LOCK_PACKAGES = ("",)
 
 
 def report(errors: list[str], path: str, actual: object) -> None:
@@ -69,24 +74,23 @@ def main() -> int:
         data = json.loads((ROOT / relative).read_text(encoding="utf-8"))
         report(errors, relative, data.get("version"))
 
-    lock = json.loads((ROOT / "package-lock.json").read_text(encoding="utf-8"))
-    report(errors, "package-lock.json", lock.get("version"))
-    for package in LOCK_PACKAGES:
-        report(
-            errors,
-            f"package-lock.json#packages/{package or '<root>'}",
-            lock.get("packages", {}).get(package, {}).get("version"),
-        )
+    for relative in PLUGIN_YAMLS:
+        found = _VERSION_YAML.findall((ROOT / relative).read_text(encoding="utf-8"))
+        report(errors, relative, found[0] if len(found) == 1 else None)
 
-    version_pattern = re.compile(r'\bversion\s*=\s*"([^"]+)"')
-    for relative in FASTAPI_APPS:
-        match = version_pattern.search((ROOT / relative).read_text(encoding="utf-8"))
-        report(errors, relative, match.group(1) if match else None)
+    for relative in PYTHON_MODULES:
+        found = _VERSION_PYTHON.findall((ROOT / relative).read_text(encoding="utf-8"))
+        report(errors, relative, found[0] if len(found) == 1 else None)
 
-    module_version_pattern = re.compile(r'\b__version__\s*=\s*"([^"]+)"')
-    for relative in PYTHON_VERSION_MODULES:
-        match = module_version_pattern.search((ROOT / relative).read_text(encoding="utf-8"))
-        report(errors, relative, match.group(1) if match else None)
+    for relative in LOCKS:
+        lock = json.loads((ROOT / relative).read_text(encoding="utf-8"))
+        report(errors, relative, lock.get("version"))
+        for package in LOCK_PACKAGES:
+            report(
+                errors,
+                f"{relative}#packages/{package or '<root>'}",
+                lock.get("packages", {}).get(package, {}).get("version"),
+            )
 
     if errors:
         print("Dérive de version détectée :", file=sys.stderr)

@@ -15,11 +15,11 @@ Rectangle {
         spacing: Space.space4
         Rectangle {
             width: 5; height: 5; radius: 3
-            color: Health.linkStatus === LinkStatus.Online && Session.state === SessionStatus.Connected
+            color: Health.linkStatus === LinkStatus.Online && Session.connectee
                 ? Colors.accentPrimary : Colors.textMuted
         }
         Text {
-            text: Session.state === SessionStatus.Offline ? Session.stateLabel : Health.linkStatusLabel
+            text: Health.linkStatusLabel
             textFormat: Text.PlainText
             color: Colors.textSecondary
             font.family: Type.metadata.family
@@ -50,8 +50,43 @@ Rectangle {
                 contentItem: Text { text: noticeTip.text; textFormat: Text.PlainText; color: Colors.textPrimary; wrapMode: Text.Wrap }
             }
         }
+        // Résumé du sondage léger de /v1/accueil (relu au signal du flux d'invalidation, sinon
+        // toutes les 60 s) : état du poste, « À traiter par vous », pause générale. Vide hors
+        // session ; « Inconnu » tant que rien n'a été lu.
         Text {
-            text: Session.userDisplayName || Session.stateLabel
+            objectName: "barre-etat-resume"
+            visible: Streams.libelleResume.length > 0
+            Layout.maximumWidth: statusBar.width * 0.34
+            text: Streams.libelleResume
+            textFormat: Text.PlainText
+            elide: Text.ElideRight
+            color: Streams.pauseGenerale === 1 ? Status.statusDegradedForeground : Colors.textSecondary
+            font.family: Type.metadata.family
+            font.pixelSize: Type.metadata.pixelSize
+        }
+        // Étape P7 : temps réel (flux d'invalidation du greffon) ou sondage, dit tel quel ; le
+        // détail (raison, nouvel essai) est dans l'info-bulle et les diagnostics.
+        Text {
+            objectName: "barre-etat-temps-reel"
+            visible: Streams.libelleTempsReel.length > 0
+            text: Streams.libelleTempsReel
+            textFormat: Text.PlainText
+            elide: Text.ElideRight
+            Layout.maximumWidth: statusBar.width * 0.16
+            color: Streams.tempsReel ? Colors.textSecondary : Colors.textMuted
+            font.family: Type.metadata.family
+            font.pixelSize: Type.metadata.pixelSize
+            Accessible.name: Streams.etatFlux
+            HoverHandler { id: fluxHover }
+            ToolTip {
+                id: fluxTip
+                visible: fluxHover.hovered && Streams.etatFlux.length > 0
+                text: Streams.etatFlux
+                contentItem: Text { text: fluxTip.text; textFormat: Text.PlainText; color: Colors.textPrimary; wrapMode: Text.Wrap }
+            }
+        }
+        Text {
+            text: Session.connectee ? Session.nomAffiche : Session.libelleEtat
             textFormat: Text.PlainText
             color: Colors.textMuted
             font.family: Type.metadata.family

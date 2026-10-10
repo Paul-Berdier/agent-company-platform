@@ -6,11 +6,17 @@
 // Ce fichier est cette protection, côté client.
 //
 // Ce qui est expurgé :
-//   - le paramètre `token=` d'une URL (lien signé de téléchargement d'un livrable) ;
+//   - les paramètres `token=`, `signature=`, `sig=`, `code=`, `state=`, `ticket=` et
+//     `code_verifier=` d'une URL (lien signé, rappel de la connexion native, ticket) ;
 //   - toute valeur d'en-tête X-CSRF-Token, X-ACP-Bootstrap-Token,
-//     X-Worker-Registration-Token, Authorization, Cookie et Set-Cookie ;
-//   - le cookie acp_session, où qu'il apparaisse ;
-//   - tout couple `"password": "…"` d'un corps JSON.
+//     X-Worker-Registration-Token, Authorization, Cookie, Set-Cookie et
+//     Sec-WebSocket-Protocol (qui porte le ticket de la passerelle) ;
+//   - tout jeton `Bearer …`, tout JWT (`eyJ….….…`), tout jeton opaque d'Authelia
+//     (`authelia_xx_…`), le sous-protocole `hermes-gateway-ticket.…` ;
+//   - le jeton de machine (`acpm_…`) et le code d'enrôlement (`acpe_…`) du greffon acp-poste ;
+//   - les cookies acp_session, hermes_session_rt et hermes_session_at ;
+//   - les champs JSON password, secret, csrf_token, token, bootstrap_token, access_token,
+//     refresh_token, id_token, ticket, code, code_verifier et state.
 //
 // Ce que le filtre NE prétend PAS faire : il ne trouve pas un secret arbitraire dans un
 // texte arbitraire. C'est une défense en profondeur, pas une garantie. La vraie garantie
@@ -24,6 +30,12 @@ namespace acp {
 
 /*! Remplace toute occurrence reconnue d'un secret par « […expurgé] ». */
 [[nodiscard]] QString redactSecrets(const QString &text);
+
+/*!
+    Vrai si `text` contient une forme de secret reconnue par redactSecrets() : contrôle des
+    préférences (aucune valeur ne doit ressembler à un jeton) et des diagnostics.
+*/
+[[nodiscard]] bool ressembleAUnSecret(const QString &text);
 
 /*! Expurge une URL : le paramètre `token` est remplacé, le reste est conservé. */
 [[nodiscard]] QString redactUrl(const QString &url);

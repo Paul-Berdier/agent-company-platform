@@ -1,0 +1,1336 @@
+# Image Hermes d'ACP — étapes P1, P2 et P3
+
+État du **25 septembre 2026**. Étape P2 du [plan de la refonte](plan.md) : sur Railway,
+l'agent n'a **aucun outil d'exécution** (ni terminal, ni fichiers, ni exécution de code, ni
+navigateur, ni cron, ni délégation : décision du propriétaire du 25 septembre 2026) et Hermes
+ne tourne **jamais hors des gardes d'ACP** (PID 1, s6, volume). L'exécution passe par le poste
+Windows du propriétaire. Tout ce document est prouvé **en local et en CI** ; rien n'est
+déployé. Le fournisseur d'identité (`identite/`, Authelia) est décrit dans
+[identite.md](identite.md) ; l'infrastructure Railway (`.railway/`) et la procédure
+d'exploitation et de récupération dans [railway.md](railway.md).
+
+L'étape P1 (image dérivée, gardes de démarrage, managed scope, greffon `acp-poste`, CI de
+contrat) reste valable ; ses sections sont mises à jour ci-dessous, et chaque ajout de P2 est
+signalé comme tel. Les corrections de la **relecture indépendante de P2** (sécurité, exactitude,
+exploitation) sont signalées « relecture P2 » ; leur tableau de traitement est dans
+[`historique.md`](historique.md), partie B, § 6.
+
+Étape P3 (identité visuelle et français, première partie) : thème `acp` généré depuis
+`design/tokens`, persona française réécrite, greffons de tableau de bord `acp-interface` et
+`acp-catalogue` (sans code serveur), trois épingles de plus dans la managed scope ; détail et
+preuves dans [interface.md](interface.md). Étape P3, seconde partie (réglages prêts) : catalogue
+de skills épinglé livré sous `/opt/acp/skills` et chargé par `skills.external_dirs`, skills livrées
+inertes désactivées, serveur MCP distant context7 derrière la garde (huit épingles de plus, deux
+outils admis de plus), refus de démarrer sur un serveur MCP stdio ou hors catalogue, route
+`/v1/catalogue` ; détail et preuves dans [catalogue.md](catalogue.md). Chaque ajout de P3 est
+signalé comme tel.
+
+Chantier sécurité SECU-TUI (8 et 9 octobre 2026, branche `refonte/hermes-secu-tui`, fusionnée dans
+`refonte/hermes` par la PR #23, `5026a70`) : une session du tableau de bord a reçu `terminal` une fois en CI,
+parce que Hermes publie la valeur du volume avant la portée gérée ; cause prouvée sans course, correctif
+(décisions SECU-1 et SECU-2, numérotées **D156** et **D157** dans le [plan](plan.md) § 1) et preuves aux
+§ 4.3 bis, § 4.3 ter, § 5, § 8, § 9 et § 10.
+
+Les références `fichier:ligne` désignent le source de Hermes Agent à l'étiquette
+`v2026.9.24` (commit `f97608f`), sauf mention contraire.
+
+## 1. En bref
+
+| Élément | Emplacement dans le dépôt | Dans l'image |
+|---|---|---|
+| Dockerfile dérivé | `hermes/image/Dockerfile` | — |
+| Gardes de démarrage (crochet s6) | `hermes/image/acp-gardes` | `/opt/acp/bin/acp-gardes` (`S6_STAGE2_HOOK`) |
+| Données du volume (cont-init) | `hermes/image/cont-init.d/05-acp` | `/etc/cont-init.d/05-acp` |
+| Logique commune, en Python | `hermes/image/acp_demarrage.py` | `/opt/acp/bin/acp_demarrage.py` |
+| Modèle de la managed scope | `hermes/gere/config.yaml` | `/opt/acp/gere/config.yaml` → `/etc/hermes/config.yaml` |
+| Contrat épinglé | `hermes/contrat/` | `/opt/acp/contrat/` |
+| Persona (française, réécrite en P3) | `hermes/persona/SOUL.md` | `/opt/acp/persona/SOUL.md` → `/opt/data/SOUL.md` |
+| Thème (généré en P3 par `scripts/generer_themes.py`) | `hermes/theme/acp.yaml` | `/opt/acp/theme/` → `/opt/data/dashboard-themes/` |
+| Greffon `acp-poste` | `hermes/plugins/acp-poste/` | `/opt/hermes/plugins/acp-poste/` |
+| Greffons d'interface (P3 ; `acp-projets` en P4), sources dans `apps/interface` | `hermes/plugins/acp-interface/`, `hermes/plugins/acp-catalogue/`, `hermes/plugins/acp-projets/` | `/opt/hermes/plugins/acp-interface/`, `/opt/hermes/plugins/acp-catalogue/`, `/opt/hermes/plugins/acp-projets/` |
+| Catalogue de skills (P3) : skills, verrou, licences tierces | `hermes/skills/`, `hermes/catalogue/`, `hermes/THIRD_PARTY.md` | `/opt/acp/skills/`, `/opt/acp/catalogue/`, `/opt/acp/THIRD_PARTY.md` |
+| Garde d'entrée hors PID 1 (P2) | `hermes/image/acp-entree` | `/opt/acp/bin/acp-entree` (`ENTRYPOINT`) |
+| Garde d'exécution de l'agent (P2) | `hermes/plugins/acp-poste/garde_execution.py` | dans le greffon |
+| Image de test, outils | `hermes/tests/` | jamais dans l'image Railway |
+| Workflow | `.github/workflows/image.yml` | — |
+| Fournisseur d'identité (P2) | `identite/` | image séparée, voir [identite.md](identite.md) |
+| Infrastructure Railway (P2) | `.railway/` | lue par le propriétaire seul, voir [railway.md](railway.md) |
+
+Construction locale (contexte limité à `hermes/`) :
+
+```sh
+docker build -f hermes/image/Dockerfile -t acp-hermes:dev hermes
+docker build -f hermes/tests/Dockerfile --build-arg IMAGE_ACP=acp-hermes:dev -t acp-hermes-tests:dev hermes/tests
+```
+
+## 2. Base épinglée
+
+- `FROM nousresearch/hermes-agent:v2026.9.24@sha256:fca358f12efd65bfaaca05884166f15c0e2788375ca30d77061ac1ebc96452b7`
+  — condensat de l'**index** multi-architecture, relevé le 24 septembre 2026 par
+  `docker buildx imagetools inspect nousresearch/hermes-agent:v2026.9.24` ;
+  manifeste `linux/amd64` : `sha256:2fd023efbb8d3d2b0ce1a73d028b07370cff34f567cfe0e999553e8c327ea283`.
+- `hermes/contrat/HERMES_VERSION` porte les mêmes valeurs ; le workflow refuse de
+  construire si le condensat publié de l'étiquette a changé ou si le `FROM` diverge.
+- `hermes --version` dans l'image : `Hermes Agent v0.21.5 (2026.9.24) · upstream f97608f1`.
+- Une montée de version passe par une PR qui change le `FROM`, `HERMES_VERSION` et la
+  copie de l'OpenRPC. Jamais `hermes update`, `git pull`, `:latest` ni `AUTO_UPDATE`.
+
+## 3. Démarrage d'un conteneur
+
+0. **`ENTRYPOINT` = `/opt/acp/bin/acp-entree`** (étape P2). L'`ENTRYPOINT` officiel
+   (`docker/entrypoint-dispatch.sh`) lance `/init` de s6-overlay quand il est PID 1
+   (entrypoint-dispatch.sh:17-19) ; sinon (`docker run --init`, plateforme qui garde le PID 1),
+   il se **replie sans s6** : `stage2-hook.sh` puis la commande, **sans aucune garde d'ACP**
+   (entrypoint-dispatch.sh:21-25). `acp-entree` refuse donc de démarrer hors du PID 1 (code 1,
+   message français) ; au PID 1, il fait `exec` de l'entrée officielle, qui garde ce PID. Déclarer un
+   `ENTRYPOINT` remet à vide le `CMD` hérité : `CMD ["gateway","run"]` est redéclaré après.
+   Railway ne documente pas le PID 1 de ses conteneurs (seul indice : une PR tierce) :
+   `acp-entree` tranche au premier démarrage, en refusant explicitement.
+1. **Crochet `S6_STAGE2_HOOK` = `/opt/acp/bin/acp-gardes`**, en root, au tout début de
+   l'étape 2, avant tout service et tout script cont-init (rc.init de s6-overlay 3.2.3.0,
+   `/package/admin/s6-overlay/etc/s6-linux-init/skel/rc.init`). L'en-tête
+   `#!/command/with-contenv /bin/sh` lui donne l'environnement du conteneur (même motif que
+   `01-hermes-setup`, Dockerfile:402-405). Il :
+   - refuse une variable interdite ou invalide (§ 4) ;
+   - régénère `/etc/hermes/config.yaml` et `/etc/hermes/.env` (root, 0644, écriture
+     atomique) puis les relit et vérifie chaque épingle ;
+   - inspecte `/opt/data/plugins`, `/opt/data/dashboard-themes` et `/opt/data/acp`
+     (noms réservés, liens symboliques) sans rien écrire ;
+   - (P2) exige que `/opt/data/hooks`, `/opt/data/scripts` et, depuis la relecture P2, les
+     `hooks/` et `scripts/` de **chaque profil** de `/opt/data/profiles` soient **vides** (depuis
+     P7, sauf `/opt/data/scripts/acp-bilan.py` d'empreinte connue, § 6), et refuse un lien
+     symbolique sous `profiles/` (§ 6) ;
+   - (P2) sur Railway, exige le volume du service monté sur `/opt/data` (§ 4) ;
+   - (P2) journalise `[acp] commit déployé : <RAILWAY_GIT_COMMIT_SHA ou « inconnu »>`, même
+     en cas de refus, pour relier chaque déploiement à son run `image.yml`.
+   Un refus arrête le conteneur **avec le code 1** (`S6_BEHAVIOUR_IF_STAGE2_FAILS=2`) avant
+   `01-hermes-setup` (qui consommerait `HERMES_AUTH_JSON_BOOTSTRAP`, `HERMES_UID`…) et
+   avant `02-reconcile-profiles` (qui démarre la passerelle).
+2. `01-hermes-setup`, `015-supervise-perms`, `02-reconcile-profiles` de l'image officielle.
+3. **`/etc/cont-init.d/05-acp`** : refait les contrôles du crochet (défense en
+   profondeur si `S6_STAGE2_HOOK` avait été retiré), refuse une variable interdite
+   injectée dans `/opt/data/.env` (§ 4.3), vérifie que la managed scope installée
+   correspond aux variables de ce démarrage, rend `/opt/data/plugins`,
+   `/opt/data/dashboard-themes` et `/opt/data/acp` propriété de root (répertoires 0755,
+   fichiers 0644, par descripteurs `O_NOFOLLOW`), ainsi que `/opt/data/hooks`,
+   `/opt/data/scripts` et les `hooks/` et `scripts/` de chaque profil (P2, vides, root 0755),
+   **reprend à root le répertoire de
+   services s6 `/run/service` et les scripts des passerelles dynamiques** (§ 4.4), dépose
+   (P7) le script du bilan quotidien dans `/opt/data/scripts` (root 0644, § 6), dépose
+   le thème et `SOUL.md`, écrit `/run/acp/etat-demarrage.json` (tmpfs, root 0644).
+4. Services s6 : tableau de bord (`hermes dashboard --host 0.0.0.0 --port 9119`, uid
+   hermes) et `main-hermes`. Le script `run` du tableau de bord est **enveloppé par une
+   garde root d'ACP** (`hermes/image/acp-run-dashboard`, posée sur
+   `/etc/s6-overlay/s6-rc.d/dashboard/run` à la construction) qui refuse la (re)lance sur
+   un `/opt/data/.env` porteur d'une variable interdite ; le script officiel est préservé
+   tel quel dans `/opt/acp/amont/s6-dashboard-run`. `05-acp` enveloppe de même le `run` de
+   `gateway-default` une fois repris par root.
+5. `CMD ["gateway","run"]` : la passerelle (cron, répartiteur kanban, api_server) tourne
+   supervisée par s6 sous l'uid hermes (website/docs/user-guide/docker.md:61-66).
+
+Pourquoi un crochet plutôt que le seul `05-acp` du plan : mesuré dans l'image, un script
+cont-init en échec **n'empêche pas les suivants de tourner** ; s6 n'arrête le conteneur
+qu'à la fin de l'étape cont-init. Avec les gardes en `05-acp` (ou même en `00-`), une
+`API_SERVER_KEY` interdite était déjà consommée par `stage2-hook.sh` et la passerelle
+démarrée par `02-reconcile-profiles` avant l'arrêt. Le crochet arrête tout avant.
+
+`S6_BEHAVIOUR_IF_STAGE2_FAILS` elle-même est contrôlée : si elle ne vaut pas `2`, les
+scripts d'ACP arrêtent le conteneur eux-mêmes (`/run/s6/basedir/bin/halt`, code 1).
+
+**Sentinelle hors s6 (P2).** Si Hermes est lancé sans passer par l'`ENTRYPOINT`
+(`docker run --entrypoint hermes … gateway run`, Start Command Railway autre que la
+maintenance), `acp-entree` ne tourne pas. Le greffon `acp-poste`, chargé par tout processus de
+Hermes, arrête alors lui-même **`hermes gateway` (nu ou `run`), `hermes dashboard` et
+`hermes serve`** de production quand le PID 1 n'est pas `s6-svscan` : message français sur la
+sortie d'erreur, `os._exit(78)`. Les commandes ponctuelles, les workers kanban
+(`-p default … chat -q`) et les tests ne sont pas visés. La passerelle découvre les greffons dès
+son démarrage (gateway/run_startup.py:1017-1020), le tableau de bord aussi
+(hermes_cli/main.py:2659-2673).
+
+Relecture P2 : la sentinelle se contournait par une option globale à valeur qu'elle ignorait
+(`--reasoning high gateway run` : « high » pris pour la sous-commande ; de même `--in`,
+`--resume`, `--usage-file`, `-z`), par un `HERMES_HOME` non normalisé (`/opt/data/`), par
+`hermes gateway` sans sous-commande (qui lance aussi la passerelle, hermes_cli/gateway.py:5108-5112)
+et par `hermes serve` (même serveur que le tableau de bord, hermes_cli/subcommands/dashboard.py:79-101).
+Désormais : les options à valeur sont celles de l'analyseur réel de Hermes 0.21.5
+(hermes_cli/_parser.py), sautées comme le fait Hermes lui-même (`--option=valeur`, `--`), et
+`test_options_a_valeur_couvrent_l_analyseur_de_hermes` compare cette liste à
+`top_level_value_flag_sets()` de l'image épinglée ; tout `HERMES_HOME` qui désigne `/opt/data`
+ou l'un de ses sous-répertoires (profils compris), après normalisation et résolution des liens,
+est visé. Reste une **défense en profondeur** : une commande qui ne passe pas par l'analyse de
+`sys.argv` de `hermes` n'est pas reconnue ; la garde principale est `acp-entree`.
+
+## 4. Variables Railway
+
+### Attendues
+
+| Variable | Obligatoire | Validation | Destination |
+|---|---|---|---|
+| `HERMES_DASHBOARD_PUBLIC_URL` | oui | https, hôte public (ni `localhost`, ni IP non publique), sans requête, fragment ni identifiants | `/etc/hermes/.env` et `dashboard.public_url` |
+| `HERMES_DASHBOARD_OIDC_ISSUER` | oui | idem | `.env` géré et `dashboard.oauth.self_hosted.issuer` |
+| `HERMES_DASHBOARD_OIDC_CLIENT_ID` | oui | 1 à 200 caractères `[A-Za-z0-9._:@+/-]` | `.env` géré et `dashboard.oauth.self_hosted.client_id` |
+| `HERMES_DASHBOARD_OIDC_SCOPES` | non (`openid profile email`) | portées séparées par une espace, `openid` exigé | `.env` géré et `dashboard.oauth.self_hosted.scopes` |
+| `HERMES_DASHBOARD_OIDC_CLIENT_SECRET` | non (client public, PKCE seul) | non vide, sans espace, ≤ 512 caractères ; jamais affiché | **jamais recopié** : lu directement dans l'environnement par Hermes |
+| `ACP_NOTIFICATIONS` (P4) | non (`aucune`) | `aucune`, `telegram` ou `ntfy` | greffon `acp-poste` : canal des notifications du propriétaire ([projets.md](projets.md) § 5) |
+| `ACP_TELEGRAM_JETON`, `ACP_TELEGRAM_DISCUSSION` (P4) | si `telegram` | jeton non vide, sans espace, ≤ 256 caractères, jamais affiché ; discussion `^-?\d{1,20}$` | greffon, retirées de `os.environ` par `register()` |
+| `ACP_NTFY_SUJET`, `ACP_NTFY_JETON`, `ACP_NTFY_SERVEUR` (P4) | sujet et jeton si `ntfy` (D33) | sujet de 16 à 64 caractères `[A-Za-z0-9_-]` ; jeton comme Telegram ; serveur https public (`https://ntfy.sh` par défaut) | greffon, retirées de `os.environ` par `register()` |
+
+Noms exacts relevés dans `plugins/dashboard_auth/self_hosted/__init__.py:285-310` (le
+fournisseur s'appelle `self-hosted`, sa clé de greffon `dashboard_auth/self_hosted`).
+L'URI de retour à déclarer chez le fournisseur d'identité est
+`<HERMES_DASHBOARD_PUBLIC_URL>/auth/callback` (vérifiée par
+`plugins/dashboard_auth/_shared.py:93-101`). Un client **public** est recommandé : aucun
+secret n'existe alors nulle part. Un secret client fourni reste lisible par l'agent, qui
+tourne sous le même uid que le tableau de bord (environnement du processus,
+`/run/s6/container_environment`, rendu lisible par rc.init) : il ne protège rien contre
+lui.
+
+Fixées par l'image, refusées si Railway les change : `HERMES_HOME=/opt/data`,
+`HERMES_WEB_DIST=/opt/hermes/hermes_cli/web_dist`, `HERMES_DASHBOARD=1`,
+`HERMES_DASHBOARD_HOST=0.0.0.0`, `HERMES_DASHBOARD_PORT=9119`,
+`S6_BEHAVIOUR_IF_STAGE2_FAILS=2`, `S6_STAGE2_HOOK=/opt/acp/bin/acp-gardes` ;
+`API_SERVER_HOST` n'est admise qu'à `127.0.0.1`. Depuis P2, aussi les valeurs de l'`ENV`
+officiel (Dockerfile:427-449 de Hermes) : `HERMES_WRITE_SAFE_ROOT=/opt/data`,
+`HERMES_DISABLE_LAZY_INSTALLS=1`, `HERMES_LAZY_INSTALL_TARGET=/opt/data/lazy-packages`,
+`HERMES_TUI_DIR=/opt/hermes/ui-tui`, `XDG_RUNTIME_DIR=/tmp/hermes-runtime`.
+
+**Règles Railway (P2).**
+- `RAILWAY_RUN_UID` n'est admise qu'absente ou égale à `0` : s6-overlay et les gardes
+  exigent root.
+- **Volume exigé** : si `RAILWAY_ENVIRONMENT_ID`, `RAILWAY_DEPLOYMENT_ID` ou
+  `RAILWAY_SERVICE_ID` est présente, `RAILWAY_VOLUME_MOUNT_PATH` doit valoir `/opt/data` **et**
+  `/opt/data` doit être un vrai point de montage (5e champ de `/proc/self/mountinfo`) : sans
+  volume, Hermes tournerait sur un disque éphémère et perdrait tout au redéploiement.
+- `RAILWAY_GIT_COMMIT_SHA` (variable documentée par Railway) est journalisée et exposée par
+  `/v1/meta` si elle a la forme d'un SHA git ; toute autre valeur devient « inconnu ».
+
+### Interdites (leur seule présence, même vide, refuse le démarrage)
+
+| Variable | Raison |
+|---|---|
+| `HERMES_MANAGED_DIR` | déplacerait la managed scope hors de `/etc/hermes` (managed_scope.py:45-59) |
+| `API_SERVER_KEY`, `API_SERVER_ENABLED`, `API_SERVER_PORT` | l'image génère sa clé en boucle locale (stage2-hook.sh:459-540) ; l'api_server reste sur 127.0.0.1:8642 |
+| `HERMES_DASHBOARD_OAUTH_CLIENT_ID`, `HERMES_DASHBOARD_PORTAL_URL` | fournisseur Nous Portal écarté (décision du propriétaire) |
+| `HERMES_DASHBOARD_BASIC_AUTH_*` | fournisseur par mot de passe écarté |
+| `HERMES_DASHBOARD_DRAIN_SECRET` | fournisseur drain désactivé |
+| `HERMES_DASHBOARD_INSECURE` | jamais de tableau de bord sans authentification |
+| `HERMES_BUNDLED_PLUGINS`, `HERMES_ENABLE_PROJECT_PLUGINS` | tout greffon vient de l'image |
+| `HERMES_KANBAN_HOME`, `HERMES_KANBAN_DB`, `HERMES_KANBAN_BOARD` | emplacement et tableau courant du kanban fixes |
+| `HERMES_ALLOW_ROOT_GATEWAY`, `HERMES_DOCKER_EXEC_AS_ROOT` | rien ne tourne en root hors de l'amorçage |
+| `HERMES_AUTH_JSON_BOOTSTRAP`, `HERMES_AUTH_JSON_REBOOTSTRAP` | aucun identifiant injecté dans `auth.json` (stage2-hook.sh:659-696) |
+| `HERMES_UID`, `HERMES_GID`, `PUID`, `PGID` | l'agent reste sous l'uid 10000 de l'image |
+| `HERMES_GATEWAY_NO_SUPERVISE` | la passerelle reste supervisée par s6 |
+| `AUTO_UPDATE`, `DASHBOARD_PASSWORD` | restes de l'ancien modèle Railway |
+| `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY` (et minuscules), `SSL_CERT_FILE`, `SSL_CERT_DIR`, `REQUESTS_CA_BUNDLE`, `CURL_CA_BUNDLE` | mandataires et autorités de certification fixés par la managed scope |
+| `HERMES_TUI_TOOLSETS` (P2) | remplacerait les outils de la discussion du tableau de bord, terminal compris |
+| `HERMES_BIN` (P2) | choisirait le programme lancé pour chaque worker kanban |
+| `HERMES_ACCEPT_HOOKS` (P2) | inscrirait sans consentement les crochets shell de la configuration |
+| `HERMES_SAFE_MODE` (P2) | sauterait la découverte des greffons, donc la garde d'exécution |
+| `HERMES_YOLO_MODE` (P2) | approuverait sans demander toute commande dangereuse |
+| `HERMES_COPILOT_ACP_COMMAND`, `HERMES_COPILOT_ACP_ARGS`, `COPILOT_CLI_PATH` (P2) | choisiraient un programme exécuté comme fournisseur copilot-acp |
+| `HERMES_ALLOW_PRIVATE_URLS` (P2) | l'accès de l'agent au réseau privé (8642, 9119, réseau Railway) reste fermé : fixée à `false` par l'image |
+| `HERMES_PORTAL_BASE_URL`, `NOUS_PORTAL_BASE_URL`, `NOUS_INFERENCE_BASE_URL` (P2) | Nous Portal écarté ; stage2-hook.sh les recopierait (stage2-hook.sh:579-610) |
+| `HERMES_GATEWAY_BOOTSTRAP_STATE` (P2) | l'état initial de la passerelle n'est jamais injecté |
+| `HERMES_KANBAN_DISPATCH_IN_GATEWAY` (P4) | couperait le répartiteur de la passerelle, qui fait avancer les projets et envoie les notifications |
+
+Le message de refus est en français, préfixé `[acp] REFUS :`, et nomme chaque variable
+fautive (toutes les erreurs d'un démarrage sont listées d'un coup).
+
+### 4.3 Variables interdites injectées dans `/opt/data/.env`
+
+`/opt/data/.env` appartient à l'agent et Hermes le charge avec `override=True` **avant** la
+managed scope (env_loader.py:433-435 puis 473). Les variables neutres (Nous, basic, drain,
+mandataires, greffons de projet et groupés) sont épinglées dans `/etc/hermes/.env`,
+appliquée en dernier, et gagnent donc. Mais `HERMES_MANAGED_DIR` **choisit quel `.env` géré
+est lu** (managed_scope.py:52) : aucune épingle ne peut la contrer. Les gardes (`gardes` et
+`05-acp`) **refusent donc de démarrer**, et la garde des scripts `run` **refuse la relance**,
+si un fichier d'environnement du volume (`/opt/data/.env`, `profiles/*/.env` et, depuis le
+chantier SECU-TUI, `/opt/data/.op.env` et `profiles/*/.op.env`) porte l'une de ces variables.
+`.op.env` est chargé lui aussi avant la portée gérée (override=False, env_loader.py:441-443) : mesuré
+au run [37831355746](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/37831355746) sur
+le code de P7, un `HERMES_MANAGED_DIR` posé là déplaçait la portée gérée vers `/opt/data/faux` et
+rendait `HERMES_TUI_TOOLSETS=terminal,file,code_execution`, sans aucun refus :
+
+| Variable | Raison |
+|---|---|
+| `HERMES_MANAGED_DIR` | déplacerait la portée gérée hors de `/etc/hermes` ; aucune épingle ne la contre |
+| `HERMES_BUNDLED_PLUGINS` | ferait charger le code de greffon de l'agent (aussi épinglée vide) |
+| `HERMES_ENABLE_PROJECT_PLUGINS` | servirait le JS de l'agent au navigateur du propriétaire (aussi épinglée à `0`) |
+| `HERMES_HOME` (audit du 9 octobre 2026) | Hermes la publie puis la **suit** (hermes_constants.py:112-119 et 161-170) : sa configuration, ses `.env` et ses crochets seraient lus dans un répertoire qu'aucune garde n'inspecte ; impossible à épingler, chaque profil ayant son propre `HERMES_HOME` |
+| Famille d'emplacement et d'exécution (audit du 9 octobre 2026) | toute variable que l'image fixe au conteneur (`VALEURS_IMPOSEES` : `HERMES_WEB_DIST`, `HERMES_TUI_DIR`, `HERMES_LAZY_INSTALL_TARGET`, `HERMES_WRITE_SAFE_ROOT`, `XDG_RUNTIME_DIR`, `HERMES_DASHBOARD_HOST`, `HERMES_DASHBOARD_PORT`…) et tout nom que l'écrivain de `.env` de Hermes refuse **lui-même** (hermes_cli/config.py:62-117 : chargeur dynamique `LD_*`/`DYLD_*`, `PYTHON*`, `NODE_OPTIONS`, `PATH`, `GIT_*`, `EDITOR`, `HERMES_PROFILE`, `HERMES_CONFIG*`…), **hors** les clés que la portée gérée épingle (retirées par SECU-1, § 4.3 bis) |
+
+**Audit défensif du 9 octobre 2026.** Deux manques prouvés, corrigés dans `2c4e2d4` :
+
+- *Variables d'emplacement et d'exécution.* Hermes publie chaque ligne d'un `.env` du volume
+  (override=True, env_loader.py:433-434) ; une variable qui choisit un répertoire ou un programme est
+  ensuite suivie par Hermes ou par les sous-processus qu'il lance. La famille vient de deux sources
+  qu'ACP n'invente pas : les valeurs que l'image impose au conteneur, et la liste par laquelle Hermes
+  refuse d'**écrire** ces noms (`save_env_value`), qu'il n'applique jamais au **chargement**. La copie
+  d'ACP (76 noms et 3 préfixes, Hermes 0.21.5) est gardée par un test qui exige qu'elle contienne la
+  liste de la version épinglée. Mesuré au run rouge jetable
+  [37873430373](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/37873430373) sur
+  `d5d8b73` : aucun des 85 noms mesurés (82 noms et un exemple par préfixe) n'était refusé, Hermes
+  les publiait tous, et dans le vrai conteneur un `HERMES_HOME=/opt/data/autre` dans `/opt/data/.env`
+  faisait lire `/opt/data/autre/.env`, dont le `HERMES_MANAGED_DIR` déplaçait la portée gérée vers
+  `/opt/data/faux` et rendait
+  `HERMES_TUI_TOOLSETS=terminal,file,code_execution`, sans aucun refus.
+- *Lecture des fichiers par la garde.* La garde lisait les `.env` en UTF-8 avec remplacement et avec
+  python-dotenv seul. Elle les lit désormais **comme SECU-1** (`cles_du_fichier_env_comme_hermes`) :
+  UTF-16 avec BOM, BOM UTF-8, repli latin-1, octets NUL retirés, UTF-32 refusé, et les **deux**
+  analyseurs de Hermes (python-dotenv au chargement, jetoniseur ligne à ligne de « reload.env »). Au même
+  run rouge, `HERMES_MANAGED\0_DIR=…`, la même ligne en UTF-16, et une ligne précédée d'un saut de page
+  ou d'un U+2028 passaient la garde ; Hermes publiait la variable au chargement (NUL, UTF-16 : portée
+  gérée déplacée dans le vrai conteneur) ou par `reload_env` (saut de page, U+2028).
+
+La liste reste **fermée à ce qui échappe à la portée gérée ou fait exécuter**, et ne contient que des
+noms que Hermes n'écrit jamais lui-même : `API_SERVER_KEY` en est exclue, car l'image la génère
+et l'écrit elle-même dans `/opt/data/.env` à chaque démarrage
+(docker/stage2-hook.sh:504-540) ; la refuser bloquerait tout démarrage. `.env.example`, semé
+au premier démarrage, ne contient aucune de ces variables (vérifié pour toute la famille sur la
+source de Hermes 0.21.5).
+
+### 4.3 bis Clés épinglées retirées des `.env` du volume (SECU-1, chantier SECU-TUI)
+
+**Constat.** Run `image.yml` [37784838264](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/37784838264),
+tentative 1 (job 113336818423, branche `refonte/hermes-p9bc`) : après un redémarrage du conteneur sur un
+volume piégé, une session de la discussion du tableau de bord (`/api/ws`) a reçu `execute_code`, `patch`,
+`read_file`, `search_files`, `terminal`, `tool_call`, `tool_describe`, `tool_search`, `write_file`, soit
+exactement le `HERMES_TUI_TOOLSETS=terminal,file,code_execution` écrit dans `/opt/data/.env`, que
+`/etc/hermes/.env` épingle à vide. La tentative 2 était verte. Relevé du 8 octobre 2026 : 136 runs
+d'`image.yml`, 132 terminés, 36 rouges ; le journal des échecs de chacun des 36 a été lu, et ce test n'a
+échoué qu'à cette tentative (seul run à deux tentatives). Un test qui n'échoue qu'une fois ne fonde rien :
+la preuve ci-dessous ne dépend d'aucune course.
+
+**Cause racine, prouvée.** `load_hermes_dotenv` publie d'abord la valeur du volume dans `os.environ`
+(`/opt/data/.env`, override=True, env_loader.py:433-434 ; `.op.env`, 441-443), puis applique la portée gérée
+par une **écriture séparée** (env_loader.py:473 et 503-518), sans verrou pour les lecteurs. Un autre fil du
+même processus qui lit `os.environ` entre les deux voit la valeur du volume. Dans le tableau de bord, le fil
+de découverte et de reconnexion MCP recharge le `.env` (tools/mcp_tool_config.py:360-371,
+mcp_tool_server_run.py:249 et 318) pendant que le fil qui construit l'agent d'une session lit
+`HERMES_TUI_TOOLSETS` (tui_gateway/server.py:1912, chemin « épingle explicite » 1924-1928). Pourquoi
+seulement après un redémarrage (explication par la lecture de la source, NON mesurée, et fondée sur un
+seul échec observé) : `05-acp` réécrit alors `mcp_servers.context7` dans `/opt/data/config.yaml`
+(injoignable en test, d'où des reconnexions) ; après une simple relance, la configuration piégée du test
+n'avait aucun serveur MCP, donc aucun fil rechargeur. La preuve ci-dessous n'en dépend pas. La passerelle
+recharge à chaque tour (gateway/run.py:1614-1623),
+le cron aussi (cron/scheduler.py:1494 et 2341) ; « reload.env » de `/api/ws`
+(tui_gateway/methods_tools.py:251) recopie le `.env` **sans** la portée gérée jusqu'au chargement suivant
+(hermes_cli/config.py:2733-2747). Toutes les clés épinglées sont concernées (`HERMES_SAFE_MODE`,
+`HERMES_BIN`, `HERMES_ALLOW_PRIVATE_URLS`, l'émetteur OIDC, les mandataires…), pas seulement
+`HERMES_TUI_TOOLSETS`. Preuve **déterministe** (point fixe au lieu d'une course : `os.environ` lu juste
+avant `_apply_managed_env`) au run [37831355746](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/37831355746)
+sur le code de P7 : dans le vrai conteneur, après une relance par l'agent, sept clés épinglées portaient
+la valeur du volume et une session aurait reçu `terminal`, `file`, `code_execution` ; avec un fil
+rechargeur, **7 181 résolutions sur 7 343** des outils d'une session rendaient `terminal` (20 144 sur 20 294
+dans l'image) ; `reload_env` republiait sept clés.
+
+**Décision SECU-1 (D156 du [plan](plan.md) § 1).** Une épingle n'est sûre que si le volume ne porte **aucune** valeur pour
+sa clé. Root retire donc des `.env` et `.op.env` du volume (racine et profils) toute clé que le `.env` géré
+**installé** épingle (`/etc/hermes/.env`, jamais une liste recopiée), avant tout processus de Hermes :
+au crochet `acp-gardes` (avant `01-hermes-setup` et la passerelle), dans `05-acp` et à **chaque relance**
+du tableau de bord ou d'une passerelle (`verifier-relance`). Détails :
+
+- les deux analyseurs de Hermes sont couverts : python-dotenv (env_loader._load_dotenv_with_fallback)
+  et le jetoniseur ligne à ligne d'agent/secret_scope.py:316-329 (`reload_env`, portée des profils) ; le
+  texte est d'abord normalisé comme Hermes le fait (UTF-16 avec BOM, BOM UTF-8, repli latin-1, octets NUL,
+  sauts de ligne, lignes rognées) ; une clé citée, cachée dans une valeur multiligne ou derrière un
+  séparateur de `splitlines` est retirée ; UTF-32 et toute forme qui résisterait au retrait refusent
+  (échec fermé) ;
+- écriture par descripteurs de répertoire ouverts sans suivre de lien (`O_NOFOLLOW`), fichier temporaire
+  `O_EXCL` puis renommage atomique dans ce même répertoire ; propriétaire et mode conservés ; un lien
+  symbolique à la place d'un `.env` ou d'un profil refuse ; une cible liée en dur n'est jamais modifiée ;
+  un fichier sans clé épinglée n'est pas réécrit ; le fichier est relu après écriture ;
+- le journal nomme les fichiers et les **clés**, jamais les valeurs : `[acp] SECU-1 (relance) :
+  /opt/data/.env portait 7 clé(s) épinglée(s) par la portée gérée (…) : retirées, valeurs jamais
+  affichées.` ; `diagnostiquer` les signale en information, sans rien écrire.
+
+### 4.3 ter Sources externes de secrets refusées (SECU-2, chantier SECU-TUI)
+
+La section `secrets` du `config.yaml` du volume est lue **sans** la portée gérée (env_loader.py:620-640,
+`read_raw_config`) au premier chargement de l'environnement de chaque processus de Hermes
+(env_loader.py:471-472). La source `command` lance `/bin/sh -c <commande>`
+(agent/secret_sources/command.py:61-80 et 168-182) ; sa sortie `KEY=VALUE` est appliquée **avant** la
+portée gérée. Mesuré au run 37831355746 sur le code de P7 : le conteneur démarrait, la commande
+s'exécutait sous l'uid 10000 (`Command helper: applied 1 secret`) et sa sortie
+`HERMES_MANAGED_DIR=/opt/data/faux` déplaçait la portée gérée, hors des trois couches. ACP n'utilise
+aucune source externe (ses secrets sont des variables Railway) et une épingle ne servirait à rien : toute
+source activée (`enabled` vrai, la règle de `SecretSource.is_enabled`) dans le `config.yaml` de la racine
+ou d'un profil **refuse le démarrage et la relance**, comme un serveur MCP stdio (D8 ; décision SECU-2, D157) ; les valeurs par
+défaut de Hermes (`enabled: false`) restent admises ; `diagnostiquer` l'inventorie.
+
+### 4.4 Reprise à root des services s6
+
+L'image officielle rend `/run/service` et les emplacements de service des passerelles
+propriété de l'agent (docker/cont-init.d/02-reconcile-profiles:119 ;
+docker/cont-init.d/015-supervise-perms). Or **s6-supervise tourne en root** (spawné par
+s6-svscan en PID 1, hermes_cli/container_boot.py:291) : un service que l'agent créerait sous
+`/run/service`, ou un script `run` qu'il réécrirait, serait exécuté **en root** avant de
+retomber sous l'uid hermes — une élévation. `05-acp` reprend donc à root le répertoire
+`/run/service` (l'agent ne peut plus y créer de service) et, pour chaque passerelle
+dynamique, son répertoire et ses scripts (`run`, `finish`, `type`, `log/`, `log/run`,
+`supervise/`). Il ne reste à l'agent que la **FIFO `supervise/control`**, pour qu'il puisse
+encore relancer la passerelle par `s6-svc -r` (comportement attendu et testé). Conséquence
+voulue : seul le profil `default` reste enregistrable, ce qui concorde avec
+`kanban.dispatch_profiles: [default]`.
+
+### 4.5 `PATH` des scripts root
+
+L'image officielle met `/opt/data/.local/bin`, que l'agent possède, dans son `PATH`, **avant**
+`/usr/bin` et `/bin` (Dockerfile:476). Or tous les scripts que s6 exécute en root — crochet,
+scripts cont-init, scripts `run` des services — reçoivent ce `PATH` par `with-contenv`
+(`/run/s6/container_environment/PATH`). Constaté sur `6b5a699` : l'agent dépose un faux `id`
+dans `/opt/data/.local/bin`, relance le tableau de bord par `s6-svc -r`, et son script tourne
+**en root** (`uid=0(root)`). Avec un faux binaire pour chaque commande système, quatorze
+d'entre elles (`cat`, `chown`, `chmod`, `curl`, `stat`…) sont exécutées en root au cours des
+relances et du redémarrage. Le fichier est sur le volume : le piège survit aux redémarrages.
+
+**Correctif** : le `Dockerfile` d'ACP redéfinit `PATH` sans aucun répertoire du volume ; les
+gardes refusent tout `PATH` qui sort de `PATH_ADMIS` (`/command`, `/opt/hermes/bin`,
+`/opt/hermes/.venv/bin` et les répertoires système, tous à root) ; les scripts d'ACP
+appellent `/bin/sh` et `/bin/sleep` par leur chemin absolu. Le terminal local de l'agent
+rajoute lui-même `~/.local/bin`, **en fin** de `PATH`, à ses propres shells
+(tools/environments/local.py:630-657) : ses outils installés par `pip --user` ou `uv tool`
+restent utilisables, sans jamais masquer une commande système. En revanche, un programme
+lancé par la passerelle elle-même hors du terminal (un serveur MCP stdio, par exemple) ne
+cherche plus dans `~/.local/bin` : il doit être désigné par son chemin absolu, ce que fera
+le catalogue épinglé de P3 (qui, en fin de compte, n'admet côté Hermes aucun serveur stdio :
+[catalogue.md](catalogue.md) § 7). Prouvé par
+`test_les_scripts_root_n_executent_pas_les_binaires_de_l_agent` : sur l'ancienne image il
+échoue (quatorze traces root), sur la nouvelle aucun faux binaire ne tourne en root, ni aux
+relances du tableau de bord et de la passerelle par l'agent, ni au redémarrage.
+
+Ce défaut vient de l'image officielle, pas d'ACP ; il n'avait été vu ni par l'implémentation
+ni par la relecture indépendante de P1. D'autres chemins root lisent encore le volume
+(`stage2-hook.sh`, `02-reconcile-profiles`) sans audit exhaustif (§ 10).
+
+## 5. Managed scope `/etc/hermes`
+
+Hermes l'applique en dernier, feuille par feuille, et `hermes config set` refuse toute
+clé épinglée (managed_scope.py:125-147 ; config.py:3384-3391 ; env_loader.py:473 et
+503-518). Ce que garantit cette portée tient à la permission : root, 0755/0644, et l'agent
+tourne sous l'uid 10000 sans sudo. Un fichier géré qui ne se lit pas serait **ignoré en
+silence** (managed_scope.py:86-93) : `acp_demarrage.py` le relit avec le chargeur YAML de
+Hermes (`utils.fast_safe_load`, utils.py:613-615) et refuse de démarrer si une épingle
+manque ou diffère. Le modèle est aussi validé à la construction de l'image.
+
+**Ce que la portée gérée ne garantit pas.** L'agent tourne sous le **même uid** que le
+tableau de bord (10000). Il ne peut pas modifier `/etc/hermes` ; depuis P2, il n'a plus aucun
+outil d'exécution (ci-dessous) pour tuer le processus du tableau de bord ou écouter sur
+`0.0.0.0:9119`. Il ne le pourrait plus que par une **faille de Hermes lui-même** (§ 10).
+
+**`/etc/hermes/config.yaml`** (**58 clés** depuis P7, 57 en P4, 50 en P3, 40 en P2, 28 en P1) : depuis P7
+`timezone: Europe/Paris` (8 h du bilan quotidien = 8 h à Paris), `kanban.auto_decompose: false`,
+`kanban.dispatch_profiles: [default]`, depuis P4 `kanban.dispatch_in_gateway: true`, `kanban.max_in_progress: 4`,
+`kanban.max_in_progress_per_profile: 2`, `kanban.review_dispatch: false`, `kanban.failure_limit: 3` et
+`known_plugin_toolsets.{api_server,cron}: [acp_poste]` ([projets.md](projets.md) § 6), `approvals.mode: manual` (et `cron_mode`,
+`single_query_mode`, `unattended_mode` : `deny`), `plugins.enabled: []`,
+`plugins.disabled: [dashboard_auth/basic, dashboard_auth/nous, dashboard_auth/drain,
+hermes-achievements]` (le dernier depuis P3, décision D13 : greffon de gamification en anglais,
+doté de sa propre API, jamais servi),
+`plugins.allow_deprecated_imports: false`, `auth.adopt_external_logins: false`,
+`security.redact_secrets: true`, `display.language: fr`, `dashboard.theme: acp`,
+`dashboard.trusted_proxies: []` (vide tant que le bord Railway n'est pas mesuré, décision P2),
+`dashboard.public_url` et `dashboard.oauth.self_hosted.{issuer, client_id, scopes}` (valeurs
+Railway validées), `dashboard.oauth.self_hosted.client_secret: ""`,
+`dashboard.oauth.{client_id, portal_url}: ""`,
+`dashboard.basic_auth.{username, password, password_hash, secret}: ""`,
+`platforms.api_server.extra.host: 127.0.0.1` et `platforms.api_server.extra.port: 8642`
+(l'agent ne peut pas déplacer l'api_server sur `0.0.0.0` par `/opt/data/config.yaml` : la
+valeur de config.yaml gagne sinon sur `API_SERVER_HOST`, gateway/platforms/api_server.py:209-218,
+et sans clé utilisable dans l'environnement il enrôlerait l'api_server lui-même,
+gateway/config_env.py:307-315) ; et, depuis P2 :
+
+- `agent.disabled_toolsets: [browser, terminal, file, code_execution, computer_use,
+  connections, cronjob, delegation, setup]` ;
+- `agent.coding_context: "off"` (guillemets obligatoires : `off` nu est un booléen pour
+  PyYAML ; `focus` réduirait les outils au jeu de codage, terminal compris) ;
+- `agent.service_tier: ""` (mode rapide coupé ; écart au plan P2, voir plus bas) ;
+- `platform_toolsets.api_server: [web, vision, skills, todo, memory, session_search, no_mcp]`,
+  `platform_toolsets.cli: [web, vision, skills, todo, memory, session_search, clarify, no_mcp]`
+  (en P2 ; depuis P3, `context7` y remplace `no_mcp`),
+  `platform_toolsets.cron: [web, vision, skills, todo, memory, session_search, no_mcp]` ;
+- `skills.inline_shell: false`, `skills.write_approval: true`, `skills.guard_agent_created: true` ;
+- `memory.write_approval: true` (décision du propriétaire) ;
+- `hooks_auto_accept: false` ;
+- `security.allow_private_urls: false` et `security.allow_lazy_installs: false` ;
+
+et, depuis P3 ([interface.md](interface.md) § 3) :
+
+- `dashboard.font: theme` : la police du thème, jamais une police de substitution (toute autre
+  valeur ferait charger une feuille de style de Google Fonts, web/src/themes/fonts.ts) ;
+- `dashboard.hidden_plugins: []` : aucun greffon de tableau de bord masqué, `acp-interface`,
+  `acp-catalogue` et `acp-poste` restent toujours servis ;
+
+et, depuis la seconde partie de P3 ([catalogue.md](catalogue.md) § 7) :
+
+- `platform_toolsets.cli` nomme `context7` au lieu de `no_mcp` (liste blanche des serveurs MCP ;
+  `api_server` et `cron` gardent `no_mcp`) ;
+- `mcp_servers.context7.{url: https://mcp.context7.com/mcp, enabled: true, ssl_verify: true,
+  sampling.enabled: false, elicitation.enabled: false, tools.include: [resolve-library-id,
+  query-docs], tools.resources: false, tools.prompts: false}` : serveur distant, aucun processus
+  local, ni échantillonnage ni élicitation, deux outils seulement.
+
+**Jamais épinglés** : `skills.external_dirs` et `skills.disabled`. Hermes les lit dans
+`/opt/data/config.yaml` sans la managed scope (agent/skill_utils.py:250-385) et une épingle les
+retirerait du volume à la moindre sauvegarde : `05-acp` les écrit dans le volume (§ 6).
+
+Aucun secret : une clé dont le nom évoque un secret et qui porte une valeur est refusée.
+
+**`/etc/hermes/.env`** (**38 variables** depuis P2, 28 en P1) : les quatre variables OIDC et
+l'URL publique validées, `API_SERVER_HOST=127.0.0.1`, `API_SERVER_PORT=8642`,
+`HERMES_LANGUAGE=fr`, **`HERMES_ENABLE_PROJECT_PLUGINS=0`** et **`HERMES_BUNDLED_PLUGINS=`**
+vide, `SSL_CERT_FILE` et `REQUESTS_CA_BUNDLE`/`CURL_CA_BUNDLE` sur
+`/etc/ssl/certs/ca-certificates.crt`, `SSL_CERT_DIR=/etc/ssl/certs`, des valeurs **vides**
+pour Nous, basic, drain, les mandataires et, en client public,
+`HERMES_DASHBOARD_OIDC_CLIENT_SECRET` ; et, depuis P2, **`HERMES_ALLOW_PRIVATE_URLS=false`**
+(seule protection effective contre les appels de l'agent vers le réseau privé :
+tools/url_safety.py:145-173 lit cette variable et config.yaml SANS la managed scope),
+`HERMES_DISABLE_LAZY_INSTALLS=1`, et des valeurs vides pour `HERMES_TUI_TOOLSETS`,
+`HERMES_BIN`, `HERMES_ACCEPT_HOOKS`, `HERMES_SAFE_MODE`, `HERMES_YOLO_MODE`,
+`HERMES_COPILOT_ACP_COMMAND`, `HERMES_COPILOT_ACP_ARGS` et `COPILOT_CLI_PATH`. Appliqué en
+dernier, ce fichier gagne sur `/opt/data/.env` **à la fin** de chaque chargement ; mais Hermes publie
+d'abord la valeur du volume, par une écriture séparée (env_loader.py:433-434 puis 473), et
+« reload.env » la recopie sans lui. La première version de ce document disait que ce fichier
+« neutralise » ces variables posées dans le volume : c'était inexact (run 37784838264). Depuis le
+chantier SECU-TUI, root **retire** ces clés des `.env` et `.op.env` du volume avant tout processus de
+Hermes et à chaque relance (§ 4.3 bis) : l'épingle tient parce que le volume ne porte plus la clé.
+
+Les autorités de certification sont épinglées **sur le magasin du système, jamais à
+vide** : constaté dans l'image, `SSL_CERT_FILE=` vide prive OpenSSL de toute autorité et la
+récupération du JWKS par PyJWT (urllib) échoue ; plus personne ne pourrait se connecter.
+Épinglées, elles empêchent aussi un agent de faire valider par le tableau de bord un
+fournisseur d'identité usurpé (autorité et mandataire posés dans `/opt/data/.env`).
+
+### Aucun outil d'exécution pour l'agent (P2) : trois couches
+
+Aucune couche ne suffit seule ; chacune est prouvée séparément, avec son témoin négatif (§ 8).
+
+1. **Listes de la managed scope.** `agent.disabled_toolsets` retire les jeux outil par outil
+   (model_tools.py:334-340) pour la messagerie, le cron, le CLI, les workers kanban et la
+   délégation. Mais l'**api_server** (api_server.py:2231-2270) et le **tableau de bord**
+   (tui_gateway/server.py:2451-2468) ne transmettent PAS cette liste à l'`AIAgent` : d'où
+   `platform_toolsets`, des listes **explicites sans composite**. Mesuré : sans elles, un nom
+   de jeu non configurable posé par le volume (`debugging`, qui contient terminal) passe tel
+   quel (tools_config.py:614-615 et 678-690) et survit à l'élagage de `disabled_toolsets`
+   parce que ses outils web y survivent (tools_config.py:635-651) : l'api_server et le tableau
+   de bord recevraient terminal. Une liste `cli` **vide** ferait rendre TOUS les jeux au
+   tableau de bord (tui_gateway/server.py:1942) : elle est épinglée non vide.
+2. **Épingles du `.env` géré** : `HERMES_TUI_TOOLSETS` (qui remplacerait la liste du
+   tableau de bord), `HERMES_BIN` (programme des workers : vide = `python -m
+   hermes_cli.main`, mesuré), `HERMES_ACCEPT_HOOKS`, `HERMES_SAFE_MODE`… sont vides, et
+   interdites comme variables Railway (§ 4). Depuis le chantier SECU-TUI, elles ne tiennent
+   **pendant** un chargement que parce que root retire ces clés des `.env` du volume (§ 4.3 bis) :
+   seules, elles laissaient passer la valeur du volume un instant (run 37784838264).
+3. **Crochet `pre_tool_call` en LISTE BLANCHE** (`hermes/plugins/acp-poste/garde_execution.py`),
+   enregistré par le greffon. Tout `AIAgent` découvre lui-même les greffons avant de choisir
+   ses outils (agent/agent_init.py:1060-1065) : passerelle (api_server, cron), chaque worker
+   kanban, processus du tableau de bord (`/api/ws`, en processus : web_routers/chat_ws.py:583-601),
+   `tui_gateway.entry`. C'est la **seule** couche qui ferme `preview.restart`, dont l'agent
+   caché reçoit `["terminal","file"]` codés en dur (tui_gateway/agent_callbacks.py:371-374).
+   Mesuré au run 37831355746 sur le code de P7 (chantier SECU-TUI) : une session `/api/ws` du vrai
+   tableau de bord qui a reçu **exactement** les outils de la session fautive du run 37784838264
+   (`HERMES_TUI_TOOLSETS` posé en root, volume piégé avec `HERMES_SAFE_MODE=1`), à qui le modèle
+   demande `terminal`, reçoit « Refusé par ACP : l'outil « terminal » … », sans témoin ; la garde
+   est enregistrée et la découverte réussie dans ce processus. La troisième couche aurait donc
+   refusé l'appel ; c'est la couche 2 qui avait cédé.
+
+**Les 33 outils admis** (noms exacts ; 34 en P4 avant sa relecture, 26 en P3, 24 en P2) : depuis P4, les
+huit outils du greffon
+(`projet_lancer`, `projet_planifier`, `projet_etat`, `poste_etat`, `poste_catalogue`,
+`question_repondre`, `question_escalader`, `routage_surcharger` : [projets.md](projets.md) § 3) ; `mcp__context7__resolve_library_id` et
+`mcp__context7__query_docs` (P3 : les deux outils du serveur MCP distant context7, sous le nom que
+leur donne Hermes ; aucun autre outil MCP), `web_search`, `web_extract`, `vision_analyze` ;
+`skills_list`, `skill_view`, `skill_manage` ; `todo_list`, `memory`, `session_search`,
+`clarify` ; `tool_search`, `tool_describe` ; `kanban_show`, `kanban_list`, `kanban_complete`,
+`kanban_block`, `kanban_request_review`, `kanban_request_changes`, `kanban_heartbeat`,
+`kanban_comment`, `kanban_unblock`, `kanban_attach`, `kanban_attachments`. Depuis la relecture de P4
+(décision D44), `kanban_link` est retiré (les dépendances d'un projet sont posées par le greffon seul), et
+dans un worker kanban un outil `kanban_*` qui nomme un autre tableau que le sien est refusé, comme un
+`kanban_comment` sur une autre carte que la sienne ([projets.md](projets.md) § 12).
+Tout autre nom est refusé : « Refusé par ACP : l'outil « … » n'est pas autorisé sur Railway
+(ni terminal, ni fichiers, ni exécution de code pour l'agent). L'exécution passe par le poste
+Windows du propriétaire. » (terminal, fichiers, `execute_code`, `desktop_project`,
+`browser_*`, noms inconnus, futurs outils).
+
+**Pont des outils différés `tool_call` (relecture P2).** Hermes déballe le pont **avant**
+d'appeler le crochet (agent/tool_executor.py:390-431, `_unwrap_tool_search_call`) : la garde
+reçoit le nom de l'outil appelé **à travers** le pont et le juge comme un appel direct.
+`todo_list` et `session_search`, différés par défaut (config_defaults.py:1986-1988), passent donc
+par le pont et s'exécutent. La garde ne voit « tool_call » que si Hermes n'a pas su le résoudre
+(outil non différable comme `terminal`, tools/tool_search.py:543-571 ; arguments invalides ; lot de
+connecteurs) : elle le refuse alors, puisqu'il n'est pas dans la liste blanche. Un volume qui
+rendrait `terminal` différable (`tools.tool_search.defer`) ne rouvre rien : la garde reçoit
+« terminal » et le refuse (prouvé, avec son témoin négatif où terminal s'exécute). La première
+version de ce document disait « le pont `tool_call` est refusé par la garde » : c'était inexact, et
+les tests qui le « prouvaient » ne passaient que par le chemin d'erreur de Hermes ; ils sont
+renommés et complétés (§ 8).
+
+**Retirés en P2**, avec un message dédié :
+- `kanban_create` : le worker lancé recevrait les skills, le modèle, le fournisseur et
+  l'espace de travail choisis par l'agent (kanban_db_dispatch.py:2676-2710 et 2820-2887).
+  Il n'est **pas réadmis** : selon le plan d'autonomie validé ([autonomie.md](autonomie.md) § 8,
+  P4), les cartes des projets sont créées par les outils du greffon (`projet_planifier`…), qui
+  fixent eux-mêmes compétences, modèle, fournisseur et espace de travail. (La réadmission « en P5
+  avec une liste blanche d'arguments », annoncée par la première version de P2, est abandonnée :
+  relecture P2.) Message (depuis P4) : « Refusé par ACP : l'agent ne crée pas de carte kanban lui-même ; les
+  projets passent par les outils du greffon acp-poste (projet_lancer, projet_planifier), qui fixent
+  compétences, modèle, effort et exécutant. » ;
+- `kanban_attach_url` : `is_safe_url` puis `httpx.stream` ordinaire, sans protection contre
+  le rebinding DNS vers le réseau privé (tools/kanban_tools.py:924-958 ; url_safety.py:7-10).
+
+**Refusé dans un worker kanban seulement** (P4, `HERMES_KANBAN_TASK` posée) : `memory`. Mesuré au
+contrat : l'écriture ouvrait l'invite d'approbation en ligne du CLI, qui attendait 300 s sans personne
+avant de la mettre en attente (tools/write_approval.py:170-213, tools/approval_prompt.py:163-164). En
+discussion, `memory` reste admis et soumis à validation ([projets.md](projets.md) § 3).
+
+La garde **ne lève jamais** (`except BaseException` → « Refusé par ACP. ») : Hermes bloque
+d'ailleurs un rappel qui lève (plugins_dispatch.py:229-241), mais la couche d'appel autour
+échoue ouvert (agent_runtime_helpers.py:2348-2361 ; tool_executor.py:652-667).
+
+**Échec ouvert connu, dit** : si la découverte des greffons lève, l'agent continue **sans
+aucun greffon** (agent/agent_init.py:1066-1067). Les couches 1 et 2 tiennent encore partout,
+sauf pour `preview.restart`. Parades : `test_decouverte_des_greffons_reussit` sur l'image
+épinglée, et l'alerte du bloc `garde_execution` de `/v1/meta` (§ 7).
+
+**Le tableau de bord AUTHENTIFIÉ reste un shell du propriétaire** : `shell.exec`, `cli.exec`,
+`/api/pty`, `/api/mcp`, `/api/env`, quick_commands, éditeur de fichiers, `preview.restart`
+côté client. Un vol de session équivaut à une exécution de code (jetons ChatGPT
+d'`auth.json` compris). Décision du propriétaire : gardées sous le seul OIDC en P2, filtrage
+de `/api/ws` en P4.
+
+### Écarts au plan P2 (justifiés)
+
+- **40 clés au lieu de 39** : `agent.service_tier: ""` est épinglé en plus (mode rapide
+  coupé), à la demande de l'étape et en cohérence avec le plan d'autonomie validé (§ 7 de ce
+  plan) ; sans effet sur les outils.
+- **Témoin « composite »** : le plan supposait qu'un composite (`hermes-api-server`) rendrait
+  terminal sans `platform_toolsets`. Mesuré sur Hermes 0.21.5 : un composite seul est ramené
+  aux jeux configurables puis élagué par `disabled_toolsets` ; c'est un nom **non
+  configurable** passé tel quel (`debugging`) qui rend terminal. Le témoin négatif est écrit
+  sur ce cas réel.
+
+### Pourquoi `plugins.enabled: []` et non `[acp-poste]` (écart au plan)
+
+Le tableau de bord importe l'API Python d'un greffon **utilisateur** dès qu'il figure
+dans `plugins.enabled` (web_server_dashboard.py:782-795 ; web_routers/dashboard_ui.py:118-128),
+et dédoublonne par le nom déclaré en lisant d'abord `/opt/data/plugins`
+(web_server_dashboard.py:548-579). Avec `acp-poste` dans la liste, un homonyme déposé
+dans `/opt/data/plugins` serait exécuté dans le processus du tableau de bord. Or l'agent
+peut relancer le tableau de bord lui-même (`s6-svc -r /run/service/dashboard`, dont
+`015-supervise-perms` lui donne le contrôle), sans que `05-acp` ne tourne.
+`acp-poste` est donc un greffon groupé de type `backend`, chargé sans figurer dans
+`plugins.enabled` (plugins_discovery.py:264-267), dont l'API de tableau de bord est montée
+sans elle (web_server_dashboard.py:790-795) ; la liste vide garantit qu'**aucun** greffon
+utilisateur n'est jamais importé.
+
+## 6. `/opt/data`
+
+- **Refus** (crochet et `05-acp`) : tout lien symbolique ou fichier spécial sous
+  `/opt/data/plugins`, `/opt/data/dashboard-themes`, `/opt/data/acp` ; toute entrée de
+  premier niveau et tout dossier de second niveau (ceux dont Hermes tire un nom de
+  greffon, plugins_discovery.py:109-161) dont le nom est `acp` ou commence par
+  `acp-`/`acp_` ; tout manifeste (`plugin.yaml`, `plugin.yml`,
+  `plugin.json`, `dashboard/manifest.json`) qui **déclare** un nom réservé (le nom du
+  dossier par défaut, comme Hermes : plugins_manifest.py:505, web_server_dashboard.py:568) ;
+  tout thème autre que ceux livrés qui déclare un nom `acp…`.
+- **Verrouillage** : ces trois répertoires deviennent root, 0755, fichiers 0644, à chaque
+  démarrage. Les greffons utilisateur existants sont signalés dans l'état du démarrage
+  (jamais activables, `plugins.enabled: []`). Conséquence voulue : `hermes plugins
+  install` ne peut plus écrire dans `/opt/data/plugins` (permission refusée) et le thème
+  actif est épinglé (`dashboard.theme: acp`, le choix du tableau de bord ne l'emporte
+  pas) ; tout greffon et tout thème passent par l'image.
+- **SOUL.md** : le SOUL livré est déposé si le fichier est absent, identique au SOUL de
+  l'image officielle (semé par stage2-hook.sh:457) ou identique à la dernière version
+  déposée (empreinte dans `/opt/data/acp/soul.sha256`, root). Sinon il est laissé tel quel
+  et signalé « divergent » par `/v1/meta`. Un lien symbolique n'est jamais suivi.
+- **`/opt/data/hooks` et `/opt/data/scripts` (P2)** : la passerelle importe chaque
+  `hooks/<nom>/handler.py` **sans consentement** (gateway/hooks.py:44-72) et le cron exécute
+  les scripts de `scripts/` (cron/scheduler_script.py:257-320). Rien de légitime n'y est
+  déposé sur Railway : le crochet et `05-acp` les inspectent **avant toute écriture**, et toute
+  entrée (ou un lien symbolique à leur place) **refuse le démarrage** en les nommant ; ensuite
+  ils deviennent root 0755. `stage2-hook.sh` ne les rend pas à l'agent tant que `/opt/data`
+  lui appartient (stage2-hook.sh:228-254).
+- **Seule exception, le script du bilan quotidien (étape P7, cahier P7 § 7.1, correction K1)** :
+  `/opt/data/scripts/acp-bilan.py`, à la **racine seulement**, est admis s'il est un fichier
+  ordinaire (lu sans suivre de lien, par un seul descripteur), `root:root`, mode `0644`, et
+  si son SHA-256 figure dans `EMPREINTES_BILAN_ADMISES` (`acp_demarrage.py` : l'empreinte de la
+  copie de l'image `/opt/acp/scripts/acp-bilan.py`, plus celles des versions déjà livrées, pour
+  qu'une montée de version ne soit pas refusée). `05-acp` le **recopie** à chaque démarrage, après
+  le second contrôle (fichier temporaire écrit dans `/opt/data/acp`, puis renommé : une
+  interruption ne laisse aucune entrée en trop dans `scripts/`) ; jamais un lien, que Hermes
+  refuserait (`cron/scheduler_script.py:257-298`). Sans cette exception, le fichier déposé au
+  premier démarrage aurait fait **refuser tout démarrage suivant**, donc tout redéploiement. Tout
+  autre contenu, mode, propriétaire ou entrée, et ce même fichier dans le `scripts/` d'un profil :
+  refus inchangé. La construction échoue si la copie de l'image n'a pas une empreinte admise.
+  Pourquoi c'est sans risque pour la garde « aucun outil d'exécution » : le dossier reste à root,
+  seul ce contenu exact est admis, le script n'accepte **aucune entrée** (arguments, entrée
+  standard et environnement ignorés, sauf `HERMES_HOME`) et l'agent ne peut pas créer de tâche
+  cron (`cronjob` coupé) : seule une tâche créée par le propriétaire l'exécute. Le journal du
+  démarrage dit « vides (hors acp-bilan.py, admis par son empreinte) » et le dépôt ; l'état du
+  démarrage (schéma 4) porte `bilan_depose`.
+- **`hooks/` et `scripts/` de chaque profil (relecture P2)** : une seule passerelle sert tous les
+  profils (hermes_cli/container_boot.py:100-110 ; hermes_cli/profiles.py:1050-1075) ; elle
+  exécute les scripts cron du `scripts/` **propre** à chaque profil (cron/scheduler_script.py:257-298,
+  chemin résolu sous le `HERMES_HOME` du profil) et charge les crochets de son `hooks/`
+  (gateway/hooks.py:28-35). Mesuré par la relecture sur `21eeb5d` : un volume portant un profil
+  secondaire avec un script cron démarrait sans refus, et le script tournait sous l'uid 10000.
+  Désormais, chaque **répertoire réel** de `/opt/data/profiles` (même sans marqueur de profil :
+  plus strict que Hermes) voit ses `hooks/` et `scripts/` inspectés avant toute écriture, exigés
+  vides (refus nommé sinon), puis repris par root 0755, comme ceux de la racine. Un **lien
+  symbolique** sous `profiles/`, ou `profiles/` lui-même en lien, **refuse le démarrage** : Hermes
+  le suivrait comme un profil (profiles.py:349-366). L'état du démarrage liste ces profils
+  (`repertoires_executes.profils`) et le journal les nomme. Un profil créé ensuite par le
+  propriétaire (tableau de bord) est inspecté au démarrage suivant.
+- **`/opt/data/lazy-packages` (P2)** : les installations paresseuses sont coupées (§ 5) ; un
+  contenu autre que `.lock` et `.python-abi` est signalé (état du démarrage, `/v1/meta`,
+  `diagnostiquer`) sans refuser le démarrage.
+- **`/opt/data/config.yaml` (P3)** : `05-acp` y garantit `skills.external_dirs` (le dossier du
+  catalogue en tête), `skills.disabled` (les 46 skills livrées inertes) et une entrée vide
+  `mcp_servers.context7`, **hors** managed scope (Hermes les lit dans ce fichier brut) ; écriture
+  seulement si quelque chose change, commentaires, propriétaire et mode conservés, rien d'autre ne
+  change ; YAML illisible : rien n'est écrit, alerte. Et **refus de démarrer** (crochet, `05-acp`,
+  relances) si ce fichier ou celui d'un profil déclare un serveur MCP doté d'un `command` ou absent
+  du catalogue (décision D8). Détail : [catalogue.md](catalogue.md) § 6 et § 7.3.
+- **Migration** : aucune (décision du propriétaire : rien n'est déployé, P2 part d'un
+  volume neuf). La reprise de propriété unique du plan (`chown -R`) n'est pas écrite.
+
+### Maintenance : `diagnostiquer` (P2)
+
+`/opt/hermes/.venv/bin/python -I -B /opt/acp/bin/acp_demarrage.py diagnostiquer`, en root et
+en **lecture seule** (rien n'est écrit : ni le volume, ni `/etc/hermes`, ni `/run/acp`),
+rassemble tout ce qui ferait refuser le démarrage ou exécuter du code depuis le volume :
+
+- **environnement de référence** : `/proc/1/environ` (octets nuls, rien n'est exécuté) si le
+  PID 1 n'est pas `s6-svscan` (maintenance : Start Command `/bin/sh -c "exec sleep infinity"`),
+  `/run/s6/container_environment` sous s6 (un seul « \n » final retiré de chaque valeur, comme
+  le fait `with-contenv` : relecture P2, sans quoi un conteneur **sain** rendait 29 faux constats
+  et le code 1), sinon « inconnue » (code 1). **Jamais**
+  l'environnement de la session qui lance la commande : la doc de Railway ne dit rien de
+  celui d'une session `railway ssh` (rw_full.txt:23271-23420). La source lue est affichée ;
+- contrôles : variables Railway (§ 4), montage de `/opt/data`, variables interdites des `.env`
+  du volume, noms réservés et liens (§ 6), `hooks/` et `scripts/` de la racine et de chaque
+  profil, liens sous `profiles/`, relecture de la managed scope installée (celle de construction
+  est attendue en maintenance, sans constat) ;
+- **tâches cron à script** (relecture P2) : champs `script` et `monitor_script` des
+  `cron/jobs.json` de la racine et de chaque profil (lecture tolérante comme Hermes : BOM,
+  dictionnaire par identifiant). Sans script dans les `scripts/` exigés vides, elles échouent ;
+  elles sont signalées parce que leur présence dit qu'une sauvegarde restaurée ou une ancienne
+  injection en a posé. Seule exception (étape P7) : la tâche du bilan quotidien de la racine,
+  `script` = `acp-bilan.py`, `no_agent` exactement vrai, sans `monitor_script` ;
+- **clés exécutables** de `/opt/data/config.yaml` et `/opt/data/profiles/*/config.yaml`, lues
+  sans suivre de lien : `mcp_servers.*.command`, `hooks` non vide, `quick_commands` de type
+  `exec`, fournisseurs TTS ou STT de type `command` ; depuis P3, tout serveur MCP absent du
+  catalogue (qui refuse aussi le démarrage) ; depuis le chantier SECU-TUI, toute source externe
+  de secrets activée (§ 4.3 ter, D157, qui refuse aussi le démarrage) ;
+- contenu de `/opt/data/lazy-packages` ;
+- **en information, sans constat** (chantier SECU-TUI, § 4.3 bis, D156) : les clés épinglées par la
+  managed scope présentes dans un `.env` ou `.op.env` du volume, par leurs noms (jamais leurs
+  valeurs) ; elles ne refusent pas le démarrage, root les retire au démarrage suivant. Ni l'image
+  (le `.env.example` semé au premier démarrage n'en porte aucune, et `API_SERVER_KEY`, qu'elle
+  ajoute, n'est pas épinglée : lu dans l'image le 9 octobre 2026), ni Hermes pendant la vie d'un
+  service (§ 10) n'en écrivent : sur un volume restauré, leur présence dit qu'une écriture directe
+  du fichier, ou un piège d'avant P2, les y a mises.
+
+Chaque constat est préfixé `[acp] DIAGNOSTIC :` ; code 0 si rien n'est trouvé, 1 sinon. Aucune
+liste d'exceptions n'est lue (et jamais depuis le volume). La procédure qui l'emploie est dans
+[railway.md](railway.md) (§ 10).
+
+## 7. Greffon `acp-poste`
+
+- `plugin.yaml` : `kind: backend`, `requires_hermes: ">=0.21.5"`, version `0.11.0`
+  (vérifiée par `scripts/check_version.py`).
+- `register(ctx)` : sentinelle hors s6 (§ 3), puis
+  `ctx.register_hook("pre_tool_call", garde_execution.garde)` (§ 5) ; depuis P4, retrait des variables
+  de notification de l'environnement, puis le noyau (`noyau/`) : huit outils, section de prompt
+  « acp-projets », crochet `on_kanban_dispatch_tick` de l'émetteur ([projets.md](projets.md)). Depuis P5,
+  dans un bloc séparé (un échec n'empêche pas le reste) : fournisseur de jeton `acp-poste-machine` par
+  `ctx.register_dashboard_auth_provider` et trois chemins exacts par `register_token_route`
+  ([poste.md](poste.md) § 2).
+- `noyau/kanban_adapter.py` (P4, remplace `kanban_adapter.py` de P1) : seul module du noyau qui importe
+  Hermes, chaque nom depuis son module de définition (`hermes_cli.kanban_db`,
+  `hermes_cli.kanban_db_connect.connect` et `write_txn`, `hermes_cli.kanban_db_dispatch.heartbeat_worker`,
+  `agent.estop`, `plugins.plugin_storage`…) ; le tableau unique `poste` et l'assigné `poste-windows` sont
+  retirés : un tableau par projet.
+- `GET /api/plugins/acp-poste/v1/meta` (session du tableau de bord obligatoire) :
+
+```json
+{
+  "contrat": "acp-poste/1",
+  "greffon": {"nom": "acp-poste", "version": "0.11.0"},
+  "hermes": {"version": "0.21.5", "version_testee": "0.21.5", "conforme": true,
+             "etiquette": "v2026.9.24", "commit": "f97608f178d1ffeca59860195ab7da295f7c8e5f"},
+  "image": {"base": "nousresearch/hermes-agent", "condensat_index": "sha256:fca358f1…"},
+  "openrpc": {"info_version": "1", "info_version_epinglee": "1", "methodes": 237,
+              "empreinte_installee": "c89a203e…", "empreinte_epinglee": "c89a203e…", "identique": true},
+  "demarrage": {"schema": 1, "scope_geree": {…}, "greffons_utilisateur": {…},
+                "themes_deposes": ["acp.yaml"], "soul": {"etat": "depose", …}},
+  "alertes": []
+}
+```
+
+  Toute valeur illisible vaut `null` et ajoute une alerte en français (« inconnu »).
+
+  Blocs ajoutés en P2 :
+  - **`garde_execution`** : la route demande la découverte des greffons (idempotente ; le
+    tableau de bord la fait déjà, web_server_profiles.py:348-349) puis lit l'état de la garde
+    **dans le processus du tableau de bord** — libellé « processus du tableau de bord (sert
+    /api/ws) » : ce bloc ne prouve rien pour la passerelle ni pour les workers, qui sont
+    d'autres processus. Si la découverte lève ou si le crochet est absent : alerte « Garde
+    d'exécution absente du processus du tableau de bord : preview.restart rendrait un terminal
+    à l'agent. » ;
+  - **`reseau`** : pair, schéma vu, hôte et **présence** des en-têtes `X-Forwarded-For`,
+    `-Proto`, `-Host`, `X-Real-IP`, `X-Railway-Edge` (jamais la valeur de `X-Forwarded-For`),
+    `X-Forwarded-Proto` tronqué ; alerte si le schéma vu n'est pas https (cookies sans
+    `Secure`). C'est la mesure qui permettra de renseigner `dashboard.trusted_proxies` ;
+  - alerte si `/opt/data/lazy-packages` contient des paquets ;
+  - **`deploiement.commit`** : le SHA relevé par `05-acp` (écrit par root dans l'état du
+    démarrage, schéma 2), `null` hors Railway — jamais l'environnement du tableau de bord,
+    que `/opt/data/.env` peut modifier.
+
+  Blocs ajoutés en P3 ([catalogue.md](catalogue.md) § 8) : **`catalogue`** (empreinte du verrou,
+  skills d'ACP actives et attendues telles que le chargeur de Hermes les voit, état de context7,
+  conformité de `skills.external_dirs` et des désactivations, nombre d'écarts) et **`interface`**
+  (versions des greffons `acp-interface` et `acp-catalogue`, SDK attendu `1.x`), et les alertes du
+  catalogue ; l'état du démarrage passe au schéma 3 (bloc `catalogue`). Contrat `acp-poste/1`
+  inchangé : ajouts seulement.
+
+  Bloc ajouté en P4 ([projets.md](projets.md) § 4) : **`projets`** (base du greffon `ok` ou
+  `illisible`, schéma, projets actifs, relevé factice présent, pause générale, émetteur : dernière
+  passe, processus, cartes du poste en attente par tableau, canal, file) et ses alertes (émetteur
+  arrêté depuis plus de 10 minutes hors pause, notifications en échec, relevé factice, crochets shell
+  détectés). Routes de P4 (`/v1/projets`, `/v1/questions`, `/v1/pause`, `/v1/poste`,
+  `/v1/notifications/test`) : [projets.md](projets.md) § 4.
+
+  Ajouts de P5 ([poste.md](poste.md)) : bloc **`machine`** (fournisseur du jeton machine et chemins à jeton
+  **dans le processus du tableau de bord**, fournisseurs de connexion, postes par état, codes utilisables,
+  dernier inventaire) et ses alertes ; base du greffon au **schéma 2** (migration idempotente de P4) ;
+  routes du poste `/machine/v1/{enrolement,reclamer,inventaire}` (jeton machine, jamais la session) ;
+  routes du propriétaire `/v1/poste` (remplace celle de P4), `/v1/poste/{enrolement,confirmation,
+  revocation,releve}`, `/v1/routage` et ses sous-routes, `/v1/quotas`. Le contrat partagé
+  (`contrat/acp_poste_contrat`, avec `machine.py` et `motifs_secrets.py`) est copié dans l'image avec le
+  greffon ; le greffon d'interface `acp-poste-vues` (onglet « Poste ») l'est comme les trois autres (root,
+  0644).
+
+  Ajouts de P6, côté Hermes (cahier P6 § 5, § 9 et § 22 ; décisions D74 à D92 de [plan.md](plan.md)) : six
+  chemins à jeton de plus, `/machine/v1/{battement,terminer,question,bloquer,reprendre,arret}` (neuf en tout,
+  chacun inscrit par `register_token_route`), et `reclamer` qui **sert une carte** (`DemandeCarte` du contrat,
+  60 Kio au plus : résumés des parents puis consigne tronqués, et dit) seulement au poste qui annonce
+  `peut_executer` et des voies, **une carte à la fois**, réclamée `acp-poste:<machine>` pour 2 700 s, et
+  seulement parmi les cartes que le greffon a émises. Chaque envoi porte un `id_envoi` : un envoi rejoué rend la
+  même réponse sans second effet (table `envois`, gardée 7 jours). Le cycle de carte passe par l'API kanban de
+  Hermes, jamais par la base : `complete_task` (preuve de propriété par `expected_run_id`), `request_review` quand
+  des fichiers de pilotage sont touchés (D90), refus du propriétaire par `add_comment` puis
+  `reopen_review_task` (routes `/v1/revues/{tableau}/{carte}/{accepter,refuser}`, motif livré à la carte
+  resservie), `schedule_task` pour une question (jamais de triage à la seconde question), `block_task` pour un
+  blocage (attente de quota levée à l'heure dite, table `attentes`), `reclaim_task` pour rendre une carte.
+  Base du greffon au **schéma 3** (tables `envois` et `attentes`, colonnes d'exécution, reconstruction des
+  tables dont les contraintes `CHECK` changent ; migration idempotente). Routage : classe « intégration »
+  (voie `poste-integration`, sans modèle), **voies fermées** d'après l'inventaire (régime B sans bac à sable
+  Codex, conditions d'usage non décidées : refus `voie_fermee` ; une carte déjà composée attend 30 minutes
+  puis est bloquée), relecture de repli par la même voie et un autre modèle quand l'autre voie est fermée
+  (D91, réglage `relecture_repli_meme_voie`), **résolutions observées** (modèle servi rapporté par l'exécutant,
+  par alias, dans `/v1/routage`). `/v1/poste` ajoute le bloc **`executant`** (isolement mesuré, conditions,
+  carte en cours, voies fermées, branches prêtes avec la commande de récupération par `git bundle` et
+  `railway ssh`, D82 : aucun push) et `/v1/questions` les **revues** ; `/v1/meta` résume l'exécutant. Aucun
+  de ces ajouts ne donne d'outil d'exécution à l'agent : tout s'exécute sur l'exécutant (seconde partie de
+  P6).
+- `GET /api/plugins/acp-poste/v1/catalogue` (P3, session obligatoire) : le verrou et l'état de
+  chaque skill et de chaque serveur MCP vu par le chargeur du tableau de bord
+  (`catalogue.py`, seul module du greffon qui importe les internes des skills et des MCP).
+
+## 8. Tests
+
+- **Dans l'image de test** (`hermes/tests/image`, pytest installé hors du venv de Hermes,
+  hachés vérifiés) : gardes et refus, génération et relecture de la managed scope,
+  inspection et verrouillage de `/opt/data` (avec contrôles positifs d'écriture sous l'uid
+  hermes), SOUL, adaptateur kanban (modules de définition, scan de compatibilité, carte en
+  triage), route meta ; et **Hermes lui-même** face à un `/opt/data` piégé
+  (`load_hermes_dotenv`, `load_config`, `_settings` des fournisseurs, porte des greffons),
+  avec un contrôle négatif qui montre que, sans managed scope, l'injection l'emporterait.
+- **Depuis l'hôte** (`hermes/tests/contrat`, Docker) : image, refus de démarrer, conteneur
+  en marche, et pile authentifiée avec un **faux fournisseur d'identité** (image de test :
+  autorité de certification jetable ajoutée au magasin du système) et le **modèle
+  factice** compatible OpenAI (`hermes/tests/outils/modele_factice.py`, aucun appel réseau
+  réel).
+
+### Tests ajoutés en P2
+
+Le modèle factice sait, depuis P2, répondre par UN appel d'outil : « OUTIL:<nom> » dans le
+dernier message, ou un fichier de scénarios pour les workers kanban (« work kanban task
+<id> »). Ses arguments sont des **témoins** : un outil d'exécution qui tournerait vraiment
+laisserait un fichier dans `/tmp/acp-temoins` (par exemple `terminal` →
+`touch /tmp/acp-temoins/terminal`). Il consigne les outils **offerts** et les résultats
+d'outils reçus. Outils de test ajoutés : `sonde_surfaces.py` (outils offerts par chaque
+surface, calculés par le code de Hermes dans un processus neuf), `agent_neuf.py` (un
+`AIAgent` construit comme une surface réelle, dans un processus neuf, **sans appel manuel à
+`discover_plugins`**) et `client_ws.py` (ticket puis JSON-RPC sur `/api/ws` du vrai tableau de
+bord).
+
+- **Dans l'image** (`test_sans_shell.py`, `test_demarrage.py`, `test_meta.py`) :
+  - `test_aucune_surface_n_offre_d_outil_d_execution[vide|hostile]` : api_server, CLI, cron,
+    tableau de bord (sources `tui` et `desktop`), worker kanban et enfant de délégation, sur un
+    volume vide et sur un volume hostile (composites, `debugging`, `coding_context: focus`,
+    `.env` piégé) ; témoins négatifs `test_temoin_scope_p1_rend_terminal`,
+    `test_sans_platform_toolsets_un_composite_rend_terminal`, `test_coding_context_focus_neutralise` ;
+  - `test_env_gere_neutralise_le_volume` ; `test_tour_api_server_refuse_terminal_ecriture_code_cron`
+    (sept outils) ;
+  - pont `tool_call` (relecture P2) : `test_pont_tool_call_non_resolu_refuse` (terminal n'est pas
+    différable : la garde reçoit « tool_call » et le refuse ; seul ce chemin d'erreur était
+    couvert avant), `test_pont_tool_call_vers_un_outil_admis` (`todo_list` s'exécute à travers le
+    pont, aucun refus), `test_pont_tool_call_juge_l_outil_sous_jacent` (volume qui rend terminal
+    différable : la garde reçoit « terminal ») et son témoin négatif (sans `acp-poste`, terminal
+    s'exécute à travers le pont) ;
+  - `test_garde_dans_un_agent_neuf` et son témoin négatif (managed scope de test qui désactive
+    `acp-poste` : le témoin apparaît) ;
+  - **`test_preview_restart_par_tui_gateway` (BLOQUANT, jamais ignoré)** : `python -m
+    tui_gateway.entry` en stdio, `session.create` puis `preview.restart` (le vrai code de
+    tui_gateway/methods_prompt.py:1075-1133) ; l'agent caché reçoit terminal, le modèle le
+    demande, la garde le refuse ; et son témoin négatif, où terminal s'exécute ;
+  - `test_garde_liste_blanche`, `test_garde_arguments_aberrants_sans_exception`,
+    `test_un_rappel_qui_leve_est_bloque_par_hermes`, `test_la_garde_est_enregistree_par_register` ;
+  - recensements : `test_recensement_des_constructions_aiagent` (sites `AIAgent(` et jeux
+    d'outils écrits en dur, épinglés), `test_recensement_http_des_outils_admis` (appels HTTP
+    directs des modules des outils admis et de leurs fournisseurs, épinglés par fichier et
+    ligne), `test_decouverte_des_greffons_reussit` ;
+  - `test_sentinelle_hors_s6` (vingt-cinq cas depuis la relecture P2 : options globales à valeur,
+    `--option=valeur`, `--`, `HERMES_HOME` non normalisé ou de profil, `gateway` nu, `serve`),
+    `test_sentinelle_suit_un_lien_vers_le_volume`,
+    `test_options_a_valeur_couvrent_l_analyseur_de_hermes` (recensement contre l'analyseur réel) ;
+  - démarrage : `test_epingles_p2_obligatoires` (quatorze altérations du modèle),
+    `test_variables_p2_interdites` (treize), `test_valeurs_imposees_p2` (cinq),
+    `test_railway_run_uid`, `test_volume_railway`, `test_hooks_et_scripts_du_volume`,
+    `test_hooks_et_scripts_des_profils` (relecture P2 : crochet ou script d'un profil refusé
+    avant toute écriture, puis `hooks/` et `scripts/` de chaque profil repris par root),
+    `test_un_lien_symbolique_sous_profiles_est_refuse`, `test_journal_des_gardes_nomme_les_profils`,
+    `test_lazy_packages_non_vide_est_signale`, `test_journal_commit_deploye`, décompte 40
+    clés et 38 variables ;
+  - `diagnostiquer` : `test_diagnostiquer_rassemble_sans_ecrire` (volume piégé de sept façons,
+    plus un paquet dans `lazy-packages`, le `scripts/` d'un profil et deux tâches cron à script :
+    tous les motifs, empreinte de l'arbre inchangée, code 1), `test_diagnostiquer_un_volume_sain_rend_0`,
+    `test_diagnostiquer_en_maintenance_accepte_la_scope_de_construction`,
+    `test_diagnostiquer_source_environnement` (session `env -i` ; `/proc/1/environ`, s6 avec des
+    fichiers terminés par « \n » comme ceux de s6-overlay, « inconnue »),
+    `test_lire_env_s6_retire_un_seul_saut_de_ligne_final`, `test_diagnostiquer_exige_root` ;
+  - meta : `test_meta_garde_execution_*` (découverte qui lève, crochet absent, vraie découverte
+    dans un processus neuf), `test_meta_reseau` (et par la route : jamais la valeur de
+    `X-Forwarded-For`), `test_meta_lazy_packages`, `test_meta_commit_deploye`.
+- **Depuis l'hôte** (`test_sans_shell_contrat.py`) :
+  - `test_entree_refuse_hors_pid1` (`--init`), `test_entree_refuse_hors_pid1_sur_railway`
+    (relecture P2 : marqueurs Railway, message qui renvoie à [railway.md](railway.md) § 10 f),
+    `test_passerelle_hors_s6_arretee_par_le_greffon` (passerelle et tableau de bord, code 78),
+    `test_hooks_scripts_refus` (racine et, depuis la relecture P2, `scripts/` et `hooks/` d'un
+    profil secondaire), `test_hooks_scripts_root_et_refus` (racine et profil `coder`),
+    `test_diagnostiquer_sous_s6_sur_un_conteneur_sain` (relecture P2 : code 0 exigé),
+    `test_volume_railway_simule` ;
+  - `test_api_server_http_refuse_les_outils_d_execution` (HTTP réel sur 127.0.0.1:8642 ; pont
+    `tool_call` non résolu refusé, pont vers `todo_list` exécuté),
+    `test_agent_cron_refuse_terminal` (terminal absent ; pont `tool_call` non résolu, refusé par la
+    garde dans le processus cron), `test_worker_kanban_refuse_les_outils_d_execution` (trois cartes
+    du propriétaire ; `kanban_create` avec skills, modèle, fournisseur et `workspace_path:
+    /opt/data`, et `kanban_attach_url`, OFFERTS au worker, refusés par la garde : preuve du
+    crochet dans le processus du worker ; aucune nouvelle carte ; aucune requête vers
+    `attache.acp.test`) ;
+  - **`test_preview_restart_par_api_ws` (BLOQUANT, non ignorable)** et son témoin négatif
+    (managed scope altérée en root, tableau de bord relancé : terminal s'exécute) ;
+  - `test_session_du_tableau_de_bord_sans_outil_d_execution`,
+    `test_meta_garde_execution_dans_le_tableau_de_bord`, `test_aucune_installation_paresseuse`,
+    `test_volume_piege_apres_relance` (relance par l'agent et redémarrage) ;
+  - `test_maintenance_sleep_infinity[cmd_herite_garde|cmd_herite_retire]` : la Start Command
+    `/bin/sh -c "exec sleep infinity"` tient avec ou sans `gateway run` hérité, `docker exec`
+    donne un shell root, `diagnostiquer` lit `/proc/1/environ` depuis `env -i` sans faux refus.
+
+Lancement local :
+
+```sh
+docker run --rm --entrypoint /opt/hermes/.venv/bin/python -e PYTHONPATH=/opt/acp-tests/site \
+  acp-hermes-tests:dev -m pytest -v /opt/acp-tests/image
+ACP_IMAGE=acp-hermes:dev ACP_IMAGE_TESTS=acp-hermes-tests:dev python -m pytest -s -v hermes/tests/contrat
+```
+
+Sous Windows, préfixer `PYTHONUTF8=1` (sinon des `print` échouent en UnicodeEncodeError) et,
+dans Git Bash, `MSYS_NO_PATHCONV=1`.
+
+L'image de test diffère de l'image Railway par `/opt/acp-tests` (tests, outils, pytest)
+et par l'autorité de test jetable dans `/etc/ssl/certs` ; les preuves qui n'en ont pas
+besoin (refus, conteneur en marche, compatibilité, versions, maintenance) tournent sur
+l'image Railway.
+
+### Chaque protection principale, retirée, fait échouer ses tests (P2)
+
+Comme en P1 pour le `PATH`, chaque protection principale a été retirée d'une copie de
+`hermes/` (image reconstruite), puis ses tests rejoués sur cette image le 25/09/2026 :
+
+| Protection retirée | Tests dans l'image | Tests de contrat |
+|---|---|---|
+| Garde d'exécution (crochet non enregistré) | 4 échecs sur 4 : pont `tool_call` (non résolu), agent neuf, **preview.restart en stdio**, découverte | 4 échecs sur 5 : **preview.restart par `/api/ws`**, worker kanban, cron (`tool_call`), meta ; `cron[terminal]` reste vert (tenu par la couche 1) |
+| Listes `disabled_toolsets` et `platform_toolsets` | 7 échecs sur 9 : surfaces (vide et hostile), tours api_server (terminal, fichiers, code, délégation) ; `cronjob_manage` et `browser_navigate` restent verts (navigateur toujours retiré, cron non offert) | 1 échec sur 1 : api_server HTTP (terminal offert) |
+| Épingles du `.env` géré | 2 échecs sur 3 : `.env` neutralisé, surfaces sur volume hostile | — |
+| `acp-entree` (ENTRYPOINT officiel) | — | 1 échec sur 1 : refus hors PID 1 |
+| Sentinelle (non appelée par `register()`) | `test_register_appelle_la_sentinelle` échoue (1 sur 1) ; les 9 cas de la fonction elle-même restent verts | 2 échecs sur 2 : passerelle et tableau de bord hors s6 |
+| `hooks/` et `scripts/` exigés vides | 2 échecs sur 2 | 2 échecs sur 2 |
+| Volume Railway exigé | 3 échecs sur 3 | 1 échec sur 1 |
+| `diagnostiquer` lisant l'environnement de la session | 1 échec sur 1 : source de l'environnement | 2 échecs sur 2 : maintenance (faux refus depuis `env -i`) |
+
+Script de preuve : copie de `hermes/`, protection retirée, images reconstruites, sélection
+`pytest -k` rejouée ; images supprimées ensuite.
+
+### Tests ajoutés en P4
+
+Détail et preuves : [projets.md](projets.md) § 8 et § 9. Dans l'image : base du greffon, adaptateur
+kanban étendu (modules de définition, scan de compatibilité, schéma de `task_events`), lancement,
+graphe et plafonds, routage, corrections, questions, pauses, cartes `poste-*` étrangères, présence,
+émetteur (règles, envoi unique, canaux Telegram et ntfy sur un transport factice), outils et garde
+(33 noms), routes, bloc `projets` de la méta ; gardes de démarrage (épingles P4, crochets shell,
+variables de notification, `HERMES_KANBAN_DISPATCH_IN_GATEWAY`). Au contrat :
+`test_projets_contrat.py` (pile complète, modèle factice, poste simulé, faux ntfy). Témoins négatifs :
+`scripts/temoins_negatifs_p4.sh` (24 protections, retirées une à une dans un conteneur jetable).
+Seconde partie de P4 : greffon d'interface `acp-projets` (page « Projets », sans code serveur) copié et
+normalisé comme les deux autres (`test_interface.py`, `test_interface_contrat.py`), et parcours complet
+au navigateur (`hermes/tests/e2e/test_projets.py`, [projets.md](projets.md) § 4 bis).
+
+### Tests ajoutés en P5
+
+Détail et preuves : [poste.md](poste.md) § 12. Dans l'image : migration v1 → v2 (idempotente, relevés de P4
+relus), postes, codes et ordres en base, présence et grâce de redémarrage, fournisseur du jeton machine
+(forme, lecture seule, 503 sur base illisible, comparaison de chaque ligne, p50 et p99 mesurés),
+adaptateur d'authentification (modules de définition de Hermes), routes du poste et routes du propriétaire
+sur un vrai serveur uvicorn **derrière l'intergiciel de jeton de Hermes** (`pile_machine`), long-poll
+(réveil, remplacement, déconnexion), routage de P5, bloc `machine` de la méta ; tests de P4 mis à jour
+(schéma 2, quatrième greffon d'interface). Au contrat : `test_machine_contrat.py` (pile s6 complète, faux
+poste `hermes/tests/outils/faux_poste.py`, exemples `hermes/tests/outils/fixtures_machine/`). Au
+navigateur : `hermes/tests/e2e/test_poste.py`. Témoins négatifs : `scripts/temoins_negatifs_p5.sh` (28
+protections).
+
+### Tests ajoutés en P6
+
+Dans l'image : `test_execution_p6.py` (36 tests : réclamation et service des cartes, preuve de propriété,
+idempotence, battement, fin, revue, corrections dans l'ordre, questions, blocages et attentes de quota, reprise,
+arrêt propre, taille de la carte, intégration, vues), `test_routage_p6.py` (11 : intégration, voies fermées,
+repli de relecture D91), `test_migration_v3.py` (5) ; tests de P4 et P5 mis à jour (schéma 3, neuf chemins à
+jeton, bloc `executant`). Au contrat : `test_execution_contrat.py` (8 tests sur la pile s6 complète, faux
+exécutant `hermes/tests/outils/faux_executant.py`, exemples `hermes/tests/outils/fixtures_machine/*`).
+Au navigateur : `hermes/tests/e2e/test_executant.py` (onglet Poste avec l'exécutant, revue refusée avec motif). Témoins
+négatifs : `scripts/temoins_negatifs_p6.sh` (27 protections, retirées une à une dans un conteneur jetable).
+
+Résultats locaux du 1er octobre 2026 (Windows 10, Docker 29.5.3) sur des images construites depuis l'arbre de
+travail de `refonte/hermes-p6` : suite de l'image **681 réussis**, 0 échec, 0 ignoré (450,80 s, arbre de
+`c8b0887`) ; témoins négatifs **27 témoins, 0 anomalie** ; contrat : `test_execution_contrat.py` 8,
+`test_machine_contrat.py` 11 et `test_interface_contrat.py` 4 réussis (241,87 s), `test_projets_contrat.py` 21
+réussis (896,64 s), `test_interface_contrat.py` refait sur l'arbre de `c8b0887` : 4 réussis ; navigateur
+`test_executant.py` 1 réussi (45,81 s) ; contrat partagé 209 réussis. Le reste de la suite de contrat (catalogue,
+image, identité, connexion, sans shell) n'a pas été relancé localement : la CI le passe. Le vrai exécutant,
+Railway et les vrais comptes ne sont pas couverts par ces tests (cahier P6 § 16).
+
+### Tests ajoutés par le chantier SECU-TUI (SECU-1, SECU-2)
+
+Écrits d'abord, **rouges sur le code de P7** (run jetable 37831355746, § 9), puis verts avec le correctif.
+
+- **Dans l'image** (`test_secu_env.py`), chaque cas après la chaîne root de production (`commande_gardes`
+  au démarrage, `commande_verifier_relance` à la relance) puis dans un processus NEUF de Hermes :
+  - `test_aucune_valeur_du_volume_dans_la_fenetre_de_publication[env|op_env|profil × demarrage|relance]` :
+    une valeur piège pour CHAQUE clé du `.env` géré ; `os.environ` lu au point fixe où la portée gérée va
+    être appliquée, et outils qu'une session du tableau de bord recevrait à cet instant ;
+  - `test_concurrence_reelle_d_un_rechargeur_et_du_fil_d_une_session` : la course réelle pendant 4 s
+    (fréquence affichée) ; `test_reload_env_ne_republie_aucune_valeur_du_volume` ;
+  - `test_hermes_managed_dir_dans_op_env_est_refuse[racine|profil]` ;
+  - `test_temoin_hermes_execute_la_commande_de_secrets_du_volume` (témoin du vecteur, vert avant comme
+    après) et `test_une_source_de_secrets_du_volume_est_refusee[racine|profil]` (crochet, relance, 05-acp,
+    inventaire de `diagnostiquer`), `test_sources_de_secrets_actives` ;
+  - le retrait lui-même : `test_retirer_cles_env` (onze formes : `export`, clé citée, valeur multiligne,
+    NUL, BOM et CRLF, UTF-16, séparateur de `splitlines`, latin-1, lignes à garder), refus de l'UTF-32,
+    propriétaire, mode et idempotence, aucun lien suivi (lien, profil lié vers `/etc/hermes`, lien dur),
+    portée gérée de root exigée, journal sans valeur, `diagnostiquer` sans écriture ;
+  - `test_les_epingles_absentes_un_instant_valent_leur_epingle` (`d5d8b73`, effet de bord de SECU-1) : dans la
+    fenêtre d'un rechargement en cours de vie et après `reload_env`, aucune clé épinglée ne porte une autre
+    valeur que son épingle ; seules absences admises : `API_SERVER_HOST`, `API_SERVER_PORT` et les trois clés
+    copilot, dont les lecteurs de Hermes rendent alors exactement ce qu'ils rendent avec l'épingle ;
+  - audit défensif du 9 octobre 2026 (rouges au run jetable 37873430373, § 9) :
+    `test_variables_d_emplacement_et_d_execution_du_volume_refusees[env|op_env|profil]` (la famille, calculée
+    sans la liste d'ACP à partir de `VALEURS_IMPOSEES` et de la liste de l'écrivain de Hermes, refuse au
+    crochet, dans 05-acp et à la relance ; `API_SERVER_KEY` et une clé de fournisseur restent admises),
+    `test_hermes_managed_dir_sous_les_formes_lues_par_hermes_est_refuse[nul|utf16|saut_de_page|u2028]` (avec,
+    pour chaque forme, le chemin réel de Hermes qui la publie) ; témoins verts avant comme après :
+    `test_temoin_hermes_publie_la_famille_depuis_le_env_du_volume`,
+    `test_temoin_hermes_suit_le_home_du_env_du_volume` ; ajoutés avec le correctif (non montrés rouges) :
+    `test_la_copie_d_acp_contient_la_liste_de_l_ecrivain_de_hermes` (garde de dérive à la montée de Hermes) et
+    `test_un_env_du_volume_illisible_comme_hermes_refuse` (UTF-32).
+- **Depuis l'hôte** (`test_sans_shell_contrat.py`) :
+  - `test_volume_piege_aucune_valeur_publiee_apres_relance` : `.env` et `.op.env` piégés par l'agent,
+    relance par l'agent, puis sonde DANS le conteneur sous l'uid hermes avec la vraie `/etc/hermes` : point
+    fixe, course réelle, `reload_env`, aucune clé épinglée restée dans le volume ;
+  - `test_couche_3_refuse_terminal_a_une_session_qui_l_a_recu` (la troisième couche face à la session
+    fautive reproduite sans course, § 5) ;
+  - `test_op_env_qui_deplace_la_portee_geree_refuse_le_demarrage`,
+    `test_source_de_secrets_du_volume_refuse_le_demarrage` (témoin absent du volume) ;
+  - `test_put_api_env_n_ecrit_aucune_cle_epinglee` (`d5d8b73`) : le propriétaire authentifié demande
+    `PUT /api/env` de `HERMES_TUI_TOOLSETS`, `HERMES_BIN` et `HERMES_SAFE_MODE` ; aucune n'arrive dans
+    `/opt/data/.env`, alors qu'une clé ordinaire est écrite puis retirée par la même route (contrôle positif) ;
+  - audit défensif du 9 octobre 2026 (rouges au run jetable 37873430373) :
+    `test_home_du_volume_qui_redirige_hermes_refuse_le_demarrage` et
+    `test_managed_dir_que_seul_hermes_decode_refuse_le_demarrage[utf16|nul]` (code 1, message français, sonde
+    de la portée gérée si le conteneur démarre).
+
+`test_volume_piege_apres_relance`, qui avait vu la faille une fois, est gardé tel quel : son contrôle final
+ne mesure que l'état stable, et une seule session ne déclenche la course que rarement.
+
+## 9. Ce qui est prouvé, ce qui ne l'est pas
+
+Les preuves datées de P1 (sorties, identifiants de runs) sont dans
+[`historique.md`](historique.md), partie B, § 5.
+
+Prouvé en P1 (local et CI) : version et condensat ; `CMD`, crochet et variables s6 de
+l'image ; OpenRPC identique ; `hermes plugins compat` vert sur `acp-poste`, rouge sur un
+témoin qui importe `hermes_cli.kanban_db.connect` ; refus code 1 en français, avant
+l'amorçage de Hermes, pour chaque cas du § 4 et pour un fichier géré invalide, y compris
+si `S6_BEHAVIOUR_IF_STAGE2_FAILS` a été changée ; `/proc/1/cmdline` = s6-svscan (lancé par
+`/init`) ; passerelle et tableau de bord sous l'uid hermes ; api_server sur
+127.0.0.1:8642 seulement ; `/api/auth/providers` = `self-hosted` seul ; meta 401 sans
+session, 200 avec un jeton OIDC valide ; jetons d'une autre clé, d'une autre audience ou
+d'un autre émetteur refusés ; injection **dans `/opt/data/config.yaml`** (basic, Nous,
+émetteur et client OIDC, `trusted_proxies`, `platforms.api_server`) neutralisée après
+relance du tableau de bord ET de la passerelle **par l'agent** et après redémarrage du
+conteneur ; écritures de l'agent refusées dans la managed scope, les greffons, le thème, le
+greffon groupé et `/etc/cont-init.d` ; **`/run/service` et les scripts des passerelles
+repris par root** ; **aucun binaire déposé par l'agent dans `/opt/data/.local/bin` n'est
+exécuté en root** (§ 4.5) ; **api_server ramené en `127.0.0.1:8642`** même clé retirée ;
+**`HERMES_MANAGED_DIR` posée dans `/opt/data/.env` refuse la relance du tableau de bord et le
+redémarrage du conteneur** ; `HERMES_BUNDLED_PLUGINS` et `HERMES_ENABLE_PROJECT_PLUGINS`
+ramenées à leur valeur d'image ; `/v1/meta` signale une portée gérée détournée ;
+`POST /api/hermes/update` refusé, `/opt/hermes` identique ; carte en triage du tableau
+`poste` jamais lancée ; un tour d'agent complet sur le modèle factice ; démarrages
+idempotents ; SOUL modifié gardé et signalé.
+
+Prouvé en P2, en local le 25/09/2026 (preuves chiffrées en fin de section) :
+- **aucune surface n'offre d'outil d'exécution** (api_server, CLI, cron, tableau de bord,
+  worker kanban, enfant de délégation), sur volume vide et hostile ;
+- **les vrais processus refusent** : api_server en HTTP (« does not exist » pour terminal,
+  fichiers, code, cron, délégation, navigateur ; pont `tool_call` non résolu refusé par la
+  garde, pont résolu jugé sur l'outil sous-jacent),
+  agent cron, **workers kanban** (garde présente dans leur processus : `kanban_create` et
+  `kanban_attach_url` refusés avec leur message), tableau de bord après volume piégé, relance
+  et redémarrage ;
+- **`preview.restart` est fermé dans le processus réel**, par les deux tests bloquants
+  (`tui_gateway.entry` en stdio ; `/api/ws` du vrai tableau de bord avec ticket), chacun avec
+  son témoin négatif où terminal s'exécute vraiment ;
+- l'`AIAgent` charge lui-même la garde (processus neuf, sans `discover_plugins` manuel) ; la
+  découverte des greffons réussit sur l'image épinglée ; `/v1/meta` rapporte l'état de la
+  garde dans le processus du tableau de bord ;
+- refus hors PID 1 (`--init`), arrêt en code 78 de la passerelle et du tableau de bord lancés
+  hors de s6, `hooks/` et `scripts/` exigés vides puis root (à la racine et, depuis la relecture
+  P2, dans chaque profil), volume Railway exigé (variable et
+  point de montage), `RAILWAY_RUN_UID`, treize nouvelles variables interdites, cinq valeurs
+  imposées, quatorze nouvelles épingles, 40 clés et 38 variables ;
+- aucune installation paresseuse (`uv pip install` absent des journaux, `lazy-packages` vide) ;
+- maintenance `/bin/sh -c "exec sleep infinity"` avec et sans `CMD` hérité, shell root,
+  `diagnostiquer` lisant `/proc/1/environ` depuis une session vide, sans rien écrire.
+
+Non prouvé — et non garanti :
+- **rien sur Railway** : PID 1 réel de la plateforme, Start Command et `CMD` hérité,
+  environnement d'une session `railway ssh`, bord (`trusted_proxies`, en-têtes), volume réel
+  (voir [railway.md](railway.md)) ;
+- le tableau de bord **authentifié** reste un shell du propriétaire (§ 5) ; son filtrage
+  (`/api/ws`, `/api/pty`…) relève de P4 ;
+- les échecs ouverts autour du crochet (§ 10) ne sont couverts que par des tests de
+  l'image épinglée et par l'alerte de `/v1/meta`, pas par un mécanisme qui les fermerait ;
+- l'api_server accepte une politique d'exécution de « salon » (`room_execution_policy`,
+  api_server.py:2238-2241) qui choisit ses propres jeux d'outils : seule la garde la couvre
+  (non éprouvé par un test dédié) ;
+- aucune connexion interactive complète par le navigateur dans ces tests : elle est prouvée,
+  avec le vrai fournisseur Authelia derrière un bord TLS factice, par le test navigateur de P2
+  ([identite.md](identite.md) § 7 et § 10) ;
+- le crochet `S6_STAGE2_HOOK` n'est pas un point d'extension de Hermes mais de s6-overlay ;
+  une montée de s6-overlay dans l'image officielle devra être revérifiée.
+
+### Preuves de P2 (local)
+
+**Partie 1 seulement (commit `efbf7b0`)** : ces chiffres datent de la première partie de P2 et
+sont périmés au sommet de la branche (216 tests dans l'image dès `822d6e6`, 99 au contrat avec
+l'identité et l'IaC). Les preuves à jour, partie par partie puis après la relecture indépendante,
+sont dans [`historique.md`](historique.md) (partie B, § 6). Relevé de la partie 1 : images
+construites depuis le worktree (`docker build -f hermes/image/Dockerfile hermes`, puis l'image de
+test), Docker 29.5.3 sous Windows, le 25/09/2026 :
+
+- dans l'image : `docker run --rm --entrypoint /opt/hermes/.venv/bin/python -e
+  PYTHONPATH=/opt/acp-tests/site <image de test> -m pytest -v -rA /opt/acp-tests/image` →
+  **212 réussis, 0 échec, 0 ignoré** (P1 et P2) ;
+- contrat depuis l'hôte : `PYTHONUTF8=1 ACP_IMAGE=… ACP_IMAGE_TESTS=… python -m pytest -s -v
+  -rA hermes/tests/contrat` (pytest 9.1.1, hachés vérifiés) → **56 réussis, 0 échec, 0
+  ignoré** en 9 min 49 s, dont les deux tests bloquants `preview.restart` ;
+- protections retirées une à une : tableau du § 8 ;
+- nettoyage : aucun conteneur, volume ni réseau `acp-contrat-*` restant.
+
+### Preuves de P2 (CI)
+
+Partie 1 seulement ; les runs suivants sont dans [`historique.md`](historique.md), partie B, § 6.
+Run `image.yml` [36087965990](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/36087965990)
+sur `refonte/hermes-p2` (commit `efbf7b0`, 25/09/2026, conclusion **success**) : condensat de
+l'image officielle confirmé, **212 tests réussis dans l'image**, **56 tests de contrat
+réussis** (dont les deux tests bloquants `preview.restart`), aucun échec, aucun ignoré. Run
+`ci.yml` [36087965871](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/36087965871)
+du même commit : success.
+
+### Preuves du chantier SECU-TUI (CI)
+
+Aucune commande Docker locale : tout passe par la CI GitHub. Les runs « jetables » viennent de branches
+`refonte/hermes-jetable-secu-*` (workflow ad hoc qui ne rejoue que les tests visés, supprimées ensuite).
+
+- **Rouge sur le code de P7, tests seuls** (`4c3647e`, branche jetable, run
+  [37831355746](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/37831355746), conclusion
+  **failure** attendue) : dans l'image, `test_secu_env.py` **12 échecs, 1 réussi** (le témoin : Hermes exécute
+  bien `secrets.command`) ; au contrat, **3 échecs, 2 réussis** : fenêtre dans le vrai conteneur (sept clés
+  publiées, `terminal`/`file`/`code_execution`, 7 181 résolutions sur 7 343 avec terminal, `reload_env`
+  republiant sept clés), `.op.env` (portée gérée déplacée vers `/opt/data/faux`), `secrets.command` (témoin
+  créé par l'uid 10000) ; réussis : `test_volume_piege_apres_relance` (la course ne se produit pas sans
+  rechargeur) et `test_couche_3_refuse_terminal_a_une_session_qui_l_a_recu` (§ 5).
+- **Vert avec le correctif** (`373b047`, branche jetable, run
+  [37832691849](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/37832691849), conclusion
+  **success**) : suite COMPLÈTE dans l'image **834 réussis**, 0 échec (dont les 36 de `test_secu_env.py`) ;
+  `test_sans_shell_contrat.py` et `test_contrat_image.py` **64 réussis**, 0 échec. Mesures : dans le vrai
+  conteneur, aucune clé épinglée au point fixe, **0 résolution sur 1 224** avec terminal (103 rechargements),
+  `reload_env` sans écart (il supprime `API_SERVER_HOST`, `API_SERVER_PORT` et les trois clés copilot, § 10) ;
+  dans l'image, 0 sur 697 (395 rechargements) ; journal `[acp] SECU-1 (relance) : /opt/data/.env portait 7
+  clé(s)…` et `/opt/data/.op.env portait 4 clé(s)…`, sans valeur ; `.op.env` avec `HERMES_MANAGED_DIR` et
+  `secrets.command` refusent le démarrage (code 1, message français, témoin absent).
+- **Branche du chantier, workflow complet** (`208ecd7`, run
+  [37835575233](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/37835575233), conclusion
+  **success**) : image 834 réussis, contrat 187 réussis, navigateur 10 réussis ; dans l'image 0 résolution sur
+  1 062 avec terminal (452 rechargements), dans le vrai conteneur 0 sur 1 411.
+- **Reprise 4 : mesures sans nouveau correctif** (`d5d8b73`, run
+  [37872456294](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/37872456294), conclusion
+  **success** ; CI [37872456262](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/37872456262)
+  success) : image **835 réussis** (834 + 1), contrat **188 réussis** (187 + 1), navigateur 10 réussis, aucune
+  ressource `acp-contrat-*` restante. Les deux tests ajoutés réfutent ou mesurent au lieu de corriger : ils sont
+  verts dès leur écriture, chacun avec un contrôle qui l'empêche de réussir à vide. `PUT /api/env` de trois clés
+  épinglées : `200 {"ok": true}` pour chacune, aucune écrite (« Cannot set … managed by your administrator »
+  au journal), contrôle positif écrit puis retiré (§ 10). Absences d'épingles : fenêtre d'un rechargement, les
+  trois clés copilot ; après `reload_env`, ces trois et `API_SERVER_HOST`, `API_SERVER_PORT` ; lecteurs de
+  Hermes identiques à ceux de l'épingle (§ 10). Course réelle : 0 sur 653 dans l'image (318 rechargements),
+  0 sur 1 032 dans le vrai conteneur (110 rechargements).
+- **Audit défensif du 9 octobre 2026, rouge sur `d5d8b73`, tests seuls** (`e5e3f3c`, branche jetable
+  supprimée, run [37873430373](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/37873430373),
+  conclusion **failure** attendue) : dans l'image (`test_secu_env.py` et `test_demarrage.py`) **7 échecs,
+  240 réussis** : « non refusées : » les 85 noms de la famille (pour `.env`, `.op.env` et un profil), « aucun
+  refus » pour `HERMES_MANAGED_DIR` coupée par un NUL, en UTF-16, après un saut de page et après un U+2028 ;
+  les deux témoins réussissent (Hermes publie les 85 noms ; il suit `HERMES_HOME` et lit le `.env` du
+  répertoire désigné). Au contrat, **3 échecs, 2 réussis** : conteneurs démarrés, sonde
+  `{"home": "/opt/data/autre", "portee_geree": "/opt/data/faux", "HERMES_TUI_TOOLSETS":
+  "terminal,file,code_execution"}` pour `HERMES_HOME`, et portée gérée `/opt/data/faux` avec les mêmes outils
+  pour l'UTF-16 et le NUL.
+- **Vert avec le correctif** (`2c4e2d4`, branche jetable supprimée, run
+  [37873804340](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/37873804340), conclusion
+  **success**) : suite COMPLÈTE dans l'image **846 réussis**, 0 échec (dont les 48 de `test_secu_env.py`) ;
+  `test_sans_shell_contrat.py` et `test_contrat_image.py` **68 réussis**, 0 échec (dont
+  `test_put_api_env_n_ecrit_aucune_cle_epinglee` de `d5d8b73`). Journal du conteneur :
+  `[acp] REFUS :   - /opt/data/.env définit la variable interdite HERMES_HOME : …` (code 1), et le même
+  refus de `HERMES_MANAGED_DIR` pour l'UTF-16 et le NUL.
+
+## 10. Limites connues
+
+- **Même uid 10000** pour la passerelle, les agents et le tableau de bord. Depuis P2, l'agent
+  n'a plus d'outil d'exécution : tuer le tableau de bord ou écouter sur `0.0.0.0:9119` lui
+  demanderait une **faille de Hermes lui-même** (analyse d'un document par `web_extract`,
+  `vision_analyze`, skills, mémoire). Non testable sans exécuter l'attaque ; limite de fond.
+- **Écriture du volume en cours de vie (chantier SECU-TUI)** : SECU-1 retire les clés épinglées des
+  `.env` du volume au démarrage et à chaque relance d'un service, c'est-à-dire chaque fois qu'un volume
+  écrit hors de la vie du service (sauvegarde restaurée, maintenance, piège d'avant P2) peut entrer dans
+  un processus de Hermes. **Pendant** la vie d'un service, Hermes lui-même n'écrit aucune clé épinglée
+  dans un `.env` : ses écrivains passent par `save_env_value`, qui refuse une clé que la portée gérée
+  épingle (hermes_cli/config.py:2619-2646, `managed_scope.is_env_managed`), qu'il s'agisse de
+  `PUT /api/env` ou de la saisie d'un secret demandé par une skill (tui_gateway/agent_callbacks.py:207) ;
+  les autres écrivains (mémoire openviking, migration relay, retrait des canaux d'un profil) n'écrivent
+  que des clés fixes non épinglées (lecture de la source). Mesuré au run
+  [37872456294](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/37872456294)
+  (`test_put_api_env_n_ecrit_aucune_cle_epinglee`) : `PUT /api/env` de `HERMES_TUI_TOOLSETS`, `HERMES_BIN`
+  et `HERMES_SAFE_MODE` par le propriétaire authentifié n'écrit rien dans `/opt/data/.env`, alors qu'une
+  clé ordinaire est écrite puis retirée par la même route ; Hermes répond pourtant `200 {"ok": true}` et ne
+  dit son refus que dans le journal du tableau de bord (« Cannot set HERMES_BIN: it is managed by your
+  administrator »). La version précédente de ce paragraphe citait `PUT /api/env` comme moyen d'écrire une
+  clé épinglée : c'était inexact. Reste une écriture **directe** du fichier, par l'uid hermes (une faille
+  de Hermes, ligne précédente) ou par le shell du propriétaire (`/api/pty`, `shell.exec`, éditeur de
+  fichiers : § 5) : elle rouvrirait la fenêtre jusqu'à la relance suivante pour chaque processus qui
+  recharge le `.env` (tableau de bord aux reconnexions MCP, passerelle à chaque tour, cron). La troisième
+  couche refuserait encore `terminal` dans une session (mesuré, § 5) ; en revanche, un `HERMES_BIN` lu
+  par le répartiteur kanban pendant la fenêtre (kanban_db_dispatch.py:2524) ferait lancer le programme
+  désigné comme worker (lecture de la source, non mesuré).
+- **Épingles absentes un instant (effet de bord de SECU-1, mesuré)** : le volume ne portant plus les clés
+  épinglées, Hermes retire d'`os.environ` les trois clés copilot dans la fenêtre de chaque rechargement
+  (`_clear_known_keys_missing_from_dotenv`, env_loader.py:82-94) et, après « reload.env » (servi par
+  `/api/ws`), `API_SERVER_HOST` et `API_SERVER_PORT` en plus (hermes_cli/config.py:2743-2746), jusqu'au
+  chargement suivant. Mesuré au run 37872456294 (`test_les_epingles_absentes_un_instant_valent_leur_epingle`,
+  dans l'image) : aucune autre clé épinglée n'est absente ni ne change, et les lecteurs de Hermes rendent
+  exactement ce qu'ils rendent avec l'épingle : écoute de l'api_server `127.0.0.1:8642`, URL
+  `http://127.0.0.1:8642` des outils cron et `…/api/cron/fire` du tableau de bord, audit de démarrage
+  sans alerte, programme copilot `copilot --acp --stdio` (la valeur par défaut, que l'épingle vide donne
+  aussi).
+- **Variables interdites au conteneur mais ni épinglées ni refusées dans le volume.** Depuis l'audit du
+  9 octobre 2026, la famille d'emplacement et d'exécution (`HERMES_HOME`, valeurs imposées par l'image, liste
+  de l'écrivain de `.env` de Hermes) est refusée dans les `.env` et `.op.env` du volume (§ 4.3) : une
+  version antérieure de cette limite la tenait pour un simple arrêt de service, à tort pour `HERMES_HOME`.
+  Restent admises dans le volume, sans épingle ni refus, et **non mesurées** : `HERMES_KANBAN_HOME`,
+  `HERMES_KANBAN_DB`, `HERMES_KANBAN_BOARD` (emplacement et tableau du kanban), `HERMES_KANBAN_DISPATCH_IN_GATEWAY`
+  (couperait le répartiteur de la passerelle, gateway/kanban_watchers.py:215-218), `API_SERVER_ENABLED`,
+  `HERMES_ALLOW_ROOT_GATEWAY`, `HERMES_DOCKER_EXEC_AS_ROOT`, `HERMES_GATEWAY_NO_SUPERVISE`,
+  `HERMES_GATEWAY_BOOTSTRAP_STATE`, `HERMES_AUTH_JSON_BOOTSTRAP`, `HERMES_AUTH_JSON_REBOOTSTRAP`,
+  `HERMES_UID`, `HERMES_GID`, `PUID`, `PGID`, `AUTO_UPDATE`, `DASHBOARD_PASSWORD`,
+  `HERMES_DASHBOARD_INSECURE` (sans effet dans Hermes 0.21.5 selon sa documentation, non vérifié dans le
+  code), `HERMES_PORTAL_BASE_URL`, `NOUS_PORTAL_BASE_URL`, `NOUS_INFERENCE_BASE_URL` (ces trois, stage2-hook.sh
+  les écrit lui-même quand le conteneur les porte, ce qu'ACP refuse) ; `API_SERVER_KEY` reste admise à
+  dessein (§ 4.3). Plusieurs ne sont lues que dans l'environnement du conteneur par les scripts de
+  démarrage ; aucune n'a été montrée menant à une exécution. À trancher par une PR qui les épinglerait ou
+  les refuserait après mesure.
+- **Échecs ouverts autour de la garde** : la couche d'appel de Hermes échoue ouvert si le
+  crochet lève (agent_runtime_helpers.py:2348-2361 ; tool_executor.py:652-667) — la garde ne
+  lève jamais ; la **découverte des greffons** qui lève fait continuer l'agent sans greffon
+  (agent_init.py:1066-1067) ; `HERMES_SAFE_MODE` (épinglée vide, interdite) saute la
+  découverte, mais reste accessible au shell du propriétaire.
+- **Rebinding DNS** pour tout outil qui téléchargerait sans le client sûr de Hermes :
+  `kanban_attach_url` est retiré ; `vision_analyze` et le hub de skills utilisent le client
+  sûr ; `web_extract` filtre par `async_is_safe_url` puis délègue à un fournisseur (supposé
+  distant). Tout nouveau site d'appel HTTP direct fait échouer
+  `test_recensement_http_des_outils_admis`.
+- **`--accept-hooks` est fixe côté répartiteur** (kanban_db_dispatch.py:2686-2689) : les
+  workers acceptent les `hooks:` de la configuration. L'agent ne peut plus l'écrire ; une
+  sauvegarde restaurée le pourrait : `diagnostiquer` l'inventorie.
+- **Chemins d'exécution pilotés par la configuration ou le volume** (`mcp_servers.*.command`,
+  `hooks:`, quick_commands exec, TTS/STT « command », `lazy-packages`) : il faut écrire
+  `/opt/data`, ce que l'agent ne peut plus faire ; `diagnostiquer` les inventorie (code 1). Depuis
+  P3, un serveur MCP stdio ou hors catalogue **refuse le démarrage** et la relance (D8) ; depuis le
+  chantier SECU-TUI, une source externe de secrets activée (`secrets.command`…) aussi (SECU-2,
+  § 4.3 ter) ; le tableau de bord authentifié peut encore en lancer un **pendant** sa session (shell
+  du propriétaire, § 5).
+- **`vision_analyze` lit les images locales** (relecture P2, constat par lecture de la source,
+  non exécuté) : l'outil admis accepte un chemin local ou une URL `file://`
+  (tools/vision_tools.py:875) ; avec le terminal local de l'image, **tout chemin** lisible par
+  l'uid 10000 est admis (tools/image_source.py:71-78 et 173-177), filtré seulement par la garde
+  des fichiers d'identifiants (`.env`, `auth.json` : image_source.py:84-99) et par le contrôle des
+  octets magiques d'image. L'agent peut donc faire décrire par le modèle de vision **toute image
+  locale** lisible (pièces jointes en cache, par exemple), puis en exfiltrer la description par
+  `web_extract`. Gardé par décision du propriétaire (`web_extract` et `vision_analyze` gardés,
+  risque résiduel documenté) ; parade possible si le propriétaire le décide : refuser dans la garde
+  un `image_url` sans schéma `http(s)` ni `data:` (au prix des images jointes par chemin local).
+- **Exfiltration par `web_extract`** (URL publique) après une injection ; **injection
+  persistante** par les skills et la mémoire, soumises à la validation du propriétaire
+  (`write_approval: true`).
+- **Chemins root qui lisent le volume, sans audit exhaustif** : `stage2-hook.sh`
+  (01-hermes-setup) et `02-reconcile-profiles` tournent en root sur un `/opt/data` que
+  l'agent pouvait écrire ; sans outil d'exécution, l'agent ne peut plus y déposer de piège,
+  mais une sauvegarde restaurée le pourrait (d'où `diagnostiquer` avant tout redémarrage).
+- **Relance des services par l'agent** (`s6-svc -r`) : sans outil d'exécution, l'agent ne peut
+  plus écrire dans la FIFO `supervise/control` ; la garde de relance (P1) reste en place.
+- **Jeton invalide → 503.** Hermes range une signature, une audience ou un émetteur
+  invalides en « fournisseur injoignable » (plugins/dashboard_auth/_shared.py:192-229) :
+  le client desktop (P8) devra traiter 503 comme un refus.
+- **Récupération d'un volume refusé** : procédure de maintenance (Start Command
+  `/bin/sh -c "exec sleep infinity"`, `diagnostiquer`, correction, retour à la normale) et
+  restauration de sauvegarde : [railway.md](railway.md) § 10. On ne désactive jamais une
+  garde et on n'ajoute jamais de variable de contournement.
+- **PID 1 sur Railway** : non documenté ; si la plateforme ne le donne pas à l'image, `acp-entree`
+  refuse et renvoie à la procédure ([railway.md](railway.md) § 10 f : service laissé hors ligne,
+  décision de conception par une PR, aucun contournement par Start Command).
+- **Sentinelle** : défense en profondeur seulement (§ 3) ; une commande qui ne passe pas par
+  l'analyse de `sys.argv` de `hermes` n'est pas reconnue.
+- **Hors de s6** : refusé (`acp-entree` hors PID 1 ; sentinelle du greffon pour `gateway
+  run` et `dashboard` lancés par une autre entrée). Le PID 1 réel de Railway n'est pas
+  documenté : le premier démarrage le tranchera, par un refus explicite s'il le faut.
+- `/proc/1/cmdline` vaut `s6-svscan` et non `/init` : `/init` s'exécute en `s6-svscan`
+  (s6-linux-init) ; c'est la preuve attendue que la chaîne s6 est en PID 1.

@@ -1,0 +1,21 @@
+{
+  "poste-codex": {
+    "etat": "inconnu",
+    "releve_le": null,
+    "compteurs": [],
+    "seuil_pct": 90,
+    "source": "codex_app_server"
+  },
+  "poste-claude": {
+    "etat": "inconnu",
+    "releve_le": null,
+    "compteurs": [],
+    "seuil_pct": 90,
+    "source": "ligne_etat_sessions_proprietaire",
+    "source_libelle": "Ligne d'état de vos sessions Claude Code sur ce PC (même abonnement déclaré)"
+  },
+  "hermes": {
+    "etat": "inconnu",
+    "libelle": "Inconnu"
+  }
+}

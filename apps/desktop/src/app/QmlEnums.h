@@ -26,7 +26,7 @@ public:
         Unknown,      //!< Aucune mesure encore effectuée : « Inconnu », jamais « OK ».
         Probing,      //!< Un contrôle est en cours.
         Online,       //!< Dernier échange réussi, horodaté.
-        Degraded,     //!< Le service répond mais un contrôle a échoué (/ready en 503).
+        Degraded,     //!< Le service répond mais signale un défaut (`ok` absent ou faux).
         Offline,      //!< Aucune réponse : le lien manque, le travail n'a pas raté.
     };
     Q_ENUM(State)
@@ -34,59 +34,48 @@ public:
     using QObject::QObject;
 };
 
-/*! États explicites de la session humaine. Aucun état implicite, aucun « peut-être ». */
+/*!
+    États explicites de la session auprès de Hermes (connexion native, RFC 8252).
+
+    Aucun état implicite, aucun « peut-être ». Toute transition vers un état non connecté
+    est accompagnée de sa raison, en français.
+*/
 class SessionStatus : public QObject
 {
     Q_OBJECT
 
 public:
     enum State {
-        Disconnected, //!< Aucune session ; l'écran d'authentification est le seul chemin.
-        Connecting,   //!< Authentification ou reprise en cours.
-        Connected,    //!< Session valide, jeton CSRF détenu.
-        Expired,      //!< La durée de session est écoulée (12 h par défaut côté serveur).
-        Revoked,      //!< Le serveur a refusé la session ou l'appartenance (401/403, SSE closed).
-        Offline,      //!< Session peut-être valide, mais le serveur est injoignable.
+        NonConfiguree,          //!< Aucune adresse de serveur.
+        Deconnectee,            //!< Aucune session ; la connexion par le navigateur est le seul chemin.
+        AttenteNavigateur,      //!< Écouteur de bouclage ouvert, navigateur système en cours.
+        Echange,                //!< Code reçu, échange contre les jetons en cours.
+        Connectee,              //!< Jeton d'accès valide détenu en mémoire.
+        Rafraichissement,       //!< Rotation du jeton de rafraîchissement en cours.
+        FournisseurInjoignable, //!< 503 au rafraîchissement : jeton gardé, nouvel essai.
+        HorsLigne,              //!< Serveur injoignable : jeton gardé, nouvel essai.
+        Expiree,                //!< Jeton refusé par le fournisseur : reconnexion nécessaire.
+        Refusee,                //!< Connexion refusée (raison française).
     };
     Q_ENUM(State)
 
     using QObject::QObject;
 };
 
-/*! Résultat de la vérification de compatibilité client / serveur. */
+/*! Compatibilité de la station avec le Hermes et le greffon acp-poste servis. */
 class CompatibilityStatus : public QObject
 {
     Q_OBJECT
 
 public:
     enum State {
-        NotChecked,         //!< Aucune vérification encore tentée.
-        Checking,           //!< Vérification en cours.
-        Compatible,         //!< Contrat d'API et version cliente acceptés par le serveur.
-        ClientTooOld,       //!< Le serveur exige une version cliente supérieure.
-        ServerTooOld,       //!< Le serveur sert un contrat que ce client ne sait plus lire.
-        FeatureUnavailable, //!< Le point d'entrée de compatibilité n'existe pas (404).
-        Unreachable,        //!< Le serveur n'a pas répondu ; rien n'est supposé.
-    };
-    Q_ENUM(State)
-
-    using QObject::QObject;
-};
-
-/*! États publiés par le service de flux d'événements. */
-class StreamStatus : public QObject
-{
-    Q_OBJECT
-
-public:
-    enum State {
-        Idle,         //!< Aucun abonnement demandé.
-        Connecting,   //!< Ouverture du flux.
-        Live,         //!< Flux ouvert, événements reçus au fil de l'eau.
-        Reconnecting, //!< Coupure détectée, attente du prochain essai.
-        Polling,      //!< Repli sur l'interrogation périodique du journal durable.
-        Offline,      //!< Ni le flux ni l'interrogation ne passent.
-        Refused,      //!< Refus serveur définitif (403, ou fermeture pour révocation).
+        NonVerifiee,   //!< Aucune lecture de /v1/meta encore.
+        Verification,  //!< Lecture en cours.
+        Compatible,    //!< Contrat, OpenRPC et version de Hermes conformes.
+        Avertissement, //!< Utilisable, mais un écart est signalé (version, empreinte, alertes).
+        Incompatible,  //!< Contrat du greffon d'une autre majeure : pages du greffon bloquées.
+        GreffonAbsent, //!< /v1/meta en 404 : seules Discussion et Diagnostics restent.
+        Injoignable,   //!< Lecture impossible : rien n'est supposé.
     };
     Q_ENUM(State)
 
@@ -106,15 +95,16 @@ public:
         Timeout,            //!< Délai dépassé.
         Cancelled,          //!< Annulé par l'application ou par l'opérateur.
         Unauthorized,       //!< 401 : la session n'est pas (ou plus) valide.
-        Forbidden,          //!< 403 : identité connue, droit refusé — ou jeton CSRF rejeté.
+        Forbidden,          //!< 403 : identité connue, droit ou origine refusés.
         NotFound,           //!< 404 : hors portée ou inexistant ; l'API ne distingue pas.
         Conflict,           //!< 409 : état incompatible avec l'action demandée.
         Unprocessable,      //!< 422 : le corps envoyé est refusé par le contrat.
         RateLimited,        //!< 429 : trop de flux ou trop d'appels ; Retry-After est lu.
         ServerError,        //!< 5xx hors 503.
-        ServiceUnavailable, //!< 503 : dépendance indisponible, /ready en échec.
+        ServiceUnavailable, //!< 503 : dépendance indisponible.
         Incompatible,       //!< Version de contrat refusée par le service de compatibilité.
         InvalidResponse,    //!< Réponse hors contrat : rien n'est rendu partiellement.
+        IdentityProviderUnavailable, //!< 503 de Hermes « Auth provider … unreachable ».
     };
     Q_ENUM(Kind)
 

@@ -15,6 +15,7 @@ include(AcpVersion)
 include(AcpQmlModule)
 
 acp_read_product_version(ACP_DESKTOP_VERSION)
+acp_read_hermes_contract()
 
 project(acp_desktop
     VERSION ${ACP_DESKTOP_VERSION}
@@ -30,7 +31,13 @@ project(acp_desktop
 #   Qml           moteur QML, enregistrement des types, singletons ;
 #   Quick         scène graphique déclarative ;
 #   QuickControls2  SplitView, ToolTip, CheckBox, ApplicationWindow du style Basic ;
-#   Network       QNetworkAccessManager, pot de cookies, flux SSE.
+#   Network       QNetworkAccessManager (REST en porteur), écouteur de bouclage de la
+#                 connexion native (QTcpServer), flux SSE ;
+#   WebSockets    QWebSocket : passerelle JSON-RPC de Hermes (/api/ws, ticket passé en
+#                 sous-protocole) et veille du kanban. C'est la seule voie native vers
+#                 /api/ws : Hermes n'offre pas ce canal en HTTP. Module additionnel de Qt,
+#                 installé par `aqt install-qt … -m qtwebsockets` (packaging/windows/
+#                 toolchain.json, qt.modules), publié sous LGPLv3 comme les six autres.
 #
 # Modules VOLONTAIREMENT absents :
 #   Widgets       aucune fenêtre classique n'est employée ;
@@ -39,15 +46,16 @@ project(acp_desktop
 #                 l'offre open source — donc incompatibles avec une distribution binaire
 #                 propriétaire. Aucun d'eux n'est lié.
 #
-# Licence : les six modules retenus sont des modules « essentiels » de Qt, publiés sous
-# LGPLv3 ou sous licence commerciale. Une distribution binaire sous LGPLv3 impose la
+# Licence : les six premiers modules sont des modules « essentiels » de Qt, et WebSockets
+# un module additionnel ; tous sont publiés sous LGPLv3 ou sous licence commerciale (aucun
+# n'est sous GPL seule). Une distribution binaire sous LGPLv3 impose la
 # liaison DYNAMIQUE, la fourniture du code source de Qt (ou une offre écrite), la
 # possibilité pour l'utilisateur de relier une version modifiée, et la remise du texte de
 # la licence. Ces obligations sont documentées ; elles n'ont PAS été validées
 # juridiquement pour ce produit, et la question de la licence Qt reste ouverte (audit,
 # question 18). Aucune liaison statique de Qt n'est configurée ici.
 
-find_package(Qt6 6.8 REQUIRED COMPONENTS Core Gui Qml Quick QuickControls2 Network)
+find_package(Qt6 6.8 REQUIRED COMPONENTS Core Gui Qml Quick QuickControls2 Network WebSockets)
 
 qt_standard_project_setup(REQUIRES 6.8)
 
@@ -120,43 +128,30 @@ endif()
 # fenêtre.
 
 set(ACP_CORE_SOURCES
-    src/viewmodels/PlatformViewModel.cpp
-    src/viewmodels/PlatformViewModel.h
-    src/viewmodels/OperationsViewModel.cpp
-    src/viewmodels/OperationsViewModel.h
-    src/viewmodels/SubscriptionQuotasViewModel.cpp
-    src/viewmodels/SubscriptionQuotasViewModel.h
-    src/services/SessionPersistence.cpp
-    src/services/SessionPersistence.h
-    src/services/UpdateService.cpp
-    src/services/UpdateService.h
-    src/models/JsonListModel.cpp
-    src/models/JsonListModel.h
-    src/viewmodels/WorkspaceViewModel.cpp
-    src/viewmodels/WorkspaceViewModel.h
-    src/viewmodels/ConversationsViewModel.cpp
-    src/viewmodels/ConversationsViewModel.h
-    src/viewmodels/MissionsViewModel.cpp
-    src/viewmodels/MissionsViewModel.h
-    src/viewmodels/ArtifactsViewModel.cpp
-    src/viewmodels/ArtifactsViewModel.h
-    src/services/ArtifactDownload.cpp
-    src/services/ArtifactDownload.h
     src/api/ApiClient.cpp
     src/api/ApiClient.h
     src/api/ApiError.cpp
     src/api/ApiError.h
     src/api/ApiRequest.h
-    src/api/Cursors.h
+    src/api/ClientGreffonPoste.cpp
+    src/api/ClientGreffonPoste.h
     src/api/IdempotencyKey.cpp
     src/api/IdempotencyKey.h
-    src/api/SessionCookieJar.cpp
-    src/api/SessionCookieJar.h
     src/app/Application.cpp
     src/app/Application.h
+    src/app/GardeInstance.cpp
+    src/app/GardeInstance.h
     src/app/QmlEnums.h
-    src/auth/AuthManager.cpp
-    src/auth/AuthManager.h
+    src/auth/EcouteurBouclage.cpp
+    src/auth/EcouteurBouclage.h
+    src/auth/JetonsHermes.cpp
+    src/auth/JetonsHermes.h
+    src/auth/NativeAuthFlow.cpp
+    src/auth/NativeAuthFlow.h
+    src/auth/PairePkce.cpp
+    src/auth/PairePkce.h
+    src/auth/SessionHermes.cpp
+    src/auth/SessionHermes.h
     src/commands/Command.h
     src/commands/CommandRegistry.cpp
     src/commands/CommandRegistry.h
@@ -166,28 +161,70 @@ set(ACP_CORE_SOURCES
     src/events/Backoff.h
     src/events/EventStreamService.cpp
     src/events/EventStreamService.h
+    src/events/FluxInvalidation.cpp
+    src/events/FluxInvalidation.h
+    src/events/Sondage.cpp
+    src/events/Sondage.h
     src/events/SseEvent.h
     src/events/SseParser.cpp
     src/events/SseParser.h
-    src/events/StreamScope.h
+    src/events/VeilleKanban.cpp
+    src/events/VeilleKanban.h
+    src/gateway/DemandesAgent.cpp
+    src/gateway/DemandesAgent.h
+    src/gateway/DiscussionsEnAttente.cpp
+    src/gateway/DiscussionsEnAttente.h
+    src/gateway/GatewayClient.cpp
+    src/gateway/GatewayClient.h
+    src/gateway/JsonRpcChannel.cpp
+    src/gateway/JsonRpcChannel.h
+    src/models/JsonListModel.cpp
+    src/models/JsonListModel.h
     src/navigation/NavigationModel.cpp
     src/navigation/NavigationModel.h
-    src/services/CompatibilityService.cpp
-    src/services/CompatibilityService.h
+    src/services/CompatibiliteHermes.cpp
+    src/services/CompatibiliteHermes.h
     src/services/HealthService.cpp
     src/services/HealthService.h
+    src/services/TelechargementFlux.cpp
+    src/services/TelechargementFlux.h
+    src/services/UpdateService.cpp
+    src/services/UpdateService.h
+    src/storage/ChiffrementSauvegarde.cpp
+    src/storage/ChiffrementSauvegarde.h
     src/storage/CredentialVault.cpp
     src/storage/CredentialVault.h
+    src/storage/JetonsCoffre.cpp
+    src/storage/JetonsCoffre.h
     src/storage/SettingsStore.cpp
     src/storage/SettingsStore.h
     src/system/SystemAppearance.cpp
     src/system/SystemAppearance.h
+    src/viewmodels/AccueilViewModel.cpp
+    src/viewmodels/AccueilViewModel.h
     src/viewmodels/DiagnosticsViewModel.cpp
+    src/viewmodels/DiscussionViewModel.cpp
+    src/viewmodels/DiscussionViewModel.h
     src/viewmodels/DiagnosticsViewModel.h
+    src/viewmodels/Libelles.cpp
+    src/viewmodels/Libelles.h
+    src/viewmodels/PageViewModel.cpp
+    src/viewmodels/PageViewModel.h
+    src/viewmodels/PosteViewModel.cpp
+    src/viewmodels/PosteViewModel.h
+    src/viewmodels/ProjetsViewModel.cpp
+    src/viewmodels/ProjetsViewModel.h
+    src/viewmodels/QuestionsViewModel.cpp
+    src/viewmodels/QuestionsViewModel.h
+    src/viewmodels/QuotasViewModel.cpp
+    src/viewmodels/QuotasViewModel.h
+    src/viewmodels/RoutageViewModel.cpp
+    src/viewmodels/RoutageViewModel.h
+    src/viewmodels/SauvegardeViewModel.cpp
+    src/viewmodels/SauvegardeViewModel.h
     src/viewmodels/ShellViewModel.cpp
     src/viewmodels/ShellViewModel.h
 )
-
 if(WIN32)
     list(APPEND ACP_CORE_SOURCES
         src/storage/WindowsCredentialVault.cpp
@@ -206,6 +243,7 @@ target_link_libraries(acp_core PUBLIC
     Qt6::Core
     Qt6::Gui
     Qt6::Network
+    Qt6::WebSockets
     Qt6::Qml
     Qt6::Quick
 )
@@ -213,7 +251,9 @@ target_link_libraries(acp_core PUBLIC
 if(WIN32)
     # CredWriteW, CredReadW, CredDeleteW et CredFree vivent dans Advapi32.
     # https://learn.microsoft.com/en-us/windows/win32/api/wincred/nf-wincred-credwritew
-    target_link_libraries(acp_core PRIVATE Advapi32)
+    # CryptProtectData et CryptUnprotectData (sauvegarde chiffrée, DPAPI) vivent dans Crypt32.
+    # https://learn.microsoft.com/en-us/windows/win32/api/dpapi/nf-dpapi-cryptprotectdata
+    target_link_libraries(acp_core PRIVATE Advapi32 Crypt32)
 endif()
 
 # Les conversions implicites de QString depuis un littéral ASCII sont désactivées : elles

@@ -142,6 +142,17 @@ QString CommandRegistry::commandForShortcut(const QString &shortcut) const
     return {};
 }
 
+QStringList CommandRegistry::raccourcis() const
+{
+    QStringList resultat;
+    for (const Entry &entry : m_commands) {
+        if (!entry.command.shortcut.isEmpty()) {
+            resultat.append(entry.command.shortcut);
+        }
+    }
+    return resultat;
+}
+
 int CommandRegistry::rowCount(const QModelIndex &parent) const
 {
     return parent.isValid() ? 0 : static_cast<int>(m_visible.size());

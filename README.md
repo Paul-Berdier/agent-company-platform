@@ -1,531 +1,181 @@
-# Agent Company Platform
+# Agent Company Platform (ACP)
 
-Poste de travail pour organiser des projets, conversations, missions et preuves,
-raccorder Hermes et des workers spécialisés, depuis un **desktop natif C++23 / Qt / QML**,
-le web ou le CLI. Les trois clients utilisent la même API métier.
+Espace de travail personnel d'agents IA, bâti autour de **Hermes Agent** (Nous Research, licence MIT) : c'est la
+refonte « Hermes au centre ». **1.0.0 est préparée** (étape P9) ; sa fusion dans `main` et l'étiquette `v1.0.0`,
+accordées par le propriétaire le 9 octobre 2026 (D164), suivent la PR vers `main` : rien n'est encore publié ni
+**déployé**. L'ancienne plateforme (API FastAPI, base SQLite et PostgreSQL, interface web Vite, CLI `acp`,
+déploiement Railway multi-services) reste entière sous l'étiquette `archive/acp-0.10.0-avant-hermes`.
 
-Deux usages structurent le desktop : **discuter librement**, sans créer de
-projet, ou **commencer/reprendre un projet** avec son historique, ses missions
-et ses livrables. Une équipe de workers peut faire travailler Codex et Claude
-en parallèle dans des worktrees distincts ; l'intégration du code produit reste
-explicite. Les identités, autorisations et résultats passent par l'API ACP.
+## Ce que c'est
 
-La plateforme comprend sessions et droits par projet, missions durables,
-extensions MCP et compétences versionnées, événements temps réel, livrables
-privés, budgets, automatisations, migrations PostgreSQL et outils de sauvegarde.
-L'[état d'implémentation](docs/implementation-status.md) conserve l'historique des
-lots A à H. Le [guide local](docs/local-runtime.md) décrit le démarrage d'ACP,
-d'Hermes et des workers, ainsi que le coffre de notes Markdown pour Obsidian.
+Hermes, épinglé sur la release `v2026.9.24` (Hermes 0.21.5) par le condensat de son image, est le **seul serveur, le
+seul orchestrateur et la seule source de vérité**. Le propriétaire lui confie des projets ; Hermes les découpe en
+cartes, les fait exécuter par des agents de code (Codex CLI et Claude Code, avec les abonnements du propriétaire),
+fait relire, pose ses questions et notifie. ACP n'a plus de backend propre ; il fournit les pièces autour de Hermes :
 
-Hermes démarre réellement sur le poste, mais **aucun modèle n'est encore
-configuré**. Une génération réelle, un serveur MCP tiers et une instance Railway
-restent à valider. Les captures et essais automatisés utilisent des données
-jetables identifiées ; ils ne représentent pas des réponses payantes réelles.
+1. **L'image Railway dérivée de Hermes** ([`hermes/`](hermes)) : réglages gérés (managed scope), gardes de
+   démarrage, persona française, skills vendorisées à des commits épinglés, greffon serveur `acp-poste` (projets,
+   questions, routage des modèles, quotas, notifications, protocole des machines) et greffons d'interface. Sur
+   Railway, l'agent ne doit avoir **aucun outil d'exécution** (ni terminal, ni fichiers, ni code) : trois couches
+   de défense, chacune prouvée en local et en intégration continue ; la deuxième a cédé une fois, et son
+   correctif est fusionné depuis le 9 octobre 2026 (limites ci-dessous). Détail : [`docs/refonte/image.md`](docs/refonte/image.md) § 5.
+2. **L'identité** ([`identite/`](identite)) : Authelia 4.39.28 épinglé, un seul utilisateur, passkeys ; Hermes
+   n'accepte que ce fournisseur OIDC auto-hébergé. Détail : [`docs/refonte/identite.md`](docs/refonte/identite.md).
+3. **L'exécutant Railway** ([`executant/`](executant)) : un service séparé, sans port en écoute, qui réclame ses
+   cartes à Hermes en HTTPS et lance Codex CLI 0.156.1 et Claude Code 2.1.283 sous un UID par agent, dans des
+   worktrees de dépôts autorisés par une politique versionnée ; il committe en local, ne pousse jamais. Détail :
+   [`docs/refonte/executant.md`](docs/refonte/executant.md).
+4. **Le poste Windows**, facultatif ([`apps/poste`](apps/poste/README.md)) : le même client en mode Windows, sous
+   un compte dédié et un Job Object ; il s'enrôle et publie l'inventaire de ses CLI. Détail :
+   [`docs/refonte/poste.md`](docs/refonte/poste.md).
+5. **La station de travail native** C++23 / Qt 6 / QML ([`apps/desktop`](apps/desktop/README.md)), sans WebView :
+   connexion OIDC native, pages Accueil, Projets, Questions, Discussion, Poste, Quotas, Routage, Diagnostics,
+   Sauvegarde (export chiffré de Hermes) ; alignée sur P7 (flux d'invalidation, Accueil agrégé, gestes de la file
+   Questions) ; elle ne parle qu'au Hermes authentifié. Détail : [`docs/refonte/desktop.md`](docs/refonte/desktop.md).
+6. **Le navigateur et le téléphone** : le tableau de bord de Hermes habillé en français, avec les pages d'ACP
+   (Accueil, Projets et sa file Questions, Poste, Discussion, Catalogue) sur la même URL. Détail :
+   [`docs/refonte/interface.md`](docs/refonte/interface.md), [`docs/refonte/questions.md`](docs/refonte/questions.md).
 
-Version en préparation : **0.10.0**, ouverte au commit `4915136`. Le durcissement
-Lot H a été intégré par la [PR #9](https://github.com/Paul-Berdier/agent-company-platform/pull/9)
-au commit `3f8e5fe`, avec le run CI `35799431367` observé vert. Le desktop Qt est
-fusionné dans `main` par la [PR #10](https://github.com/Paul-Berdier/agent-company-platform/pull/10),
-commit `0bc9dcb`, après validation des CI Windows, web, SQLite et PostgreSQL.
-Cela n'annonce ni une publication 0.10.0 finalisée,
-ni une V1 complète. Voir [CHANGELOG.md](CHANGELOG.md) et
-[les preuves desktop](docs/desktop-validation-2026-09-23.md).
+L'infrastructure Railway (trois services, trois volumes) est déclarée en code dans
+[`.railway/railway.ts`](.railway/railway.ts) et appliquée par le propriétaire seul ; branche déployée : `main` (D164).
 
-La [validation fonctionnelle du 23 septembre](docs/functional-completion-2026-09-23.md)
-complète l'audit initial : formulaires Qt pour Codex, Claude et leurs équipes,
-résultats persistés avant clôture, arrêt des Runs Hermes, compétences épinglées et
-délégations MCP HTTP contrôlées. Une équipe exécute jusqu'à deux étapes simultanées
-dans des worktrees distincts ; une reprise après interruption conserve les preuves
-et bloque la réexécution incertaine. Les branches produites demandent une intégration
-explicite. Les essais natifs des CLI utilisent des services locaux de test ; aucune
-génération payante réelle n'est annoncée.
+## État réel (9 octobre 2026)
 
-L’intégration fonctionnelle et la refonte conversations/projets sont regroupées dans la
-[PR #11](https://github.com/Paul-Berdier/agent-company-platform/pull/11).
-Le commit fonctionnel `47de619` a passé les CI Windows/Qt, SQLite, PostgreSQL et
-Node ; le bilan détaille également les **3 025 tests Python locaux réussis**,
-les 70 ignorés et les **22 suites Qt**.
+- Étapes P0 à P8 de la refonte fusionnées dans `refonte/hermes`, puis, le 9 octobre 2026, le correctif de sécurité
+  SECU-TUI (PR #23, `5026a70`) et la station Qt alignée sur P7 (P8b, PR #22, `8583642`). P9 (exploitation, montée
+  de version, publication) est faite côté dépôt sur `refonte/hermes-p9` (parts A à E, branches réunies le
+  9 octobre 2026), relue de bout en bout le 9 octobre 2026 ; la version 1.0.0 s'ouvre par les deux derniers commits
+  de cette branche (ouverture, puis journal daté), précédés du passage de la branche déployée à `main` (D164) ; la
+  fusion dans `main` et l'étiquette, accordées par le propriétaire le 9 octobre 2026, suivent la PR vers `main`.
+  Historique : [`docs/refonte/historique.md`](docs/refonte/historique.md).
+- **Non déployé** : le premier déploiement est un geste du propriétaire
+  ([`docs/refonte/railway.md`](docs/refonte/railway.md) § 4), après la fusion de 1.0.0. L'IaC déploie `main`
+  (décision du propriétaire du 9 octobre 2026, D164, qui remplace `refonte/hermes`) ; le correctif du constat de
+  sécurité ci-dessous y entre avec 1.0.0. Ce qui ne se prouve que sur Railway (bord, sauvegardes, coût et
+  notifications réels, sonde de l'exécutant) reste **non prouvé**.
+- Prouvé en local et en intégration continue : les images et leurs gardes, les tests de contrat de Hermes et de
+  l'identité, les parcours dans un navigateur, l'exécutant de bout en bout avec des CLI factices, la station Qt ;
+  et, depuis P9, la restauration des trois volumes (R1 à R4) et la montée de données d'une version d'ACP à la
+  suivante, chacune avec ses témoins de mutation, et le témoin d'une release antérieure de Hermes avec son contrôle,
+  tous en intégration continue. Agent, CLI et comptes y sont **factices** : aucun vrai compte n'a servi. Relevés
+  (runs, compteurs, ce qui reste non prouvé) : [`docs/refonte/preuves-1.0.0.md`](docs/refonte/preuves-1.0.0.md).
+- Binaires de la station : **non signés** (aucun certificat de signature de code) ; l'installeur est fabriqué par
+  chaque Desktop CI, mais n'a jamais été installé sur un Windows propre.
 
-![Accueil du desktop Qt : chat libre ou projet, données de recette isolées](docs/assets/screenshots/desktop-home-dark.png)
+## Limites connues, en bref
 
-Pour préparer **ACP, Hermes, Claude Code, un worker Codex/Claude et un coffre de notes
-Obsidian**, suivre [le guide du poste local](docs/local-runtime.md). Il comprend le
-démarrage des services et la création locale du premier compte ; les accès aux
-modèles se configurent séparément.
+- **Constat de sécurité corrigé, avec une limite** : une fois, après un redémarrage du conteneur sur un volume
+  piégé, la session du tableau de bord a reçu les outils d'exécution (`terminal`, `write_file`…) posés par le `.env`
+  du volume, alors que l'api_server les refusait. Le chantier SECU-TUI (PR #23, fusion `5026a70` le 9 octobre 2026)
+  en a prouvé la cause sans course (Hermes publie la valeur du `.env` du volume avant d'appliquer la portée gérée) et
+  mesuré que la troisième couche (garde `pre_tool_call`) aurait refusé l'appel ; root retire désormais des `.env` du
+  volume toute clé que la portée gérée épingle, au démarrage et à chaque relance (D156), et une source externe de
+  secrets du volume, seconde faille trouvée en chemin hors des trois couches, refuse le démarrage (D157). Reste une
+  écriture **directe** d'un `.env` du volume pendant la vie d'un service (faille de Hermes, ou shell du
+  propriétaire) : elle rouvrirait la fenêtre jusqu'à la relance suivante ; et quelques variables ni épinglées ni
+  refusées dans le volume restent non mesurées ([`docs/refonte/image.md`](docs/refonte/image.md) § 10).
+- Rien n'est déployé : la [procédure Railway](docs/refonte/railway.md) § 12 liste ce qui ne se prouve que là.
+- Tant que `trusted_proxies` reste vide, les cookies de Hermes n'ont pas l'attribut `Secure` ; un jeton de
+  rafraîchissement rejoué laisse une erreur 503 jusqu'à la déconnexion ou l'effacement des cookies du site
+  ([`docs/refonte/identite.md`](docs/refonte/identite.md) § 12).
+- Pages natives de Hermes en partie en anglais (comptées, non traduites) ; rendu éprouvé dans Chromium seulement.
+- Serveurs MCP côté exécutant reportés ; aucun dépôt réel encore confié à l'exécutant.
+- **Récupérer le travail d'un projet demande un ordinateur** : l'exécutant committe sur son volume et ne pousse
+  jamais (D82). Depuis le téléphone, on suit le projet et on répond à ses questions ; la branche prête ne quitte
+  Railway que par un geste du propriétaire depuis un ordinateur (`railway ssh` avec la clé dédiée, `git bundle`,
+  puis push et PR par lui-même : [procédure Railway](docs/refonte/railway.md) § 13.7). La poussée par l'exécutant
+  (option B de D82) attend sa décision.
+- **Formulaire « Nouveau projet »** (navigateur et station Qt) : pour un projet sur un dépôt, il envoie toujours un
+  exécutant d'exploration (le premier ouvert, par défaut) et, pour Claude, exige d'en choisir le modèle (D73, choix
+  par défaut encore à confirmer). Ce choix explicite passe avant la table de routage, que l'exploration lancée ainsi
+  n'emploie pas, contrairement au [plan d'autonomie](docs/refonte/autonomie.md) (exploration « selon la classe
+  exploration de la table de routage ») ; lancé depuis la discussion, Hermes choisit lui-même ou s'en remet à la
+  table.
+- **Station Qt et navigateur** : même suivi des projets et des questions ; la station n'a ni page Catalogue ni les
+  cartes « Garde d'exécution », « Persona » et « Catalogue » de l'Accueil web, à consulter dans le navigateur
+  ([`docs/refonte/desktop.md`](docs/refonte/desktop.md), « Écarts assumés »).
+- 1.0.0 reste sur Hermes 0.21.5 : v0.21.6, publiée le 8 octobre 2026, n'est pas montée, car son image n'est pas
+  construite depuis le commit de son étiquette (refus de `scripts/monter_hermes.py`, D161) ; aucune montée vers une
+  release postérieure à `v2026.9.24` n'est donc prouvée ; retour arrière par Rollback, montée d'Authelia et vrai
+  agent jamais éprouvés ([`docs/exploitation.md`](docs/exploitation.md) § 6.1 et § 10).
 
-## Desktop natif
+## Ce que 1.0.0 engagera
 
-L'accueil propose **une conversation libre** ou **un projet à créer/reprendre**.
-Le projet donne accès à ses échanges, ses missions de code et ses livrables.
-La nouvelle [identité ACP](docs/design-reference-study.md) associe graphite chaud,
-papier ivoire et accent sarcelle, avec des pictogrammes natifs et une barre
-latérale centrée sur le travail. La
-[recette de ces parcours](docs/desktop-chat-projects-2026-09-23.md) distingue les
-essais locaux des fournisseurs réellement configurés.
+Le versionnage sémantique portera sur **nos** interfaces (D130 du [plan](docs/refonte/plan.md)) : contrat
+`acp-poste/1` (routes `/api/plugins/acp-poste/v1/*`), protocole `acp-machine/1`, format `ACPB1` des exports
+chiffrés, commandes `acp-poste`, formats de `poste.toml` et d'`executant.toml`, variables Railway documentées. Les
+surfaces de Hermes (API du tableau de bord, JSON-RPC, SDK des greffons) suivent la version épinglée et restent hors
+de cet engagement ; une rupture de nos interfaces appellera 2.0.0.
 
-Les chats disposent de brouillons en mémoire, d'une recherche dans les titres
-chargés, de blocs de code copiables et d'actions de renommage, archivage et export.
-Entrée envoie ; Maj+Entrée ajoute une ligne. Ctrl+N ouvre un chat, Ctrl+P les
-projets et Ctrl+K la palette. L'inspecteur suit la sélection ; précédent/suivant
-parcourt les écrans. Voix, pièces jointes, terminal interactif et éditeur intégré
-ne sont pas encore proposés.
+## Par où commencer
 
-Le client fournit les écrans de projets, conversations, missions et tentatives,
-Studio, livrables, agents/workers/fournisseurs, extensions MCP/compétences et
-opérations (approbations, alertes, budgets, automatisations). Les actions appellent
-les routes réelles de l'API et présentent les refus serveur. La
-[matrice de parité](docs/native-desktop-parity.md) distingue les fonctions disponibles
-des opérations encore réservées au web/CLI.
+- **Propriétaire** : le [manuel d'exploitation](docs/exploitation.md) (calendrier, sauvegardes, restauration,
+  montée de version, incidents), puis la [procédure Railway](docs/refonte/railway.md), § 4 pour le premier
+  déploiement, qui suit la publication de 1.0.0 ([notes de reprise](docs/reprise-poste.md) § 6). Tout geste sur le
+  compte Railway est le vôtre ; un agent prépare, teste et documente.
+- **Agent ou développeur** : [`CLAUDE.md`](CLAUDE.md) (règles, doctrine, interdits), puis les
+  [notes de reprise](docs/reprise-poste.md) (état courant, chaîne d'outils, pièges) et le
+  [plan](docs/refonte/plan.md) (décisions, § 1).
 
-Sous Windows, la chaîne de développement utilise MSVC 2022, Qt 6.8.3,
-CMake/Ninja et Python. Les versions de référence sont dans
-`packaging/windows/toolchain.json` ; [la construction](docs/desktop-build.md)
-et [la reprise de poste](docs/reprise-poste.md) décrivent leur installation.
+## Vérifier
+
+Sous Windows, depuis la racine d'un clone, avec un Python 3.12 de **python.org** (jamais celui du Microsoft
+Store, que `scripts/setup.ps1` refuse, même s'il est le premier du `PATH`), sans Docker. `scripts/setup.ps1`
+n'installe que pytest, pytest-asyncio, le contrat et le poste : la troisième ligne complète le venv par le verrou
+haché de la CI, dont `cryptography`, sans lequel des dizaines de tests du poste sont en erreur.
 
 ```powershell
-./scripts/setup-desktop.ps1
+& "$env:LOCALAPPDATA\Programs\Python\Python312\python.exe" -m venv .venv
+./scripts/setup.ps1
+.venv\Scripts\python.exe -m pip install --require-hashes --no-deps -r requirements/python-3.12.lock.txt
+$env:PYTHONUTF8 = '1'
+.venv\Scripts\python.exe -m pytest -q -p no:cacheprovider
+.venv\Scripts\python.exe scripts/check_version.py
+.venv\Scripts\python.exe scripts/check_engine_frozen.py
+.venv\Scripts\python.exe scripts/balayer_secrets.py --arbre
+npm ci ; npm run test:engine
+npm ci --prefix apps/interface ; npm test --prefix apps/interface
 ./scripts/build-desktop.ps1 -Configuration Release
 ./scripts/test-desktop.ps1 -Configuration Release
-./scripts/dev-desktop.ps1 -Configuration Release
 ```
 
-Le desktop requiert une API démarrée et un compte existant ; amorcer le premier
-propriétaire via l'API, le web ou le CLI. Saisir son URL dans l'écran de connexion.
-Pour une API locale dédiée, `http://127.0.0.1:8000` nécessite l'option explicite de
-bouclage HTTP et `ACP_SESSION_COOKIE_SECURE=0` côté API. Utiliser HTTPS ailleurs.
-Hermes et les workers restent optionnels et apparaissent inconnus, absents ou
-non configurés lorsqu'aucune preuve serveur n'est disponible.
+Ce qui demande Docker (images, contrat, navigateur, restauration, montée) se prouve par l'intégration continue
+(GitHub Actions, dépôt public), ci-dessous ; Docker local est de nouveau permis depuis le 9 octobre 2026, avec
+sobriété (D160 : une seule pile à la fois, ressources nommées et retirées), pour itérer plus vite, la CI restant la
+preuve qui fait foi. Aucun workflow n'appelle les bouts en bout locaux du poste Windows et de la station Qt, les
+témoins négatifs de P4 à P6 ni la recompilation du verrou Python : ils n'ont été rejoués ni sur le code de P7 ni sur
+celui de P9 ([notes de reprise](docs/reprise-poste.md) § 4).
 
-La session peut être mémorisée sur consentement dans le coffre Windows ; aucun
-mot de passe ni cookie n'est écrit dans les préférences. La vérification des mises
-à jour est explicite et ouvre la publication GitHub officielle ; elle n'intègre
-pas de téléchargeur ou d'installateur. Le relevé natif courant donne **23 suites sur 23**,
-et les **24 tests de session** passent avec le vrai coffre Windows hors sandbox.
-La recette Qt inclut les clics, le clavier, la palette de commandes, les formulaires
-et des captures en thèmes sombre et clair, ainsi qu'un parcours contre une API réelle
-jetable. Windows propre, signature et Railway réel restent à prouver.
-Les [26 constats ouverts du Lot H](docs/lot-h-091-review-status.md)
-restent suivis séparément ; le bureau pixel historique est conservé hors périmètre.
+| Workflow | Ce qu'il prouve |
+|---|---|
+| `ci.yml` (CI) | suites du dépôt sous Linux et Windows, installeur du poste en simulation, greffons d'interface, moteur gelé, balayage des secrets |
+| `image.yml` (Image Hermes) | images Hermes et identité, tests dans l'image, contrat depuis l'hôte, navigateur, IaC, répétition à blanc de la montée de Hermes ; job `restauration` ; jobs manuels `temoin` et `montee` |
+| `executant.yml` (Image de l'exécutant) | image réelle, binaires vérifiés, sonde locale, suite du client en root |
+| `desktop-ci.yml` (Desktop CI) | construction Release MSVC, tests Qt et empaquetage à blanc (installeur et archive portable produits, ni signés ni publiés) sur `windows-2022` |
+| `desktop-release.yml` (Desktop Release) | à l'étiquette `v*` : brouillon de publication non signé ; jamais encore exécuté |
 
-## Fonctions de la plateforme (API, web et CLI)
+## Carte du dépôt
 
-- accueil, projets et composition d'une mission raccordés à l'API métier ;
-- états chargement, vide, hors ligne, refus et non configuré sans données factices ;
-- thèmes sombre/clair et disposition responsive ;
-- bootstrap unique du propriétaire protégé par un secret dédié, mots de passe
-  Argon2id et aucune inscription publique ;
-- sessions opaques, hachées en base, expirables et révocables dans un cookie
-  `HttpOnly` `SameSite=Strict`, avec jeton CSRF requis sur les mutations ;
-- routes utilisateur fermées par défaut et lectures/écritures filtrées par les rôles
-  propriétaire, opérateur/membre et lecteur au niveau du projet ;
-- onboarding court avec diagnostic de préparation et création d'un projet dans un
-  espace personnel masquant la hiérarchie historique ;
-- conversations générales privées et conversations de projet persistées ; une clé
-  d'idempotence durable conserve un seul Run logique même si l'admission est répétée,
-  puis le tour est repris par consultation `GET` sans dépendre de l'onglet ouvert ;
-- tâches, runs, workers enrôlés, leases, locks, approbations, événements persistés et
-  métadonnées d'artefacts dans le socle FastAPI/SQLAlchemy ;
-- missions atomiques avec objectif, critères, autonomie, budget et durée ; arrêt,
-  relance idempotente, commentaires, preuves, validation technique et acceptation
-  utilisateur séparées ;
-- routines créées désactivées, cron en heure locale ou intervalle, fuseau IANA,
-  politiques de rattrapage, déclenchements manuel et webhook entrant, et calendrier
-  exposant ensemble l'instant UTC, l'heure locale et son décalage ;
-- planificateur porté uniquement par un worker au privilège global explicite, élu par
-  un bail singleton de 45 s
-  et protégé par un fencing token ; clé de tir unique en base, rejeu sans seconde
-  mission, limite de concurrence et désactivation après trois échecs consécutifs ;
-- budgets par mission, journée et fournisseur avec permis avant effet, rapports
-  idempotents et valeurs inconnues distinctes de zéro ; l'exécuteur Lot G lance au plus
-  une invocation CLI de premier niveau par tentative, sans compter ses descendants ni
-  prétendre démontrer `max_spawned_agents_per_run` globalement ;
-- alertes durables dédupliquées et à sévérité monotone pour les budgets, les routines
-  et la saturation du stockage ; préférences personnelles et canal in-app uniquement ;
-- worker réel opt-in exécutant exclusivement un argv local configuré, sans shell,
-  dans un cwd neuf, avec environnement/captures/timeout bornés, arrêt de l'arbre de
-  processus et verdict fail-closed ; ce backend n'accepte que les missions
-  supervisées dont les trois listes d'actions sont vides et les ressources en
-  lecture seule ;
-- exécuteurs Codex CLI et Claude Code raccordés à la boucle réelle du worker : opt-in
-  par chemins absolus, profils d'authentification séparés, racines projet allowlistées,
-  mission supervisée et une seule invocation CLI fencée de premier niveau ; Codex reçoit
-  le mode lecture/écriture déclaré, Claude des outils de lecture, sans isolation OS
-  supplémentaire fournie par ACP ; les capacités persistées sont revérifiées contre le
-  backend actif avant tout heartbeat/claim, et les écritures Codex visant une même racine
-  sont sérialisées par un verrou interprocessus coopératif adjacent au projet ; un
-  nettoyage incertain publie une quarantaine durable, jamais levée automatiquement ;
-- clôture d'arrêt Windows : tout processus lancé par le runner, sonde MCP `stdio`
-  comprise, est enfermé dès sa création dans un Job Object ; plus aucun descendant ne
-  survit à une tentative, même derrière un lanceur (`.venv`, `npx.cmd`, `uvx`), et une
-  affectation impossible échoue fermé au lieu de s'exécuter hors clôture ;
-- CLI `acp` connecté à la même API pour l'accès, les projets, conversations,
-  missions, runs, approbations, artefacts, workers, secrets, serveurs MCP et skills,
-  avec JSON et codes de sortie ;
-- coffre de secrets chiffrés à références : portées plateforme ou projet, rotation de
-  clé, révocation, et aucune valeur renvoyée par l'API, un export, un événement ou le
-  navigateur ;
-- centre MCP : catalogue vérifié, import Hermes/Claude/Codex, révisions immuables,
-  diagnostic HTTP exécuté par la plateforme, diagnostic `stdio` lancé uniquement après
-  autorisation explicite sur un runner désigné, sélection des outils par projet,
-  activation, rollback et révocation auditée ;
-- sorties réseau de l'API contrôlées côté serveur : bouclage, réseaux privés,
-  métadonnée cloud et équivalents IPv6 bloqués, adresse épinglée, redirections
-  revalidées et usage d'une allowlist privée audité ;
-- bibliothèque de skills : import borné (SKILL.md, dossier autorisé, archive, commit
-  GitHub épinglé), relecture des fichiers comme texte, dépendances, contrôle
-  automatique indicatif, approbation d'une portée accrue, activation par projet et
-  révocation ;
-- extensions résolues par projet et figées dans l'instantané d'une mission ; contenu
-  des compétences revérifié sous bail, délégations MCP HTTP bornées par étape,
-  révocation et budget vérifiés avant effet, absence de rejeu d'un résultat incertain ;
-- équipes Claude/Codex supervisées, étapes et concurrence bornées par la politique
-  projet, worktrees conservés avec sorties et diffs, sans fusion automatique ;
-- provider Hermes `0.21.1` via `/health/detailed`, `/v1/capabilities` et
-  `/v1/runs` ;
-- diagnostic Hermes typé visible dans Connexions, sans clé dans le navigateur ;
-- surface métier du provider-gateway privée derrière un Bearer inter-services ;
-  ingestion du service d'événements protégée et WebSocket anonyme fermé par défaut ;
-- terminaison nominale d'une simulation worker en `blocked` (ou `failed` si sa
-  préparation échoue), jamais présentée comme une exécution réussie ;
-- refus d'un succès de run sans validation technique `passed` et preuve ;
-- journal d'événements durable et ordonné : deux compteurs monotones alloués dans la
-  transaction métier, pages par curseur sans perte ni doublon, et aucun média dans un
-  événement (référence d'artefact, empreinte, type et taille seulement) ;
-- flux temps réel **authentifié** servi par l'API métier (`GET /streams/runs/{id}`,
-  `GET /streams/projects/{id}`), avec reprise par `Last-Event-ID` ou `?after_seq=`,
-  keep-alive, rotation annoncée, limite de connexions par utilisateur et RBAC
-  revérifié à chaque page ; côté client, les états `connected`, `reconnecting`,
-  `polling` et `offline` sont affichés tels quels et une coupure n'invente aucun état ;
-- reporter Playwright `@acp/playwright-reporter` sans dépendance ni appel réseau : il
-  écrit un NDJSON local, et c'est le worker authentifié qui l'ingère ; les statuts
-  `passed`, `failed`, `timedOut`, `skipped`, `interrupted` et `flaky` restent
-  distincts ;
-- paquet E2E Playwright isolé des workspaces, qui ne charge aucun navigateur sans
-  `ACP_E2E=1` exact ; le parcours réel se connecte, ouvre Missions puis le Studio d'une
-  tentative existante, avec trafic limité aux origines web/API déclarées ; chaque
-  requête HTTP réelle est non retentée, ne suit aucune redirection et tout `3xx` est
-  refusé avant d'atteindre le navigateur. `Worker`, `SharedWorker` et `EventSource`
-  sont neutralisés dans cette preuve, qui exerce donc le vrai repli polling du Studio ;
-  Playwright `1.63.0` accepte un canal explicite `chromium`, `chrome` ou `msedge`, et le
-  lanceur local reproductible a réussi avec Edge contre de vrais services isolés ;
-- exécution de tests web sur un runner opt-in : argv absolu configuré par l'opérateur,
-  aucun credential de la plateforme remis au processus de test, clôture d'arrêt Job
-  Object, rapport vide ou arrêt d'arbre non prouvé ⇒ échec explicite, jamais un succès ;
-- livrables privés adressés par contenu : téléversement worker idempotent par sha256
-  avec plafond et quota, téléchargement par session ou par lien signé borné et
-  révocable, `Range` supporté, et HTML/SVG/archives jamais servis en ligne ; chaque
-  écriture worker exige le fencing token courant, revérifié sous verrou après lecture
-  du corps afin qu'un worker remplacé ne puisse pas publier tardivement ;
-- aperçu 3D à la demande avec `@google/model-viewer` pour les seuls `.glb` v2
-  auto-contenus, cohérents et scellés par leur sha256 ; `.gltf`, URI externes, chunks
-  inconnus et extensions nécessitant un décodeur externe restent refusés ou en
-  téléchargement ; buffers, vues, accessors/strides et images sont validés sous des
-  budgets mémoire/pixels avant que le fichier puisse atteindre le moteur WebGL ;
-- connecteur ComfyUI optionnel derrière le Bearer inter-services du gateway : workflow
-  JSON fixé par l'opérateur, prompt seul injecté, appels `/prompt`, `/history` et
-  `/view` bornés, réponse PNG/JPEG/WebP vérifiée, concurrence/cache mémoire bornés et
-  tombstone après toute soumission `/prompt` incertaine ; une exécution distante
-  incertaine place le connecteur en quarantaine, avec suppression ciblée d'un prompt en
-  file et interruption globale seulement sur une instance explicitement exclusive ;
-- Studio en lecture seule dans le détail d'une mission (`/missions?run=<id>&vue=studio`)
-  et onglet « Livrables » de la bibliothèque ;
-- commandes `acp runs events`, `acp runs tests`, `acp artifacts list | get | link` et
-  `acp open --run <id> --studio`, plus le groupe complet `acp automations` ;
-- bureau pixel historique préservé mais non chargé par défaut.
+| Chemin | Rôle |
+|---|---|
+| `hermes/` | image Railway de Hermes : `image/` (Dockerfile, gardes, démarrage), `gere/` (managed scope), `persona/`, `theme/`, `catalogue/` et `skills/` (skills vendorisées et verrou), `plugins/` (greffon `acp-poste` et greffons d'interface), `contrat/` (version épinglée, OpenRPC), `tests/` (image, contrat, navigateur) |
+| `identite/` | image du fournisseur d'identité (Authelia épinglé, garde root, configuration) |
+| `executant/` | image de l'exécutant Railway : binaires vérifiés, politique versionnée, CLI factices de test |
+| `.railway/` | infrastructure Railway en code (`railway.ts`, vérificateur, SDK isolé) |
+| `apps/poste/` | client des machines (poste Windows et exécutant Linux) : protocole `acp-machine/1`, sondes, exécution des cartes |
+| `apps/interface/` | sources TypeScript des greffons d'interface (bundles committés sous `hermes/plugins`) |
+| `apps/desktop/` | station de travail Qt |
+| `apps/web/public/assets/`, `plugins/`, `packages/pixel-office-engine/` | moteur Pixel Office et ses ressources, **gelés** sur l'étiquette d'archive |
+| `design/tokens/` | jetons de design, source du thème du tableau de bord et du QML |
+| `packaging/poste/`, `packaging/windows/` | installation du poste ; chaîne d'outils et installeur de la station |
+| `requirements/` | verrous Python hachés (dépôt, poste) |
+| `scripts/` | gardes (`check_version.py`, `check_engine_frozen.py`, `check_lock.py`, `balayer_secrets.py`), montée de Hermes (`monter_hermes.py`), construction et tests de la station, installation |
+| `docs/` | manuel d'exploitation, notes de reprise, documentation de la refonte (`docs/refonte/`) et de la station |
+| `.github/workflows/` | intégration continue (ci-dessus) |
 
-Ce qui ne fonctionne pas encore est visible comme `Non configuré` et recensé dans
-[le rapport d'acceptation](docs/acceptance-report.md). En particulier : aucune
-capture ni trace produite par la chaîne reporter → worker dans un vrai navigateur,
-aucun rendu GLB WebGL réel, aucune reprise en main humaine, et aucune origine d'aperçu
-déployée. Une demande d'aperçu échoue donc explicitement en `424`, sans repli sur
-l'origine de l'API ; le téléchargement reste disponible. Le stockage d'artefacts reste
-local et aucun adaptateur objet externe n'a été éprouvé. Le projet n'est pas prêt à
-être exposé sur Internet.
+## Règles
 
-## Architecture
-
-```text
-Desktop Qt / QML ──────┐
-Web (Vite/TypeScript) ─┼── API métier (FastAPI) ── base plateforme
-CLI acp ───────────────┘         │
-                                ├── provider-gateway ── Hermes / ComfyUI séparés
-                                ├── service d'événements
-                                └── workers enrôlés ── runner fixe ou CLI agent opt-in
-                                      └── bail du planificateur de routines
-```
-
-La plateforme est la source de vérité des projets, droits, missions et preuves.
-Hermes reste la source de vérité de ses sessions, profils, modèles et skills. Les
-identifiants doivent être rapprochés explicitement. Voir
-[docs/architecture.md](docs/architecture.md) et
-[docs/hermes-integration.md](docs/hermes-integration.md).
-
-## Démarrage local de développement
-
-Prérequis backend/web : Python 3.11 ou supérieur, Node 22.12 ou supérieur et npm.
-Les dépendances Python sont contraintes par le verrou du dépôt. SQLite convient
-au développement local ; PostgreSQL utilise les migrations Alembic du Lot H.
-Consulter [la procédure de persistance](docs/persistence-and-backup.md) avant de
-préparer une base de production ; `create_all()` ne remplace pas une migration.
-
-Sous Windows PowerShell :
-
-```powershell
-./scripts/setup.ps1
-./scripts/dev.ps1
-```
-
-Sous Linux/macOS :
-
-```bash
-bash scripts/setup.sh
-bash scripts/dev.sh
-```
-
-L'interface est ensuite disponible sur `http://localhost:5173`. Services locaux :
-
-| Service | Port | Rôle |
-|---|---:|---|
-| web | 5173 | shell utilisateur |
-| api | 8000 | projets, missions, droits, historique métier, **flux SSE utilisateur et livrables privés** |
-| event-service | 8001 | relais interne protégé ; ce n'est pas la voie temps réel utilisateur |
-| provider-gateway | 8002 | frontière privée des providers, dont Hermes |
-
-Copier les valeurs utiles de `.env.example` dans l'environnement du processus. Avant
-le premier accès, générer au minimum un `ACP_BOOTSTRAP_TOKEN` long et aléatoire. Les
-appels API/worker vers le gateway nécessitent aussi `ACP_GATEWAY_SERVICE_TOKEN` ;
-l'ingestion d'événements utilise un `ACP_EVENT_SERVICE_TOKEN` distinct. Ne jamais
-committer `.env`, une clé Hermes ou un jeton worker. Aucun secret par défaut n'est
-fourni.
-
-Les URL inter-services qui transportent ces Bearers doivent être des origines sans
-userinfo, chemin, query ni fragment ; HTTP est accepté uniquement sur loopback et
-HTTPS est obligatoire ailleurs.
-
-Pour utiliser le coffre de secrets et le centre MCP, définir `ACP_SECRETS_KEYS` avec
-au moins une clé Fernet (`python -m acp_api.secrets_vault generate-key` ; la première
-clé chiffre, les suivantes permettent la rotation). Sans clé, l'état est annoncé
-`non configuré` au lieu d'un stockage en clair. Les autres variables du Lot D —
-allowlist de sortie, stockage et sources de skills, sonde MCP stdio du worker — sont
-documentées dans `.env.example` et dans
-[docs/mcp-and-skills.md](docs/mcp-and-skills.md).
-
-Pour les liens de téléchargement signés, définir `ACP_ARTIFACT_SIGNING_KEYS`
-(`python -m acp_api.signing generate-key` ; même discipline de rotation par liste).
-Sans clé, la création d'un lien répond `503` explicite et le téléchargement par session
-reste possible. Avant d'exposer le Studio sur un réseau, définir explicitement
-`ACP_API_URL` et `ACP_ARTIFACT_PUBLIC_ORIGIN`, cette dernière avec une origine HTTPS
-distincte de l'API et du shell : tant qu'une de ces valeurs est vide ou invalide, la
-création d'un lien d'aperçu répond `424` avant d'émettre le jeton. Les autres
-variables du Lot E — flux SSE, rétention, stockage et quotas de livrables, tests web du
-worker — sont documentées dans `.env.example` et dans
-[docs/live-studio.md](docs/live-studio.md).
-
-Au premier affichage, le formulaire « Sécuriser le premier accès » consomme le jeton
-de bootstrap et crée l'unique propriétaire initial. Les visites suivantes restaurent
-la session ou affichent la connexion ; elles ne rouvrent pas l'inscription. En HTTP
-local uniquement, `ACP_SESSION_COOKIE_SECURE=0` est nécessaire ; utiliser `1` derrière
-HTTPS.
-
-Le seed local reste un jeu de démonstration et `create_all()` ne remplace pas des
-migrations de production. Un worker doit être enregistré séparément selon
-[la procédure Windows](docs/workers/windows-worker.md). Son mode simulation termine
-nominalement en `blocked` et ne peut jamais réussir. Le mode réel exige un argv, une
-racine et un provider non simulé lorsqu'il utilise le runner fixe ; le programme autorisé
-conserve les droits OS du compte worker et n'est donc pas une sandbox pour du code
-non fiable.
-
-Le runner fixe n'est plus l'unique backend réel : un worker peut aussi activer Codex
-CLI ou Claude Code par une configuration locale complète. Voir
-[les exécuteurs locaux](docs/providers-local-executors.md) ; aucune découverte fortuite
-depuis le `PATH` n'active ces capacités. L'enregistrement et chaque démarrage refusent
-également une capacité agent explicite ou persistée si son backend local correspondant
-n'est plus complètement configuré. Les capacités agent exigent un scope projet dont la
-racine est allowlistée ; elles sont refusées en scope global tant que le claim ne sait
-pas filtrer cette allowlist locale.
-
-## CLI et missions
-
-Après `setup`, activer l'environnement (`. .\.venv\Scripts\Activate.ps1` sous
-PowerShell ou `source .venv/bin/activate` sous POSIX), ou appeler directement
-`.venv\Scripts\acp.exe` / `.venv/bin/acp`. Sous WSL, les scripts utilisent
-`.venv-wsl` afin de ne jamais mélanger les exécutables Linux et Windows ; activer
-`source .venv-wsl/bin/activate`. La configuration/session WSL vit par défaut dans
-`~/.config`, séparément de `%APPDATA%` côté Windows. Les commandes principales
-utilisent la même API et le même modèle de session que le web ; chaque client ouvre
-sa propre session :
-
-```powershell
-acp login
-acp doctor
-acp projects list
-acp run --project <project-id> --goal "Vérifier le dépôt" `
-  --expected "Rapport vérifiable" `
-  --accept "La vérification termine avec le code 0"
-acp runs watch <mission-id>
-acp automations list --project <project-id>
-acp automations calendar --project <project-id>
-```
-
-Quitter `runs watch` n'arrête pas la mission ; `acp runs stop <mission-id>` est une
-action distincte. Une routine naît désactivée ; sa création puis son activation sont
-deux gestes. Voir [Missions, runner local et CLI](docs/missions-and-cli.md) et
-[Automatisations, budgets et alertes](docs/automations.md).
-
-## Hermes
-
-Version attendue : Hermes Agent `0.21.1` (`v2026.9.7`). Sur Hermes, activer l'API
-Server et générer une clé :
-
-```text
-API_SERVER_ENABLED=true
-API_SERVER_KEY=<secret>
-```
-
-Sur le provider-gateway :
-
-```text
-HERMES_BASE_URL=<URL joignable depuis le gateway>
-HERMES_API_KEY=<même secret>
-ACP_GATEWAY_SERVICE_TOKEN=<secret inter-services partagé avec API et worker>
-```
-
-L'URL locale native est généralement `http://127.0.0.1:8642`, mais elle n'est pas
-un défaut valable entre conteneurs ou services Railway. Le provider reste donc
-indisponible tant que l'URL et la clé ne sont pas configurées. Aucun basculement
-automatique vers un provider payant ou un plan local n'a lieu.
-
-## Bureau pixel historique
-
-Le moteur, les scènes et les données existantes sont conservés. Ils sont hors du
-parcours principal et chargés uniquement avec :
-
-```text
-http://localhost:5173/?legacy-office=1
-```
-
-ou au build avec `VITE_ACP_LEGACY_OFFICE=1`. Les assets LimeZu restent des achats
-séparés et ne doivent pas être redistribués. Voir
-[la documentation d'installation](docs/assets/limezu-installation.md).
-
-## Vérifications
-
-Le relevé Python de l'arbre combiné du 23 septembre 2026 donne **2 896 réussis,
-70 ignorés en 835 secondes**. Le relevé natif terminé donne **21 suites sur 21
-réussies en 54,82 secondes**. Les tests de session passent **24 sur 24, sans
-ignoré**, dont lecture/écriture/suppression dans le vrai coffre Windows hors
-sandbox. Les preuves, leur état d'intégration et leurs limites sont
-consignées dans [le relevé desktop daté](docs/desktop-validation-2026-09-23.md).
-Les résultats historiques ci-dessous restent utiles pour leurs lots respectifs.
-
-Un parcours Qt contre une **vraie API locale et SQLite jetable** a aussi réussi :
-connexion cookie/CSRF, création des projets, conversation persistée avec fournisseur
-indisponible explicite, mission, budget, automatisation en pause et téléchargement
-authentifié de 180 224 octets avec SHA-256 exact, puis purge après déconnexion.
-Le dernier test Qt donne **3 réussis, 0 échec, 0 ignoré en 1 663 ms**,
-avec un lanceur complet de 9,7 secondes.
-Cette preuve locale ne valide pas Railway, Hermes réel ou la recette visuelle.
-
-Commandes principales :
-
-```powershell
-./.venv/Scripts/python.exe -m pytest -q -p no:cacheprovider
-npm run typecheck --workspace @acp/web
-npm test --workspace @acp/web
-npm test --workspace @acp/playwright-reporter
-npm run test:e2e:unit
-npm test --workspace @acp/pixel-office-engine
-npm run build:web
-./.venv/Scripts/python.exe scripts/check_version.py
-# opt-in explicite, avec Chromium installé ou ACP_E2E_BROWSER_CHANNEL=msedge
-$env:ACP_E2E="1"; ./.venv/Scripts/python.exe scripts/verify_live_studio_journey.py
-```
-
-Sous Windows, appeler l'interpréteur de l'environnement virtuel
-(`./.venv/Scripts/python.exe`) plutôt que le `python` du `PATH` : c'est celui avec
-lequel les résultats publiés ont été obtenus.
-
-Pour la version publiée `0.6.0`, les résultats obtenus le 13 septembre 2026 sur la
-machine de vérification (Windows 10 Pro `10.0.19045`, Python `3.12.0`, Node
-`v24.19.0`, npm `11.17.0`) étaient : **1 627 tests Python réussis et 4 ignorés**,
-**262 tests web**, **59 tests du reporter**, **74 tests du moteur legacy** ; typecheck,
-build et `check_version.py` réussis. La CI de sa PR #5 a été observée verte avant
-fusion. Ces nombres décrivent le Lot E publié, pas l'arbre de travail du Lot F.
-
-Pour la version publiée `0.7.0` du Lot F, vérifiée le 14 septembre 2026 dans le même
-environnement, le relevé global est : **2 291 tests Python réussis, 7 ignorés et 2
-avertissements connus**, **295 tests web sur 23 fichiers**, **59 tests du reporter** et
-**74 tests du moteur legacy**. Le typecheck TypeScript, le build Vite,
-`scripts/check_version.py` et le parcours d'automatisation **62/62** réussissent. Les
-quatre jobs Python 3.12 et Node 22 déclenchés par le dernier push et la PR ont été
-observés verts avant la fusion ; le tag annoté distant `v0.7.0` pointe sur `0b4d904`.
-
-Pour la version publiée `0.8.0` du Lot G, vérifiée le 14 septembre 2026 avec Python
-`3.12.0`, Node `v24.19.0` et npm `11.17.0`, la passe globale donne **2 498 tests Python
-réussis, 7 ignorés et 2 avertissements connus**. Les suites JavaScript donnent **311
-tests web sur 24 fichiers**, **59 tests du reporter**, **74 tests du moteur** et **34
-tests des garde-fous E2E**. Le typecheck, le build Vite, la synchronisation de version
-et le parcours d'automatisation **62/62** réussissent également. Enfin, le parcours
-shell/Studio opt-in a réussi dans un vrai Edge : **1 test en 11,6 s**.
-
-Les suites déterministes ne lancent aucun navigateur. Le parcours réel du paquet isolé
-`e2e/` reste désactivé tant que `ACP_E2E` ne vaut pas exactement `1`. Le script
-`scripts/verify_live_studio_journey.py` crée une API, un shell, un compte et une mission
-temporaires sur le bouclage, puis exécute ce parcours ; il a réussi avec le canal
-`msedge` pendant la validation du Lot G. Une cible de staging existante reste également
-possible avec les variables détaillées dans [e2e/README.md](e2e/README.md).
-
-Un parcours de bout en bout, hors intégration continue, démarre l'API et un vrai
-serveur MCP local puis rejoue l'ajout, le diagnostic, le rattachement, l'activation,
-l'isolation entre projets, l'export et la révocation :
-
-```powershell
-./.venv/Scripts/python.exe scripts/verify_mcp_journey.py
-./.venv/Scripts/python.exe scripts/verify_automation_journey.py
-```
-
-Ces parcours n'effectuent aucun appel sortant vers Internet et n'utilisent aucune
-donnée réelle. Celui des automatisations démarre l'API sur une base SQLite temporaire
-et a rendu **62 étapes sur 62 réussies** le 14 septembre 2026 ; il n'appelle ni
-Hermes, ni fournisseur payant, ni navigateur.
-
-Les résultats réellement obtenus, l'environnement Python utilisé, les warnings et
-les limites sont consignés dans [docs/acceptance-report.md](docs/acceptance-report.md).
-Les tests Hermes, de conversation et de diagnostic utilisent un transport HTTP
-simulé ; ils ne constituent pas une connexion à une instance Hermes réelle. Depuis le
-Lot E, le suivi d'une tentative repose sur un flux SSE authentifié avec reprise par
-curseur, avec repli automatique sur l'interrogation `GET` ; les conversations, elles,
-reprennent toujours par polling `GET`.
-
-## Documentation
-
-- [Audit fonctionnel : desktop, Hermes, multi-agents et Obsidian](docs/functional-audit-2026-09-23.md)
-- [Surface métier et limites du desktop natif](docs/native-desktop-parity.md)
-- [Architecture native](docs/native-desktop-architecture.md)
-- [Construction Windows](docs/desktop-build.md)
-- [Sécurité et session du desktop](docs/desktop-security.md)
-- [Vérification des mises à jour](docs/desktop-update-process.md)
-- [Preuves desktop du 23 septembre 2026](docs/desktop-validation-2026-09-23.md)
-- [Reprise de poste](docs/reprise-poste.md)
-- [Constats ouverts du Lot H](docs/lot-h-091-review-status.md)
-
-- [Audit de modernisation](docs/audit-modernisation.md)
-- [Architecture et sources de vérité](docs/architecture.md)
-- [Décisions de réutilisation](docs/reuse-decisions.md)
-- [Système visuel](docs/design-system.md)
-- [Intégration Hermes](docs/hermes-integration.md)
-- [Missions, runner local et CLI](docs/missions-and-cli.md)
-- [Automatisations, budgets et alertes](docs/automations.md)
-- [Centre MCP et bibliothèque de skills](docs/mcp-and-skills.md)
-- [Studio, journal d'événements, tests web et livrables](docs/live-studio.md)
-- [Médias, aperçu 3D et ComfyUI](docs/media-and-3d.md)
-- [Exécuteurs locaux Codex CLI et Claude Code](docs/providers-local-executors.md)
-- [Parcours E2E Playwright réel, opt-in](e2e/README.md)
-- [CLI `acp` — référence des commandes](apps/cli/README.md)
-- [Worker Windows distant](docs/workers/windows-worker.md)
-- [Contrat du runner worker](apps/worker/RUNNER.md)
-- [Sécurité](docs/security.md)
-- [Modèle de menace par actif](docs/security/threat-model.md)
-- [Déploiement Railway](docs/deployment-railway.md)
-- [Rapport d'acceptation](docs/acceptance-report.md)
-- [État d'implémentation et reprise](docs/implementation-status.md)
+Doctrine, règles de commit et de publication : [`CLAUDE.md`](CLAUDE.md). En bref : aucun faux succès, échec
+fermé, refus en français, aucune donnée inventée, aucun secret dans Git, Hermes et Authelia toujours épinglés par
+condensat, aucun outil d'exécution pour l'agent sur Railway, moteur Pixel Office gelé. Journal des changements :
+[`CHANGELOG.md`](CHANGELOG.md).

@@ -1,0 +1,16 @@
+{
+  "profils": {
+    "base": {
+      "libelle": "Base (tous les projets)"
+    },
+    "web": {
+      "libelle": "Site web"
+    },
+    "recherche": {
+      "libelle": "Recherche"
+    },
+    "donnees": {
+      "libelle": "Données"
+    }
+  }
+}

@@ -1,8 +1,8 @@
 // Assemblage de la station : construction des services, enregistrement QML, démarrage.
 //
 // Un seul objet connaît la composition de l'application. Il est le seul à créer un
-// ApiClient, un AuthManager et un coffre ; QML ne les instancie jamais, et aucun module
-// ne va les chercher par une variable globale.
+// ApiClient, la session et le coffre ; QML ne les instancie jamais, et aucun module ne va
+// les chercher par une variable globale.
 
 #pragma once
 
@@ -15,26 +15,29 @@ class QQmlApplicationEngine;
 
 namespace acp {
 
+class AccueilViewModel;
 class ApiClient;
-class AuthManager;
+class ClientGreffonPoste;
+class CompatibiliteHermes;
 class CommandRegistry;
-class CompatibilityService;
 class CredentialVault;
+class DemandesAgent;
 class DiagnosticsViewModel;
+class DiscussionViewModel;
 class EventStreamService;
+class GatewayClient;
 class HealthService;
 class NavigationModel;
+class PosteViewModel;
+class ProjetsViewModel;
+class QuestionsViewModel;
+class QuotasViewModel;
+class RoutageViewModel;
+class SauvegardeViewModel;
+class SessionHermes;
 class SettingsStore;
 class ShellViewModel;
 class SystemAppearance;
-class WorkspaceViewModel;
-class ConversationsViewModel;
-class MissionsViewModel;
-class ArtifactsViewModel;
-class PlatformViewModel;
-class OperationsViewModel;
-class SubscriptionQuotasViewModel;
-class SessionPersistence;
 class UpdateService;
 
 class Application : public QObject
@@ -42,7 +45,13 @@ class Application : public QObject
     Q_OBJECT
 
 public:
-    explicit Application(QObject *parent = nullptr);
+    /*!
+        `nomCoffre` : préfixe des entrées du coffre Windows. Le produit garde la valeur par
+        défaut ; seul l'exécutable du bout en bout local (jamais installé) en passe un autre,
+        pour ne jamais toucher l'entrée réelle du poste.
+    */
+    explicit Application(QObject *parent = nullptr,
+                         const QString &nomCoffre = QStringLiteral("AgentCompanyPlatform"));
     ~Application() override;
 
     /*!
@@ -50,8 +59,7 @@ public:
 
         Choix assumé : enregistrement IMPÉRATIF plutôt que macros QML_ELEMENT. La
         bibliothèque de logique reste ainsi indépendante du module QML, ce qui permet aux
-        cibles de test de la lier sans embarquer la scène graphique. Le prix est l'absence
-        d'informations de type pour qmllint sur ces objets, et il est documenté.
+        cibles de test de la lier sans embarquer la scène graphique.
     */
     void registerQmlTypes();
 
@@ -59,11 +67,10 @@ public:
         échoue — auquel cas l'application se termine, elle n'ouvre pas de fenêtre vide. */
     bool load(QQmlApplicationEngine *engine);
 
-    /*! Restaure les préférences, sonde le serveur et tente la reprise de session. */
+    /*! Restaure les préférences, sonde le serveur et reprend la session mémorisée. */
     void start();
 
-    /*! Ferme proprement : flux fermés, préférences écrites. Un flux laissé ouvert reste
-        compté par le serveur jusqu'à 900 secondes. */
+    /*! Ferme proprement : sondes arrêtées, préférences écrites. */
     void shutdown();
 
     [[nodiscard]] static QString version();
@@ -75,25 +82,29 @@ private:
 
     SettingsStore *m_settings = nullptr;
     ApiClient *m_client = nullptr;
-    AuthManager *m_auth = nullptr;
+    std::unique_ptr<CredentialVault> m_vault;
+    SessionHermes *m_session = nullptr;
+    std::unique_ptr<ClientGreffonPoste> m_greffon;
+    CompatibiliteHermes *m_compatibilite = nullptr;
+    GatewayClient *m_passerelle = nullptr;
+    EventStreamService *m_flux = nullptr;
     HealthService *m_health = nullptr;
-    CompatibilityService *m_compatibility = nullptr;
-    EventStreamService *m_streams = nullptr;
     NavigationModel *m_navigation = nullptr;
     CommandRegistry *m_commands = nullptr;
     SystemAppearance *m_appearance = nullptr;
     ShellViewModel *m_shell = nullptr;
     DiagnosticsViewModel *m_diagnostics = nullptr;
-    WorkspaceViewModel *m_workspace = nullptr;
-    ConversationsViewModel *m_conversations = nullptr;
-    MissionsViewModel *m_missions = nullptr;
-    ArtifactsViewModel *m_artifacts = nullptr;
-    PlatformViewModel *m_platform = nullptr;
-    OperationsViewModel *m_operations = nullptr;
-    SubscriptionQuotasViewModel *m_quotas = nullptr;
-    SessionPersistence *m_sessionStorage = nullptr;
+    AccueilViewModel *m_accueil = nullptr;
+    ProjetsViewModel *m_projets = nullptr;
+    QuestionsViewModel *m_questions = nullptr;
+    PosteViewModel *m_poste = nullptr;
+    QuotasViewModel *m_quotas = nullptr;
+    RoutageViewModel *m_routage = nullptr;
+    SauvegardeViewModel *m_sauvegarde = nullptr;
+    DemandesAgent *m_demandes = nullptr;
+    DiscussionViewModel *m_discussion = nullptr;
     UpdateService *m_updates = nullptr;
-    std::unique_ptr<CredentialVault> m_vault;
+    bool m_greffonBloque = false; //!< Dernier état du blocage du greffon (verdict de compatibilité).
 };
 
 } // namespace acp

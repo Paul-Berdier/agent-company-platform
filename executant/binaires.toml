@@ -1,0 +1,63 @@
+# Binaires et base de l'image de l'exécutant Railway (cahier P6 § 8.2, décision D86 du dépôt, cahier D83) : versions,
+# adresses, empreintes et identités de signature. Lu par executant/bin/verifier-binaires au build (étape « binaires »
+# de executant/Dockerfile) et rejouable dans le conteneur (« verifier-binaires --controler /opt/acp/outils »).
+#
+# Toute montée de version passe par une PR qui change CE fichier et le Dockerfile ensemble ; toute différence entre
+# ce qui est téléchargé et ce qui est écrit ici fait échouer le build, en français (échec fermé). Jamais install.sh :
+# il ne vérifie aucune signature.
+#
+# Relevés EN LIGNE le 1er octobre 2026, depuis les sources officielles :
+#   - Codex : API GitHub « repos/openai/codex/releases/tags/rust-v0.156.1 », champ « digest » de l'asset (égal à
+#     l'empreinte du cahier, relevée le 27/09) ;
+#   - Claude Code : manifest.json de la version, signature détachée manifest.json.sig vérifiée par gpg contre la clé
+#     cles/claude-code.asc (« Good signature from "Anthropic Claude Code Release Signing <security@anthropic.com>" »),
+#     empreinte de la clé comparée à celle publiée par la documentation (code.claude.com/docs/en/setup, « Binary
+#     integrity and code signing ») ;
+#   - base : « docker buildx imagetools inspect python:3.12-slim-trixie » (condensat de l'index multi-architecture).
+version = 1
+
+[base]
+image = "python:3.12-slim-trixie"
+condensat = "sha256:f77ac9e44ae96ef2c90b8053ea08c31f8be030f824196b0ae4db6d462c84e51f"
+python = "3.12.14"
+distribution = "Debian GNU/Linux 13 (trixie)"
+releve_le = "2026-10-01"
+
+[apt]
+# Versions installées par l'étape « base » (dépôts signés de Debian trixie). Un paquet retiré du miroir par une version
+# intermédiaire de Debian fait échouer le build : montée par PR, jamais de version flottante.
+git = "1:2.47.3-0+deb13u1"
+bubblewrap = "0.12.0-1~deb13u1"
+socat = "1.8.0.3-1+deb13u1"
+ripgrep = "14.1.1-1+b4"
+tini = "0.19.0-3+b8"
+util-linux = "2.41.5-0+deb13u1"
+ca-certificates = "20250419"
+procps = "2:4.0.4-9"
+
+[codex]
+version = "0.156.1"
+url = "https://github.com/openai/codex/releases/download/rust-v0.156.1/codex-x86_64-unknown-linux-musl.tar.gz"
+sha256 = "aff46539a83aff86e3c62c592bce2c50d95391f9df289afaf03a50c01d14533d"
+taille = 107380357
+# Seul membre extrait de l'archive (fichier ordinaire ; tout lien ou chemin hors archive est refusé).
+membre = "codex-x86_64-unknown-linux-musl"
+installe = "codex/codex"
+# Pas de bwrap embarqué : Codex prend le bubblewrap de Debian du PATH quand son --help annonce --as-pid-1 et --perms
+# (linux-sandbox/src/launcher.rs:126-141, 185-205) ; test d'image test_bwrap_systeme_retenu.
+# Signature « keyless » (bundle .sigstore publié avec l'asset) : l'identité du certificat à exiger n'est pas établie
+# (cahier § 8.2, supposé) ; tant qu'elle manque, verifier-binaires le dit au journal de build, sans mentir.
+cosign = "identite_non_etablie"
+
+[claude]
+version = "2.1.283"
+cle = "cles/claude-code.asc"
+empreinte_cle = "31DDDE24DDFAB679F42D7BD2BAA929FF1A7ECACE"
+manifeste = "https://downloads.claude.ai/claude-code-releases/2.1.283/manifest.json"
+signature = "https://downloads.claude.ai/claude-code-releases/2.1.283/manifest.json.sig"
+sha256_manifeste = "e4dc657e4c8dbb087ce7573ac5ea5a75367b5414de1ba5c904a870a09778d2fd"
+plateforme = "linux-x64"
+url = "https://downloads.claude.ai/claude-code-releases/2.1.283/linux-x64/claude"
+sha256 = "1859583ce32920595c61ef868bee52e1b1594f7486db209935e01f1e5e804ae2"
+taille = 241556664
+installe = "claude/claude"

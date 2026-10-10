@@ -1,0 +1,65 @@
+# Politique locale du poste ACP : elle fait autorité ; Railway ne la fournit jamais (cahier P5 § 7).
+#
+# Emplacement : %ProgramData%\ACP\poste.toml, en LECTURE SEULE pour le compte acp-poste (décision D52) : le poste
+# refuse de démarrer s'il peut la modifier ou la remplacer. Écrite par Installer-PosteAcp.ps1 depuis ce modèle
+# (gabarits __…__ remplis), jamais remplacée si elle existe. Aucun secret ici : jetons et identifiants vont au coffre
+# DPAPI du compte du poste ou au coffre de Codex.
+#
+# Clés inconnues refusées ; chemins absolus ; seule %LOCALAPPDATA% (celui du compte du poste) est admise, et
+# seulement dans [codex] home et [claude] config_dir.
+version = 1                                  # seule valeur admise
+
+[poste]
+nom = "Poste Windows"                        # 1 à 60 caractères, affiché dans ACP (pas le nom réseau du PC)
+compte = "dedie"                             # "dedie" | "proprietaire" (repli consigné, décision D51)
+compte_attendu = "acp-poste"                 # exigé si compte = "dedie"
+
+[hermes]
+origine = "__ORIGINE__"                      # HTTPS obligatoire (domaine de HERMES_DASHBOARD_PUBLIC_URL)
+attente_max_s = 25                           # 5 à 50 : attente longue de reclamer
+delai_connexion_s = 10                       # 2 à 30
+
+[sondes]
+codex = true                                 # accord : lance codex app-server, qui interroge OpenAI
+claude = true                                # accord : lance claude --version et auth status, lit la ligne d'état
+intervalle_s = 1800                          # 600 à 86400
+delai_sonde_s = 30                           # 5 à 120
+
+[codex]
+executable = '__PROGRAMFILES_ACP__\outils\codex\bin\codex.exe'   # copie de votre installation (D54), non modifiable par acp-poste
+home = '%LOCALAPPDATA%\ACP\codex-home'       # profil Codex dédié du compte du poste
+version_testee = "__VERSION_CODEX__"
+modeles_permis = []                          # vide : tout le relevé ; sinon liste blanche d'identifiants
+bac_a_sable = "elevated"                     # seule valeur admise
+
+[claude]
+executable = '__PROGRAMFILES_ACP__\outils\claude\claude.exe'
+config_dir = '%LOCALAPPDATA%\ACP\claude-config'
+version_testee = "__VERSION_CLAUDE__"        # 2.1.248 au moins (--restricted)
+alias_permis = ["opus", "sonnet", "haiku", "fable"]
+ligne_etat = '__PROGRAMDATA_ACP__\quotas\claude-code.json'       # ligne d'état de VOS sessions (décision D56)
+
+[politique]                                  # ce que le PC refuse toujours ; Hermes ne peut pas le lever
+executants = ["codex", "claude"]
+efforts_interdits = ["max", "ultra", "ultracode"]
+paliers_admis = ["default"]
+concurrence = 1                              # P6 ; seule valeur admise
+duree_max_carte_s = 3600                     # P6 ; 300 à 14400
+cartes_par_jour = 20                         # P6 ; 1 à 200
+reseau_executants = false                    # P6 ; seule valeur admise en v1
+
+[quotas]
+hermes_meme_enveloppe_que_codex = false      # true : la page Quotas rattache le cerveau à l'enveloppe Codex
+
+[isolement]
+profils_interdits = ['__PROFIL_PROPRIETAIRE__']   # votre profil : acp-poste ne doit pas pouvoir le lister
+
+[journal]
+niveau = "info"                              # "info" | "detail" (plus d'étapes, jamais de contenu)
+taille_max_mo = 1                            # 1 à 10
+fichiers = 5                                 # 1 à 20
+
+# Dépôts autorisés (étape P6) : alias ^[a-z0-9][a-z0-9-]{0,31}$, dossier contenant .git, hors du profil du poste.
+# [depots.jetable]
+# chemin = 'C:\ACP\depots\jetable'
+# verification = ["python", "-m", "pytest", "-q"]   # argv, jamais une chaîne shell

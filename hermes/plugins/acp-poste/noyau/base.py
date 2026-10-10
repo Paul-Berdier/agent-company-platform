@@ -1,0 +1,566 @@
+"""Base propre du greffon acp-poste (étape P4) : ``<HERMES_HOME>/plugin-data/acp-poste/data.db``.
+
+Ouverte par ``plugins.plugin_storage.plugin_db`` de Hermes (plugins/plugin_storage.py:27-47 : WAL,
+``check_same_thread=False``), elle suit ``HERMES_HOME`` : ``/opt/data`` sur Railway (le volume,
+donc les sauvegardes), un répertoire jetable dans les tests. La passerelle, le tableau de bord et
+les workers kanban (profil ``default``, même ``HERMES_HOME``) partagent le même fichier ; aucun état
+en mémoire ne porte la correction, tout est en base.
+
+Chaque écriture se fait sous une transaction ``BEGIN IMMEDIATE`` (:func:`transaction`) : un seul
+écrivain à la fois, attente bornée par ``busy_timeout`` (5 s). L'agent ne peut pas lire ce fichier :
+il n'a aucun outil de fichiers sur Railway.
+
+Schéma v1 : les cinq tables du plan (projets, demandes, questions, présence, curseurs) et huit tables
+techniques (tours, notifications, releves, routage, surcharges, reglages, journal, emetteur).
+
+Schéma v2 (étape P5, cahier P5 § 12.1) : postes enrôlés (``machines``, SHA-256 du jeton seulement), codes
+d'enrôlement (``enrolements``, SHA-256 seulement), ordres au poste (``ordres``), inventaires reçus
+(``inventaires``) ; ``releves`` reçoit ``machine_id``, ``accepte_le`` et ``accepte_par``. La migration v1 → v2
+est idempotente, y compris entre processus (passerelle, tableau de bord et workers peuvent la lancer en même
+temps) : chaque colonne n'est ajoutée qu'après lecture de ``PRAGMA table_info``, sous la transaction
+``IMMEDIATE`` de :func:`migrer`, et la version passe à ``'2'`` par un ``UPDATE``.
+
+Schéma v3 (étape P6, cahier P6 § 9.1) : envois idempotents de l'exécutant (``envois``, 7 jours), attentes de quota
+(``attentes``) ; ``demandes`` reçoit la réclamation, l'issue et la revue d'une carte du poste, et ses contraintes
+admettent le rôle ``integration`` et la voie ``poste-integration`` ; ``notifications`` admet les genres ``revue``,
+``secret``, ``conflit``, ``integration`` et ``isolement`` ; ``questions.livree_le``, ``machines.plateforme`` et
+``hote``, ``presence.arret_propre_le``. Une contrainte ``CHECK`` ne se modifie pas en SQLite : ``demandes`` et
+``notifications`` sont RECONSTRUITES, une seule fois (repérée par le texte de leur contrainte dans
+``sqlite_master``), sous la même transaction ``IMMEDIATE`` ; aucune table ne les référence, ``foreign_keys=ON``
+reste donc sans effet sur le ``DROP``. Une base neuve suit exactement les mêmes étapes (schéma v2, puis v3) : base
+neuve et base migrée ont le même schéma, colonne pour colonne.
+
+Schéma v4 (étape P7, cahier P7 § 12.1, correction K21) : ``notifications`` admet le genre ``bilan`` (reconstruite une
+fois, même mécanique que v3, marqueur ``'bilan'``) ; ``demandes`` reçoit la relance d'une carte arrêtée par le
+propriétaire (``consigne_relance``, ``relancee_le``) et la consigne d'origine gardée à la première relance
+(``consigne_initiale``). Les colonnes v4 s'ajoutent APRÈS les reconstructions v3 : la reconstruction v3 de
+``demandes`` ne recopie que les colonnes de sa forme explicite (``DEMANDES_V3``) et perdrait une colonne ajoutée avant
+elle. La forme v4 de ``notifications`` est complète (aucune colonne nouvelle) ; aucune reconstruction v4 de
+``demandes`` (aucune contrainte élargie). Étape P9 : une reconstruction garde le compteur ``AUTOINCREMENT`` de la table
+(:func:`reconstruire_dans`).
+"""
+
+from __future__ import annotations
+
+import contextlib
+import json
+import sqlite3
+import threading
+import time
+from pathlib import Path
+from typing import Any, Callable, Dict, Iterator, Optional
+
+from . import kanban_adapter as ka
+
+NOM_GREFFON = "acp-poste"
+VERSION_SCHEMA = "4"
+
+SCHEMA = """
+CREATE TABLE IF NOT EXISTS meta_schema (cle TEXT PRIMARY KEY, valeur TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS projets (
+  id               TEXT PRIMARY KEY,
+  tableau          TEXT NOT NULL UNIQUE,
+  titre            TEXT NOT NULL CHECK (length(titre) BETWEEN 1 AND 120),
+  objectif         TEXT NOT NULL CHECK (length(objectif) BETWEEN 1 AND 4000),
+  profil           TEXT NOT NULL CHECK (profil IN ('base','web','recherche','donnees')),
+  depot_alias      TEXT,
+  reponses         TEXT NOT NULL CHECK (reponses IN ('hermes_d_abord','proprietaire')),
+  etat             TEXT NOT NULL CHECK (etat IN ('creation','actif','en_pause','termine','abandonne')),
+  tour             INTEGER NOT NULL DEFAULT 0,
+  plafond_tours    INTEGER NOT NULL,
+  plafond_cartes   INTEGER NOT NULL,
+  plafond_corrections INTEGER NOT NULL,
+  cartes_creees    INTEGER NOT NULL DEFAULT 0,
+  origine          TEXT NOT NULL CHECK (origine IN ('tableau_de_bord','discussion')),
+  auteur           TEXT NOT NULL,
+  cle_idempotence  TEXT UNIQUE,
+  cree_le INTEGER NOT NULL, maj_le INTEGER NOT NULL, termine_le INTEGER
+);
+CREATE TABLE IF NOT EXISTS releves (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  voie TEXT NOT NULL CHECK (voie IN ('poste-codex','poste-claude')),
+  source TEXT NOT NULL CHECK (source IN ('poste','releve_factice')),
+  version_cli TEXT, releve_le INTEGER NOT NULL, recu_le INTEGER NOT NULL,
+  contenu TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS tours (
+  projet_id TEXT NOT NULL REFERENCES projets(id), tour INTEGER NOT NULL,
+  carte_origine TEXT NOT NULL,
+  empreinte_plan TEXT NOT NULL,
+  resume TEXT NOT NULL, decisions TEXT NOT NULL,
+  carte_synthese TEXT, cree_le INTEGER NOT NULL,
+  PRIMARY KEY (projet_id, tour)
+);
+CREATE TABLE IF NOT EXISTS demandes (
+  cle        TEXT PRIMARY KEY,
+  projet_id  TEXT NOT NULL REFERENCES projets(id),
+  tableau    TEXT NOT NULL,
+  carte      TEXT,
+  role       TEXT NOT NULL CHECK (role IN ('exploration','planification','implementation','relecture',
+                                           'correction','hermes','synthese','repondre','triage')),
+  classe     TEXT NOT NULL,
+  voie       TEXT NOT NULL CHECK (voie IN ('poste-codex','poste-claude','hermes')),
+  tour       INTEGER NOT NULL, ref TEXT, titre TEXT NOT NULL DEFAULT '',
+  modele TEXT, effort TEXT, palier TEXT,
+  modele_carte TEXT, effort_carte TEXT,
+  source_routage TEXT NOT NULL CHECK (source_routage IN ('surcharge_carte','surcharge_projet',
+                  'surcharge_globale','choix_explicite','table','profil','sans_objet')),
+  releve_id  INTEGER REFERENCES releves(id),
+  depot_alias TEXT, consigne TEXT NOT NULL,
+  carte_relue TEXT, correction_n INTEGER NOT NULL DEFAULT 0,
+  modele_servi TEXT, palier_servi TEXT, observe_le INTEGER,
+  mention TEXT,
+  -- Ajouts : ce qu'il faut pour (re)créer la carte à l'identique (réparation d'une création interrompue).
+  parents TEXT NOT NULL DEFAULT '[]', competences TEXT, priorite INTEGER NOT NULL DEFAULT 0,
+  duree_max INTEGER, triage INTEGER NOT NULL DEFAULT 0, corps TEXT NOT NULL DEFAULT '',
+  cree_le INTEGER NOT NULL,
+  UNIQUE (tableau, carte)
+);
+CREATE TABLE IF NOT EXISTS questions (
+  id TEXT PRIMARY KEY,
+  projet_id TEXT NOT NULL REFERENCES projets(id),
+  tableau TEXT NOT NULL, carte TEXT NOT NULL, run_id INTEGER,
+  texte TEXT NOT NULL CHECK (length(texte) BETWEEN 1 AND 4000), contexte TEXT,
+  etat TEXT NOT NULL CHECK (etat IN ('ouverte','escaladee','repondue','annulee')),
+  carte_repondre TEXT,
+  reponse TEXT, repondu_par TEXT CHECK (repondu_par IN ('hermes','proprietaire')),
+  fondement TEXT, motif_escalade TEXT,
+  cree_le INTEGER NOT NULL, maj_le INTEGER NOT NULL, repondue_le INTEGER,
+  UNIQUE (tableau, carte, run_id)
+);
+CREATE TABLE IF NOT EXISTS presence (
+  machine_id TEXT PRIMARY KEY CHECK (length(machine_id) BETWEEN 1 AND 64),
+  derniere_vue INTEGER NOT NULL,
+  source TEXT NOT NULL CHECK (source IN ('longpoll','battement','simule')),
+  passage INTEGER NOT NULL DEFAULT 0,
+  hors_ligne_depuis INTEGER, hors_ligne_notifie INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS curseurs (tableau TEXT PRIMARY KEY, evenement INTEGER NOT NULL, maj_le INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS notifications (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  cle TEXT NOT NULL UNIQUE,
+  genre TEXT NOT NULL CHECK (genre IN ('question','bloquee','triage','abandon','termine','hors_ligne',
+                                       'plafond','test','crochets')),
+  projet_id TEXT, texte TEXT NOT NULL CHECK (length(texte) <= 500), lien TEXT,
+  etat TEXT NOT NULL CHECK (etat IN ('en_attente','envoyee','desactivee','echec')),
+  tentatives INTEGER NOT NULL DEFAULT 0, prochaine_tentative INTEGER, derniere_erreur TEXT,
+  cree_le INTEGER NOT NULL, envoyee_le INTEGER
+);
+CREATE TABLE IF NOT EXISTS routage (classe TEXT PRIMARY KEY, entrees TEXT NOT NULL, valide_le INTEGER,
+  valide_par TEXT, source TEXT NOT NULL CHECK (source IN ('proprietaire','releve_factice')));
+CREATE TABLE IF NOT EXISTS surcharges (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  portee TEXT NOT NULL CHECK (portee IN ('globale','projet','carte')), cible TEXT, classe TEXT NOT NULL,
+  voie TEXT NOT NULL, modele TEXT, effort TEXT, palier TEXT, motif TEXT NOT NULL,
+  auteur TEXT NOT NULL, cree_le INTEGER NOT NULL, active INTEGER NOT NULL DEFAULT 1
+);
+CREATE TABLE IF NOT EXISTS reglages (cle TEXT PRIMARY KEY, valeur TEXT NOT NULL, maj_le INTEGER NOT NULL,
+  auteur TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS journal (id INTEGER PRIMARY KEY AUTOINCREMENT, quand INTEGER NOT NULL,
+  acteur TEXT NOT NULL, action TEXT NOT NULL, projet_id TEXT, cible TEXT, detail TEXT);
+CREATE TABLE IF NOT EXISTS emetteur (cle TEXT PRIMARY KEY, valeur TEXT NOT NULL, maj_le INTEGER NOT NULL);
+CREATE INDEX IF NOT EXISTS demandes_par_projet ON demandes (projet_id, tour);
+CREATE INDEX IF NOT EXISTS questions_par_etat ON questions (etat);
+CREATE INDEX IF NOT EXISTS notifications_par_etat ON notifications (etat, prochaine_tentative);
+CREATE INDEX IF NOT EXISTS journal_par_projet ON journal (projet_id, id);
+CREATE TABLE IF NOT EXISTS machines (
+  id TEXT PRIMARY KEY CHECK (length(id) = 12 AND substr(id, 1, 1) = 'm' AND substr(id, 2) NOT GLOB '*[^0-9a-f]*'),
+  nom TEXT NOT NULL CHECK (length(nom) BETWEEN 1 AND 60),
+  empreinte_jeton TEXT NOT NULL UNIQUE CHECK (length(empreinte_jeton) = 64),
+  etat TEXT NOT NULL CHECK (etat IN ('a_confirmer','actif','revoque')),
+  protocole TEXT NOT NULL, version_poste TEXT NOT NULL,
+  cree_le INTEGER NOT NULL, confirme_le INTEGER, confirme_par TEXT,
+  revoque_le INTEGER, revoque_par TEXT, motif_revocation TEXT,
+  derniere_requete INTEGER, politique_valide INTEGER NOT NULL DEFAULT 1,
+  remplacements_minute INTEGER NOT NULL DEFAULT 0, remplacements_depuis INTEGER
+);
+CREATE UNIQUE INDEX IF NOT EXISTS un_seul_poste_actif ON machines(etat) WHERE etat = 'actif';
+CREATE TABLE IF NOT EXISTS enrolements (
+  empreinte_code TEXT PRIMARY KEY CHECK (length(empreinte_code) = 64),
+  cree_le INTEGER NOT NULL, expire_le INTEGER NOT NULL, cree_par TEXT NOT NULL,
+  utilise_le INTEGER, machine_id TEXT REFERENCES machines(id)
+);
+CREATE TABLE IF NOT EXISTS ordres (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  machine_id TEXT NOT NULL REFERENCES machines(id),
+  genre TEXT NOT NULL CHECK (genre IN ('releve','pause','reprise')),
+  cree_le INTEGER NOT NULL, cree_par TEXT NOT NULL,
+  livre_le INTEGER, acquitte_le INTEGER, abandonne_le INTEGER
+);
+CREATE TABLE IF NOT EXISTS inventaires (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  machine_id TEXT NOT NULL REFERENCES machines(id),
+  recu_le INTEGER NOT NULL, releve_le INTEGER NOT NULL,
+  empreinte TEXT NOT NULL, contenu TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS releves_par_voie ON releves (voie, recu_le);
+CREATE INDEX IF NOT EXISTS ordres_par_machine ON ordres (machine_id, acquitte_le, abandonne_le);
+"""
+
+# Colonnes ajoutées à une table v1 (SQLite n'a pas de « ADD COLUMN IF NOT EXISTS ») : relevées par
+# PRAGMA table_info avant chaque ALTER, sous la transaction de migrer() (modèle : add_column_if_missing de
+# Hermes, hermes_cli/sqlite_util.py:82-95, réécrit ici : le noyau n'importe Hermes que par kanban_adapter).
+COLONNES_V2 = (
+    ("releves", "machine_id", "TEXT"),        # NULL pour un relevé factice (P4)
+    ("releves", "accepte_le", "INTEGER"),     # « Accepter ce relevé comme celui de mon compte » (P5 § 12.3)
+    ("releves", "accepte_par", "TEXT"),
+)
+
+# ------------------------------------------------------------------ schéma v3 (étape P6, cahier P6 § 9.1)
+
+SCHEMA_V3 = """
+CREATE TABLE IF NOT EXISTS envois (
+  id_envoi TEXT PRIMARY KEY CHECK (length(id_envoi) = 36),
+  machine_id TEXT NOT NULL,
+  route TEXT NOT NULL CHECK (route IN ('battement','terminer','question','bloquer','reprendre','arret')),
+  tableau TEXT NOT NULL, carte TEXT NOT NULL, run_id INTEGER NOT NULL,
+  empreinte TEXT NOT NULL CHECK (length(empreinte) = 64),
+  statut INTEGER NOT NULL, reponse TEXT NOT NULL CHECK (length(reponse) <= 8192),
+  recu_le INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS envois_par_date ON envois (recu_le);
+CREATE TABLE IF NOT EXISTS attentes (
+  tableau TEXT NOT NULL, carte TEXT NOT NULL,
+  motif TEXT NOT NULL CHECK (motif IN ('quota')),
+  reprise_le INTEGER NOT NULL, machine_id TEXT, raison TEXT, cree_le INTEGER NOT NULL,
+  PRIMARY KEY (tableau, carte)
+);
+"""
+
+# Colonnes ajoutées par v3 (même mécanique que v2 : PRAGMA table_info, puis ALTER), AVANT la reconstruction.
+COLONNES_V3 = (
+    ("demandes", "machine_id", "TEXT"),           # machine qui a réclamé la carte (reprise sur la même machine)
+    ("demandes", "reclamee_le", "INTEGER"),
+    ("demandes", "session_locale", "INTEGER"),    # 0/1 : l'exécutant garde le fil local de la session
+    ("demandes", "issue", "TEXT"),                # dernière issue reçue (terminer, question, bloquer…)
+    ("demandes", "branche", "TEXT"),
+    ("demandes", "tete", "TEXT"),
+    ("demandes", "verification", "TEXT"),         # JSON borné (contrat Verification)
+    ("demandes", "pilotage", "TEXT"),             # JSON : chemins de pilotage touchés (revue)
+    ("demandes", "diffstat", "TEXT"),             # JSON : fichiers, ajouts, retraits
+    ("demandes", "revue_refusee_le", "INTEGER"),
+    ("demandes", "motif_refus", "TEXT"),
+    ("demandes", "refus_livre_le", "INTEGER"),
+    ("demandes", "voie_fermee_depuis", "INTEGER"),  # carte prête d'une voie fermée vue depuis (§ 4.3)
+    ("questions", "livree_le", "INTEGER"),
+    ("machines", "plateforme", "TEXT NOT NULL DEFAULT 'windows'"),
+    ("machines", "hote", "TEXT NOT NULL DEFAULT 'pc'"),
+    # Dernière réclamation de l'exécutant (page Poste) : peut-il exécuter, voies annoncées, carte en main, disque.
+    ("machines", "peut_executer", "INTEGER"),
+    ("machines", "voies_disponibles", "TEXT"),
+    ("machines", "carte_en_cours", "TEXT"),
+    ("machines", "espace_libre_mio", "INTEGER"),
+    ("presence", "arret_propre_le", "INTEGER"),
+)
+
+# Tables reconstruites par v3 (contrainte CHECK élargie) : forme complète, colonnes v3 comprises, dans l'ordre que
+# l'ALTER leur a données ; ``{nom}`` est le nom de la table créée.
+DEMANDES_V3 = """CREATE TABLE {nom} (
+  cle        TEXT PRIMARY KEY,
+  projet_id  TEXT NOT NULL REFERENCES projets(id),
+  tableau    TEXT NOT NULL,
+  carte      TEXT,
+  role       TEXT NOT NULL CHECK (role IN ('exploration','planification','implementation','relecture',
+                                           'correction','hermes','synthese','repondre','triage','integration')),
+  classe     TEXT NOT NULL,
+  voie       TEXT NOT NULL CHECK (voie IN ('poste-codex','poste-claude','hermes','poste-integration')),
+  tour       INTEGER NOT NULL, ref TEXT, titre TEXT NOT NULL DEFAULT '',
+  modele TEXT, effort TEXT, palier TEXT,
+  modele_carte TEXT, effort_carte TEXT,
+  source_routage TEXT NOT NULL CHECK (source_routage IN ('surcharge_carte','surcharge_projet',
+                  'surcharge_globale','choix_explicite','table','profil','sans_objet')),
+  releve_id  INTEGER REFERENCES releves(id),
+  depot_alias TEXT, consigne TEXT NOT NULL,
+  carte_relue TEXT, correction_n INTEGER NOT NULL DEFAULT 0,
+  modele_servi TEXT, palier_servi TEXT, observe_le INTEGER,
+  mention TEXT,
+  parents TEXT NOT NULL DEFAULT '[]', competences TEXT, priorite INTEGER NOT NULL DEFAULT 0,
+  duree_max INTEGER, triage INTEGER NOT NULL DEFAULT 0, corps TEXT NOT NULL DEFAULT '',
+  cree_le INTEGER NOT NULL,
+  machine_id TEXT, reclamee_le INTEGER, session_locale INTEGER, issue TEXT, branche TEXT, tete TEXT,
+  verification TEXT, pilotage TEXT, diffstat TEXT, revue_refusee_le INTEGER, motif_refus TEXT,
+  refus_livre_le INTEGER, voie_fermee_depuis INTEGER,
+  UNIQUE (tableau, carte)
+)"""
+NOTIFICATIONS_V3 = """CREATE TABLE {nom} (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  cle TEXT NOT NULL UNIQUE,
+  genre TEXT NOT NULL CHECK (genre IN ('question','bloquee','triage','abandon','termine','hors_ligne',
+                                       'plafond','test','crochets','revue','secret','conflit','integration',
+                                       'isolement')),
+  projet_id TEXT, texte TEXT NOT NULL CHECK (length(texte) <= 500), lien TEXT,
+  etat TEXT NOT NULL CHECK (etat IN ('en_attente','envoyee','desactivee','echec')),
+  tentatives INTEGER NOT NULL DEFAULT 0, prochaine_tentative INTEGER, derniere_erreur TEXT,
+  cree_le INTEGER NOT NULL, envoyee_le INTEGER
+)"""
+# (table, forme v3, marqueur présent dans la contrainte v3 seulement, index à recréer)
+RECONSTRUCTIONS_V3 = (
+    ("demandes", DEMANDES_V3, "'integration'",
+     ("CREATE INDEX IF NOT EXISTS demandes_par_projet ON demandes (projet_id, tour)",)),
+    ("notifications", NOTIFICATIONS_V3, "'isolement'",
+     ("CREATE INDEX IF NOT EXISTS notifications_par_etat ON notifications (etat, prochaine_tentative)",)),
+)
+
+# ------------------------------------------------------------------ schéma v4 (étape P7, cahier P7 § 12.1)
+
+# Colonnes ajoutées par v4, APRÈS les reconstructions v3 (correction K21 : voir l'en-tête du module).
+COLONNES_V4 = (
+    ("demandes", "consigne_relance", "TEXT"),     # dernière consigne de relance du propriétaire (« Relancer »)
+    ("demandes", "relancee_le", "INTEGER"),       # date de la dernière relance
+    ("demandes", "consigne_initiale", "TEXT"),    # consigne d'origine, gardée à la première relance d'une carte du poste
+)
+NOTIFICATIONS_V4 = """CREATE TABLE {nom} (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  cle TEXT NOT NULL UNIQUE,
+  genre TEXT NOT NULL CHECK (genre IN ('question','bloquee','triage','abandon','termine','hors_ligne',
+                                       'plafond','test','crochets','revue','secret','conflit','integration',
+                                       'isolement','bilan')),
+  projet_id TEXT, texte TEXT NOT NULL CHECK (length(texte) <= 500), lien TEXT,
+  etat TEXT NOT NULL CHECK (etat IN ('en_attente','envoyee','desactivee','echec')),
+  tentatives INTEGER NOT NULL DEFAULT 0, prochaine_tentative INTEGER, derniere_erreur TEXT,
+  cree_le INTEGER NOT NULL, envoyee_le INTEGER
+)"""
+RECONSTRUCTIONS_V4 = (
+    ("notifications", NOTIFICATIONS_V4, "'bilan'",
+     ("CREATE INDEX IF NOT EXISTS notifications_par_etat ON notifications (etat, prochaine_tentative)",)),
+)
+
+TABLES = ("meta_schema", "projets", "releves", "tours", "demandes", "questions", "presence", "curseurs",
+          "notifications", "routage", "surcharges", "reglages", "journal", "emetteur",
+          # Schéma v2 (étape P5).
+          "machines", "enrolements", "ordres", "inventaires",
+          # Schéma v3 (étape P6).
+          "envois", "attentes")
+
+# Réglages par défaut (table ``reglages``) : lus à chaque usage, modifiables par le propriétaire
+# (P5, P7) ; les tests les posent par la même fonction (:func:`poser_reglage`).
+REGLAGES_PAR_DEFAUT: Dict[str, Any] = {
+    "plafond_tours": 3,
+    "plafond_cartes": 30,
+    "plafond_corrections": 2,
+    # « Prolonger » une carte de décision au plafond de cartes relève ce plafond d'autant (décision D41).
+    "prolongation_cartes": 10,
+    "projets_actifs_max": 3,
+    "lancements_discussion_par_jour": 5,
+    "etapes_par_appel_max": 12,
+    "seuil_hors_ligne_s": 180,
+    "emetteur_intervalle_s": 15,
+    "pause_reclamations": 0,
+    "releve_perime_s": 7200,
+    "seuil_quota_pct": 90,
+    "efforts_interdits": ["max", "ultra", "ultracode"],
+    "paliers_admis": ["default"],
+    # Étape P5 (cahier P5 § 12.1, décision D63) : attente du long-poll (bornes 5-50), validité d'un code
+    # d'enrôlement, intervalle minimal entre deux inventaires, expiration d'un ordre non acquitté.
+    "longpoll_attente_s": 25,
+    "enrolement_validite_s": 600,
+    "inventaire_intervalle_min_s": 60,
+    "ordre_expiration_s": 3600,
+    # Étape P6 (cahier P6 § 5, § 4.3, § 17) : réclamation de l'exécutant, conservation des envois, grâce d'un arrêt
+    # propre, carte prête d'une voie fermée, repli de la relecture (D91, appliqué par le propriétaire).
+    "reclamation_ttl_s": 2700,
+    "envois_conservation_s": 7 * 24 * 3600,
+    "grace_arret_propre_s": 600,
+    "voie_fermee_delai_s": 1800,
+    "relecture_repli_meme_voie": True,
+    # Étape P7 (cahier P7 § 5.2, § 5.3) : flux d'invalidation GET /v1/flux — intervalle du veilleur (plancher 1 s),
+    # battement (le bord Railway coupe une requête après 5 min sans octet), durée d'un flux (le bord coupe à 15 min),
+    # nombre de flux simultanés (au-delà : 429 trop_de_flux).
+    "flux_intervalle_s": 2,
+    "flux_battement_s": 15,
+    "flux_duree_max_s": 600,
+    "flux_max": 8,
+}
+PLANCHER_EMETTEUR_S = 5
+
+_horloge: Callable[[], float] = time.time
+_initialisees: set = set()
+_verrou_init = threading.Lock()
+
+
+def maintenant() -> int:
+    """Instant courant en secondes (remplaçable dans les tests par :func:`fixer_horloge`)."""
+    return int(_horloge())
+
+
+def fixer_horloge(horloge: Optional[Callable[[], float]]) -> None:
+    global _horloge
+    _horloge = horloge or time.time
+
+
+def chemin_base() -> Path:
+    return Path(ka.get_hermes_home()) / "plugin-data" / NOM_GREFFON / "data.db"
+
+
+def ouvrir() -> sqlite3.Connection:
+    """Connexion à la base du greffon, schéma à jour. L'appelant la referme (:func:`connexion`)."""
+    conn = ka.plugin_db(NOM_GREFFON)
+    try:
+        conn.isolation_level = None  # transactions explicites seulement (BEGIN IMMEDIATE)
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA busy_timeout=5000")
+        cle = str(chemin_base())
+        if cle not in _initialisees:
+            with _verrou_init:
+                if cle not in _initialisees:
+                    migrer(conn)
+                    _initialisees.add(cle)
+    except BaseException:
+        conn.close()
+        raise
+    return conn
+
+
+@contextlib.contextmanager
+def connexion() -> Iterator[sqlite3.Connection]:
+    conn = ouvrir()
+    try:
+        yield conn
+    finally:
+        with contextlib.suppress(Exception):
+            conn.close()
+
+
+@contextlib.contextmanager
+def transaction(conn: sqlite3.Connection) -> Iterator[sqlite3.Connection]:
+    """Transaction ``BEGIN IMMEDIATE`` : validée à la sortie, annulée sur exception."""
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        yield conn
+    except BaseException:
+        with contextlib.suppress(sqlite3.Error):
+            conn.execute("ROLLBACK")
+        raise
+    else:
+        conn.execute("COMMIT")
+
+
+def _colonnes(conn: sqlite3.Connection, table: str) -> set:
+    return {str(ligne[1]) for ligne in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+
+
+def _sql_de_la_table(conn: sqlite3.Connection, table: str) -> str:
+    ligne = conn.execute("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?", (table,)).fetchone()
+    return str(ligne[0]) if ligne and ligne[0] else ""
+
+
+def _compteur_autoincrement(conn: sqlite3.Connection, table: str) -> Optional[int]:
+    """Compteur ``AUTOINCREMENT`` de ``table`` (``sqlite_sequence``), ``None`` s'il n'y en a pas."""
+    if conn.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'sqlite_sequence'").fetchone() is None:
+        return None
+    ligne = conn.execute("SELECT seq FROM sqlite_sequence WHERE name = ?", (table,)).fetchone()
+    return int(ligne[0]) if ligne else None
+
+
+def reconstruire_dans(conn: sqlite3.Connection, table: str, forme: str, index: tuple) -> None:
+    """Reconstruit ``table`` selon ``forme`` (contrainte ``CHECK`` élargie), SOUS la transaction de l'appelant :
+    table neuve, copie de toutes les lignes colonne par colonne, ``DROP``, ``RENAME``, index recréés.
+
+    Étape P9 (montée de données, run 37782764948) : le compteur ``AUTOINCREMENT`` de la table est GARDÉ. ``DROP`` efface
+    sa ligne de ``sqlite_sequence`` et la table neuve repartirait du plus grand identifiant recopié (mesuré : 7 → 5
+    pour ``notifications``), alors que les numéros au-delà ont déjà été consommés (un ``INSERT OR IGNORE`` ignoré en
+    consomme un) ; ``AUTOINCREMENT`` promet qu'un numéro consommé ne resert jamais."""
+    neuve = f"{table}_v3"
+    compteur = _compteur_autoincrement(conn, table)
+    conn.execute(f"DROP TABLE IF EXISTS {neuve}")
+    conn.execute(forme.format(nom=neuve))
+    colonnes = ", ".join(str(l[1]) for l in conn.execute(f"PRAGMA table_info({neuve})").fetchall())
+    conn.execute(f"INSERT INTO {neuve} ({colonnes}) SELECT {colonnes} FROM {table}")
+    conn.execute(f"DROP TABLE {table}")
+    conn.execute(f"ALTER TABLE {neuve} RENAME TO {table}")
+    if compteur is not None:
+        if conn.execute("UPDATE sqlite_sequence SET seq = MAX(seq, ?) WHERE name = ?", (compteur, table)).rowcount == 0:
+            conn.execute("INSERT INTO sqlite_sequence (name, seq) VALUES (?, ?)", (table, compteur))
+    for instruction in index:
+        conn.execute(instruction)
+
+
+def migrer(conn: sqlite3.Connection) -> None:
+    """Schéma v4, idempotent (``IF NOT EXISTS``, colonnes ajoutées après lecture de ``PRAGMA table_info``,
+    reconstructions repérées par leur contrainte), le tout sous UNE transaction ``IMMEDIATE`` : deux processus qui
+    migrent en même temps se succèdent, le second trouve tout en place. Une base v1, v2 ou v3 passe à ``'4'`` par un
+    ``UPDATE`` (l'``INSERT OR IGNORE`` seul laisserait l'ancienne version) ; une base neuve reçoit ``'4'``."""
+    with transaction(conn):
+        for instruction in SCHEMA.split(";"):
+            if instruction.strip():
+                conn.execute(instruction)
+        for table, colonne, genre in COLONNES_V2:
+            if colonne not in _colonnes(conn, table):
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {colonne} {genre}")
+        # Étape P6 : tables, colonnes, puis reconstructions (une seule fois chacune).
+        for instruction in SCHEMA_V3.split(";"):
+            if instruction.strip():
+                conn.execute(instruction)
+        for table, colonne, genre in COLONNES_V3:
+            if colonne not in _colonnes(conn, table):
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {colonne} {genre}")
+        for table, forme, marqueur, index in RECONSTRUCTIONS_V3:
+            if marqueur not in _sql_de_la_table(conn, table):
+                reconstruire_dans(conn, table, forme, index)
+        # Étape P7 : colonnes APRÈS les reconstructions v3 (K21), puis la reconstruction de ``notifications``.
+        for table, colonne, genre in COLONNES_V4:
+            if colonne not in _colonnes(conn, table):
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {colonne} {genre}")
+        for table, forme, marqueur, index in RECONSTRUCTIONS_V4:
+            if marqueur not in _sql_de_la_table(conn, table):
+                reconstruire_dans(conn, table, forme, index)
+        conn.execute("INSERT OR IGNORE INTO meta_schema (cle, valeur) VALUES ('version', ?)", (VERSION_SCHEMA,))
+        conn.execute("UPDATE meta_schema SET valeur = ? WHERE cle = 'version' AND valeur IN ('1', '2', '3')",
+                     (VERSION_SCHEMA,))
+
+
+def version_schema(conn: sqlite3.Connection) -> Optional[str]:
+    ligne = conn.execute("SELECT valeur FROM meta_schema WHERE cle = 'version'").fetchone()
+    return str(ligne[0]) if ligne else None
+
+
+def reglage(conn: sqlite3.Connection, cle: str) -> Any:
+    """Valeur d'un réglage (JSON en base), sinon le défaut ; une valeur illisible vaut le défaut."""
+    ligne = conn.execute("SELECT valeur FROM reglages WHERE cle = ?", (cle,)).fetchone()
+    if ligne is not None:
+        try:
+            return json.loads(ligne[0])
+        except ValueError:
+            pass
+    return REGLAGES_PAR_DEFAUT.get(cle)
+
+
+def poser_reglage(conn: sqlite3.Connection, cle: str, valeur: Any, auteur: str) -> None:
+    if cle not in REGLAGES_PAR_DEFAUT:
+        raise ValueError(f"réglage inconnu : {cle}")
+    with transaction(conn):
+        conn.execute("INSERT INTO reglages (cle, valeur, maj_le, auteur) VALUES (?, ?, ?, ?) "
+                     "ON CONFLICT(cle) DO UPDATE SET valeur = excluded.valeur, maj_le = excluded.maj_le, "
+                     "auteur = excluded.auteur", (cle, json.dumps(valeur), maintenant(), auteur))
+        journaliser(conn, auteur, "reglage", cible=cle, detail=json.dumps(valeur))
+
+
+def journaliser(conn: sqlite3.Connection, acteur: str, action: str, *, projet_id: Optional[str] = None,
+                cible: Optional[str] = None, detail: Any = None) -> None:
+    """Ligne du journal (à appeler DANS une transaction). Le détail est masqué et borné."""
+    texte = detail if isinstance(detail, str) or detail is None else json.dumps(detail, ensure_ascii=False)
+    if texte is not None:
+        texte = ka.masquer(texte)[:2000]
+    conn.execute("INSERT INTO journal (quand, acteur, action, projet_id, cible, detail) VALUES (?, ?, ?, ?, ?, ?)",
+                 (maintenant(), str(acteur)[:200], action, projet_id, cible, texte))
+
+
+def lire_emetteur(conn: sqlite3.Connection, cle: str) -> Any:
+    ligne = conn.execute("SELECT valeur FROM emetteur WHERE cle = ?", (cle,)).fetchone()
+    if ligne is None:
+        return None
+    try:
+        return json.loads(ligne[0])
+    except ValueError:
+        return None
+
+
+def ecrire_emetteur(conn: sqlite3.Connection, cle: str, valeur: Any) -> None:
+    """État de l'émetteur (à appeler DANS une transaction)."""
+    conn.execute("INSERT INTO emetteur (cle, valeur, maj_le) VALUES (?, ?, ?) ON CONFLICT(cle) DO UPDATE SET "
+                 "valeur = excluded.valeur, maj_le = excluded.maj_le",
+                 (cle, json.dumps(valeur, ensure_ascii=False), maintenant()))
+
+
+def ligne_en_dict(ligne: Optional[sqlite3.Row]) -> Optional[Dict[str, Any]]:
+    return {k: ligne[k] for k in ligne.keys()} if ligne is not None else None

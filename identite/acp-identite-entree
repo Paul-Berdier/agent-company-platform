@@ -1,0 +1,278 @@
+#!/bin/sh
+# ACP — garde root du fournisseur d'identité : ENTRYPOINT de identite/Dockerfile.
+#
+# Exécutée en root à CHAQUE démarrage, avant Authelia. Échec fermé : toute anomalie est refusée
+# en français (« [acp-identite] REFUS : … »), les erreurs de variables sont toutes rassemblées,
+# puis le conteneur s'arrête (code 1). Aucune valeur secrète n'est jamais affichée : seuls le
+# domaine, l'identifiant et l'URL de Hermes apparaissent dans le journal.
+#
+#   1. root exigé, aucun argument admis ;
+#   2. environnement : toute AUTHELIA_* est interdite (elle surchargerait la configuration figée),
+#      X_AUTHELIA_* limitées aux deux valeurs de l'image, PUID et PGID à 1000, UMASK interdite,
+#      RAILWAY_RUN_UID absente ou 0 ; ACP_IDP_* et ACP_HERMES_URL validées ;
+#   3. sur Railway : volume monté sur /config (variable ET point de montage réel) ;
+#   4. /config : vrai répertoire, sans lien symbolique ni fichier spécial (le chown -R de
+#      /app/entrypoint.sh, exécuté en root, suivrait un lien posé par le processus Authelia) ;
+#   5. secrets et clé RS256 générés UNE SEULE FOIS dans /config/secrets (0600, uid 1000 après le
+#      chown de l'entrée amont) ; un fichier vide, ou la clé de stockage absente alors que la base
+#      existe : refus, jamais de régénération silencieuse ;
+#   6. utilisateur UNIQUE réécrit à chaque démarrage dans /run/acp-identite/utilisateurs.yml
+#      (hors volume, root:1000 0640) : aucun second compte ne peut survivre à un redémarrage ;
+#   7. exec /app/entrypoint.sh (amont : chown de /config, puis su-exec 1000:1000 authelia).
+#
+# Documentation : docs/refonte/identite.md.
+set -eu
+set -f
+umask 077
+PATH=/app:/usr/sbin:/usr/bin:/sbin:/bin
+export PATH
+
+NL='
+'
+ERREURS=""
+
+informer() {
+    printf '[acp-identite] %s\n' "$1"
+}
+
+refuser() {
+    printf '[acp-identite] REFUS : %s\n' "$1" >&2
+    printf '[acp-identite] Démarrage arrêté (échec fermé).\n' >&2
+    exit 1
+}
+
+ajouter() {
+    ERREURS="${ERREURS}[acp-identite] REFUS : $1${NL}"
+}
+
+# Rend une chaîne sûre pour le journal : tout octet hors ASCII imprimable devient « ? » (le tr de
+# busybox ne connaît pas les classes [:print:]).
+imprimable() {
+    printf '%s' "$1" | tr -c ' -~' '?' | cut -c1-120
+}
+
+# conforme MOTIF VALEUR : vrai si VALEUR, sans saut de ligne, correspond ENTIÈREMENT à MOTIF (ERE).
+conforme() {
+    case "$2" in *"$NL"*) return 1 ;; esac
+    printf '%s\n' "$2" | grep -Eqx -- "$1"
+}
+
+# ---------------------------------------------------------------- 1. root, aucun argument
+
+[ "$(id -u)" = 0 ] || refuser "la garde doit s'exécuter en root (uid $(id -u)) : l'image ne se lance sous aucun autre utilisateur."
+[ "$#" -eq 0 ] || refuser "aucun argument n'est admis (reçu $#) : l'image lance Authelia avec sa configuration figée. Maintenance : Start Command /bin/sh -c \"exec sleep infinity\", puis /opt/acp-identite/acp-identite-admin."
+
+# ---------------------------------------------------------------- 2. environnement
+
+for nom in $(awk 'BEGIN { for (n in ENVIRON) print n }' | sort); do
+    case "$nom" in
+        AUTHELIA_*)
+            ajouter "la variable $(imprimable "$nom") est interdite : toute variable AUTHELIA_* surchargerait la configuration figée de l'image." ;;
+        X_AUTHELIA_CONFIG|X_AUTHELIA_CONFIG_FILTERS) ;;
+        X_AUTHELIA_*)
+            ajouter "la variable $(imprimable "$nom") est interdite : seules X_AUTHELIA_CONFIG et X_AUTHELIA_CONFIG_FILTERS, fixées par l'image, sont admises." ;;
+    esac
+done
+
+[ "${X_AUTHELIA_CONFIG-}" = /etc/authelia/configuration.yml ] ||
+    ajouter "X_AUTHELIA_CONFIG doit valoir /etc/authelia/configuration.yml (valeur fixée par l'image)."
+[ "${X_AUTHELIA_CONFIG_FILTERS-}" = template ] ||
+    ajouter "X_AUTHELIA_CONFIG_FILTERS doit valoir « template » (valeur fixée par l'image)."
+[ "${PUID-}" = 1000 ] || ajouter "PUID doit valoir 1000 : Authelia ne tourne jamais en root."
+[ "${PGID-}" = 1000 ] || ajouter "PGID doit valoir 1000 : Authelia ne tourne jamais en root."
+[ -z "${UMASK+x}" ] || ajouter "la variable UMASK est interdite : l'entrée amont l'appliquerait aux secrets et à la base du volume."
+if [ -n "${RAILWAY_RUN_UID+x}" ] && [ "$RAILWAY_RUN_UID" != 0 ]; then
+    ajouter "la variable RAILWAY_RUN_UID vaut « $(imprimable "$RAILWAY_RUN_UID") » : seules l'absence ou la valeur 0 sont admises (la garde doit tourner en root)."
+fi
+
+HOTE='([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]([a-z0-9-]{0,61}[a-z0-9])?'
+
+# exiger NOM : ajoute une erreur si la variable est absente ou vide ; vrai si elle est présente.
+exiger() {
+    eval "_valeur=\${$1-}"
+    if [ -z "$_valeur" ]; then
+        ajouter "la variable $1 est obligatoire et absente (ou vide)."
+        return 1
+    fi
+    return 0
+}
+
+if exiger ACP_IDP_DOMAINE; then
+    case "$ACP_IDP_DOMAINE" in
+        *'<'*|*'>'*)
+            ajouter "ACP_IDP_DOMAINE porte encore la valeur de gabarit (« $(imprimable "$ACP_IDP_DOMAINE") ») : remplacez-la par le sous-domaine public réel du service identite." ;;
+        *)
+            if ! conforme "$HOTE" "$ACP_IDP_DOMAINE" || [ "${#ACP_IDP_DOMAINE}" -gt 253 ]; then
+                ajouter "ACP_IDP_DOMAINE doit être un nom d'hôte public en minuscules, sans schéma ni port ni chemin (reçu « $(imprimable "$ACP_IDP_DOMAINE") »)."
+            else
+                case "$ACP_IDP_DOMAINE" in
+                    *.railway.internal|*.localhost)
+                        ajouter "ACP_IDP_DOMAINE doit être le domaine PUBLIC du service (les passkeys y sont liées), jamais « $ACP_IDP_DOMAINE »." ;;
+                esac
+            fi ;;
+    esac
+fi
+
+if exiger ACP_HERMES_URL; then
+    case "$ACP_HERMES_URL" in
+        *'<'*|*'>'*)
+            ajouter "ACP_HERMES_URL porte encore la valeur de gabarit (« $(imprimable "$ACP_HERMES_URL") ») : remplacez-la par l'URL publique réelle de Hermes." ;;
+        *)
+            if ! conforme "https://$HOTE" "$ACP_HERMES_URL" || [ "${#ACP_HERMES_URL}" -gt 261 ]; then
+                ajouter "ACP_HERMES_URL doit être https://<hôte public>, sans port, chemin ni barre finale (reçu « $(imprimable "$ACP_HERMES_URL") »)."
+            else
+                case "$ACP_HERMES_URL" in
+                    *.railway.internal|*.localhost)
+                        ajouter "ACP_HERMES_URL doit être l'URL PUBLIQUE de Hermes, jamais « $ACP_HERMES_URL »." ;;
+                    "https://${ACP_IDP_DOMAINE-}")
+                        ajouter "ACP_HERMES_URL et ACP_IDP_DOMAINE désignent le même hôte : Hermes et le fournisseur d'identité ont chacun leur sous-domaine." ;;
+                esac
+            fi ;;
+    esac
+fi
+
+if exiger ACP_IDP_UTILISATEUR && ! conforme '[a-z][a-z0-9._-]{0,31}' "$ACP_IDP_UTILISATEUR"; then
+    ajouter "ACP_IDP_UTILISATEUR doit compter de 1 à 32 caractères parmi a-z, 0-9, « . _ - », en commençant par une lettre."
+fi
+
+if exiger ACP_IDP_NOM; then
+    _nom_refuse=0
+    case "$ACP_IDP_NOM" in *"$NL"*) _nom_refuse=1 ;; esac
+    if [ "$_nom_refuse" = 1 ] || [ "${#ACP_IDP_NOM}" -gt 64 ] || printf '%s\n' "$ACP_IDP_NOM" | grep -q '[[:cntrl:]"\\]'; then
+        ajouter "ACP_IDP_NOM doit compter au plus 64 caractères, sans guillemet double, barre oblique inverse ni caractère de contrôle."
+    fi
+fi
+
+if exiger ACP_IDP_EMAIL && { ! conforme '[A-Za-z0-9._%+-]{1,64}@([A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,63}' "$ACP_IDP_EMAIL" || [ "${#ACP_IDP_EMAIL}" -gt 254 ]; }; then
+    ajouter "ACP_IDP_EMAIL n'est pas une adresse électronique valide."
+fi
+
+if exiger ACP_IDP_MOT_DE_PASSE_ARGON2; then
+    if ! conforme '\$argon2id\$v=19\$m=[1-9][0-9]{0,6},t=[1-9][0-9]{0,2},p=[1-9][0-9]{0,2}\$[A-Za-z0-9+/]{11,64}\$[A-Za-z0-9+/]{16,128}' "$ACP_IDP_MOT_DE_PASSE_ARGON2"; then
+        ajouter "ACP_IDP_MOT_DE_PASSE_ARGON2 doit être une empreinte argon2id produite par « authelia crypto hash generate argon2 » (\$argon2id\$v=19\$m=…,t=…,p=…\$sel\$empreinte) ; sa valeur n'est jamais affichée."
+    else
+        _m=$(printf '%s\n' "$ACP_IDP_MOT_DE_PASSE_ARGON2" | sed -n 's/^\$argon2id\$v=19\$m=\([0-9]*\),t=\([0-9]*\),p=\([0-9]*\)\$.*/\1/p')
+        _t=$(printf '%s\n' "$ACP_IDP_MOT_DE_PASSE_ARGON2" | sed -n 's/^\$argon2id\$v=19\$m=\([0-9]*\),t=\([0-9]*\),p=\([0-9]*\)\$.*/\2/p')
+        _p=$(printf '%s\n' "$ACP_IDP_MOT_DE_PASSE_ARGON2" | sed -n 's/^\$argon2id\$v=19\$m=\([0-9]*\),t=\([0-9]*\),p=\([0-9]*\)\$.*/\3/p')
+        if [ "$_m" -gt 65536 ]; then
+            ajouter "ACP_IDP_MOT_DE_PASSE_ARGON2 demande m=$_m Kio par vérification : au plus 65536 (64 Mio), valeur pour laquelle la limite mémoire du service a été mesurée (docs/refonte/identite.md)."
+        elif [ "$_m" -lt 19456 ]; then
+            ajouter "ACP_IDP_MOT_DE_PASSE_ARGON2 demande m=$_m Kio : au moins 19456 (plancher OWASP pour argon2id)."
+        fi
+        [ "$_t" -le 10 ] || ajouter "ACP_IDP_MOT_DE_PASSE_ARGON2 demande t=$_t passes : au plus 10 (0,5 vCPU)."
+        [ "$_p" -le 16 ] || ajouter "ACP_IDP_MOT_DE_PASSE_ARGON2 demande p=$_p fils : au plus 16."
+    fi
+fi
+
+# ---------------------------------------------------------------- 3. volume Railway
+
+if [ -n "${RAILWAY_ENVIRONMENT_ID+x}${RAILWAY_DEPLOYMENT_ID+x}${RAILWAY_SERVICE_ID+x}" ]; then
+    if [ "${RAILWAY_VOLUME_MOUNT_PATH-}" != /config ]; then
+        ajouter "sur Railway, le volume du service doit être monté sur /config (reçu « $(imprimable "${RAILWAY_VOLUME_MOUNT_PATH:-aucun volume}") ») : sans lui, secrets, base et passkeys seraient perdus à chaque déploiement."
+    elif ! awk '$5 == "/config" { trouve = 1 } END { exit trouve ? 0 : 1 }' /proc/self/mountinfo; then
+        ajouter "sur Railway, /config n'est pas un point de montage (/proc/self/mountinfo) alors que RAILWAY_VOLUME_MOUNT_PATH l'annonce."
+    fi
+fi
+
+if [ -n "$ERREURS" ]; then
+    printf '%s' "$ERREURS" >&2
+    printf '[acp-identite] Démarrage arrêté (échec fermé).\n' >&2
+    exit 1
+fi
+
+# ---------------------------------------------------------------- 4. /config
+
+[ -e /config ] || [ -L /config ] ||
+    refuser "le volume /config est absent : secrets, base et passkeys doivent vivre sur un volume (Railway : volume monté sur /config)."
+if [ -L /config ] || [ ! -d /config ]; then
+    refuser "/config n'est pas un vrai répertoire (lien symbolique ou fichier)."
+fi
+suspect=$(find /config ! -type d ! -type f | head -n 1)
+if [ -n "$suspect" ]; then
+    refuser "/config contient un lien symbolique ou un fichier spécial (« $(imprimable "$suspect") ») : l'entrée amont (chown -R en root) le suivrait. Retirez-le en maintenance."
+fi
+
+# ---------------------------------------------------------------- 5. secrets
+
+SECRETS=/config/secrets
+if [ -e "$SECRETS" ]; then
+    [ -d "$SECRETS" ] || refuser "$SECRETS n'est pas un répertoire."
+else
+    mkdir -m 0700 "$SECRETS"
+fi
+
+generes=""
+conserves=""
+for nom in session stockage jwt-reinitialisation oidc-hmac; do
+    fichier="$SECRETS/$nom"
+    if [ -e "$fichier" ]; then
+        [ -f "$fichier" ] || refuser "$fichier n'est pas un fichier ordinaire."
+        [ -s "$fichier" ] || refuser "$fichier est vide : un secret n'est jamais régénéré en silence. Restaurez-le depuis une sauvegarde du volume, ou supprimez-le en maintenance pour en générer un nouveau."
+        conserves="$conserves $nom"
+        continue
+    fi
+    if [ "$nom" = stockage ] && [ -e /config/db.sqlite3 ]; then
+        refuser "la clé de chiffrement du stockage ($fichier) est absente alors que la base /config/db.sqlite3 existe : une nouvelle clé la rendrait illisible. Restaurez la clé depuis une sauvegarde du volume, ou retirez la base en maintenance (les passkeys seront à réenrôler)."
+    fi
+    temporaire="$SECRETS/.$nom.tmp"
+    rm -f "$temporaire"
+    /app/authelia crypto rand --length 64 --charset alphanumeric --mode-files 0600 --file "$temporaire" >/dev/null ||
+        refuser "la génération de $fichier a échoué."
+    [ -s "$temporaire" ] || refuser "la génération de $fichier a produit un fichier vide."
+    mv -f "$temporaire" "$fichier"
+    generes="$generes $nom"
+done
+
+CLE="$SECRETS/oidc-rs256.pem"
+if [ -e "$CLE" ]; then
+    [ -f "$CLE" ] && [ -s "$CLE" ] || refuser "$CLE est vide ou n'est pas un fichier ordinaire : la clé de signature n'est jamais régénérée en silence."
+    grep -q -- '-----BEGIN PRIVATE KEY-----' "$CLE" || refuser "$CLE n'est pas une clé privée PEM (PKCS #8)."
+    conserves="$conserves oidc-rs256.pem"
+else
+    generation="$SECRETS/.generation-rs256"
+    rm -rf "$generation"
+    mkdir -m 0700 "$generation"
+    /app/authelia crypto pair rsa generate --bits 4096 --directory "$generation" >/dev/null ||
+        refuser "la génération de la clé RS256 ($CLE) a échoué."
+    [ -s "$generation/private.pem" ] || refuser "la génération de la clé RS256 a produit un fichier vide."
+    mv -f "$generation/private.pem" "$CLE"
+    rm -rf "$generation"
+    generes="$generes oidc-rs256.pem"
+fi
+
+# ---------------------------------------------------------------- 6. utilisateur unique
+
+RUN_IDENTITE=/run/acp-identite
+if [ -L "$RUN_IDENTITE" ] || { [ -e "$RUN_IDENTITE" ] && [ ! -d "$RUN_IDENTITE" ]; }; then
+    refuser "$RUN_IDENTITE n'est pas un vrai répertoire."
+fi
+mkdir -p "$RUN_IDENTITE"
+chown root:1000 "$RUN_IDENTITE"
+chmod 0750 "$RUN_IDENTITE"
+temporaire=$(mktemp "$RUN_IDENTITE/.utilisateurs.XXXXXX")
+{
+    printf '# Généré par acp-identite-entree à chaque démarrage : un seul utilisateur, hors volume.\n'
+    printf 'users:\n'
+    printf "  '%s':\n" "$ACP_IDP_UTILISATEUR"
+    printf '    disabled: false\n'
+    printf '    displayname: "%s"\n' "$ACP_IDP_NOM"
+    printf "    password: '%s'\n" "$ACP_IDP_MOT_DE_PASSE_ARGON2"
+    printf "    email: '%s'\n" "$ACP_IDP_EMAIL"
+    printf '    groups: []\n'
+} > "$temporaire"
+chown root:1000 "$temporaire"
+chmod 0640 "$temporaire"
+mv -f "$temporaire" "$RUN_IDENTITE/utilisateurs.yml"
+
+# L'identifiant n'est PAS journalisé (relecture P2) : les journaux de démarrage sont versés au dépôt,
+# qui est public (docs/refonte/railway.md § 7), et un tiers qui connaît l'identifiant peut bannir le
+# propriétaire 15 minutes à volonté (configuration.yml, regulation).
+informer "variables validées ; utilisateur unique configuré (identifiant non journalisé) ; émetteur https://$ACP_IDP_DOMAINE ; client hermes-acp → $ACP_HERMES_URL/auth/callback"
+informer "secrets de /config/secrets : générés :${generes:- aucun} ; conservés :${conserves:- aucun}"
+
+# ---------------------------------------------------------------- 7. Authelia
+
+# L'empreinte, le nom et l'adresse ne servent qu'au fichier des utilisateurs : ils ne restent pas
+# dans l'environnement du processus Authelia.
+unset ACP_IDP_MOT_DE_PASSE_ARGON2 ACP_IDP_NOM ACP_IDP_EMAIL
+exec /app/entrypoint.sh

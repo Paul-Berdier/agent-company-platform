@@ -1,0 +1,18 @@
+[
+  {
+    "alias": "demo",
+    "visibilite": "public",
+    "lecture": "ok",
+    "verifie_le": "2026-10-02T15:40:42Z",
+    "voies_fermees": {
+      "poste-codex": "dépôt « demo » non prouvé privé (visibilité mesurée : public) : Codex n'y travaille que sur un dépôt privé lu avec le jeton de lecture (D83)"
+    }
+  },
+  {
+    "alias": "jetable",
+    "visibilite": "prive",
+    "lecture": "ok",
+    "verifie_le": "2026-10-02T15:40:42Z",
+    "voies_fermees": {}
+  }
+]

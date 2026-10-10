@@ -4,9 +4,8 @@ Le verrou ``requirements/python-3.12.lock.txt`` (hachés, compilé dans un conte
 Linux) alimente les images ; ``requirements/constraints.txt`` (mêmes épingles, sans
 hachés) sert au poste local en Python 3.13, où ``--require-hashes`` n'est pas
 possible faute de roues identiques. Les deux fichiers doivent porter exactement les
-mêmes versions, et les trois pilotes du Lot H (alembic, psycopg, sqlalchemy) doivent
-rester aux valeurs imposées : une dérive silencieuse entre l'image et le poste est
-précisément ce que ce script refuse.
+mêmes versions : une dérive silencieuse entre la CI et le poste est précisément ce
+que ce script refuse.
 
 Usage :
     python scripts/check_lock.py                      # vérifie, code 0 ou 1
@@ -29,15 +28,26 @@ LOCK_PATH = ROOT / "requirements" / "python-3.12.lock.txt"
 CONSTRAINTS_PATH = ROOT / "requirements" / "constraints.txt"
 SOURCE_PATH = ROOT / "requirements" / "python-3.12.in"
 
-# Épingles imposées par le Lot H : la migration (alembic), le pilote PostgreSQL
-# (psycopg et sa roue binaire) et l'ORM (sqlalchemy) ne bougent qu'ensemble et
-# explicitement.
-REQUIRED_PINS: dict[str, str] = {
-    "alembic": "1.20.0",
-    "psycopg": "3.3.5",
-    "psycopg-binary": "3.3.5",
-    "sqlalchemy": "2.0.51",
-}
+# Épingles imposées explicitement, en plus de la cohérence verrou/contraintes. Les
+# trois pilotes de base du Lot H (alembic, psycopg, sqlalchemy) en ont disparu avec
+# la base elle-même (refonte « Hermes au centre ») : aucune n'est imposée aujourd'hui.
+REQUIRED_PINS: dict[str, str] = {}
+
+# Distributions Python du dépôt dont les dépendances doivent figurer au verrou : le
+# poste Windows et le contrat qu'il partage avec le greffon Hermes acp-poste.
+PROJECT_PATTERNS = (
+    "apps/*/pyproject.toml",
+    "packages/*/pyproject.toml",
+    "hermes/plugins/*/contrat/pyproject.toml",
+)
+
+# Étape P5 : verrou d'EXÉCUTION du poste Windows, le seul que l'installeur applique (Installer-PosteAcp.ps1,
+# pip --require-hashes --target). Mêmes versions que le verrou du dépôt, et rien d'autre que les dépendances
+# d'exécution du poste et de son contrat : aucun outil de test ni de construction n'est installé sur le poste.
+POSTE_LOCK_PATH = ROOT / "requirements" / "poste-3.12.lock.txt"
+POSTE_PROJECTS = ("apps/poste/pyproject.toml", "hermes/plugins/acp-poste/contrat/pyproject.toml")
+POSTE_INTERDITS = frozenset({"pytest", "pytest-asyncio", "cryptography", "cffi", "pycparser", "setuptools", "wheel",
+                             "colorama", "pygments", "iniconfig", "pluggy", "packaging", "pip"})
 
 CONSTRAINTS_HEADER = (
     "# Contraintes de versions pour le poste local (Python 3.13 compris).\n"
@@ -240,6 +250,40 @@ def check(
     return errors
 
 
+def check_poste(poste_lock_text: str, lock_pins: dict[str, str], project_files: dict[str, str]) -> list[str]:
+    """Verrou d'exécution du poste : hachés, versions du verrou du dépôt, dépendances directes présentes, aucun outil."""
+
+    errors: list[str] = []
+    try:
+        pins = parse_pins(poste_lock_text)
+    except ValueError as exc:
+        return [f"verrou du poste illisible : {exc}"]
+    if not pins:
+        return ["le verrou du poste ne contient aucune épingle"]
+    blocs = [bloc for bloc in re.split(r"\n(?=[A-Za-z0-9])", poste_lock_text) if _PIN_PATTERN.match(bloc.strip())]
+    for bloc in blocs:
+        if "--hash=sha256:" not in bloc:
+            errors.append(f"verrou du poste : {bloc.split()[0]} sans haché")
+    for name, version in sorted(pins.items()):
+        if name in POSTE_INTERDITS:
+            errors.append(f"verrou du poste : {name} n'a rien à faire sur le poste (outil de test ou de construction)")
+        if lock_pins.get(name) != version:
+            errors.append(f"verrou du poste : {name}=={version} diffère du verrou du dépôt "
+                          f"({lock_pins.get(name) or 'absent'})")
+    locaux = set()
+    documents = {}
+    for path in POSTE_PROJECTS:
+        if path in project_files:
+            documents[path] = tomllib.loads(project_files[path])
+            locaux.add(normalize_name(documents[path]["project"]["name"]))
+    for path, document in documents.items():
+        for declaration in document.get("project", {}).get("dependencies", []):
+            name = normalize_name(Requirement(declaration).name)
+            if name not in locaux and name not in pins:
+                errors.append(f"verrou du poste : {name} (dépendance de {path}) absent")
+    return errors
+
+
 def _force_utf8_streams() -> None:
     """Écrit en UTF-8 quelle que soit la console : la sortie est lue par des tests
     et des scripts qui la décodent en UTF-8, et une console Windows en cp1252
@@ -284,8 +328,8 @@ def main(argv: list[str] | None = None) -> int:
     source_text = args.source.read_text(encoding="utf-8")
     project_files = {
         path.relative_to(ROOT).as_posix(): path.read_text(encoding="utf-8")
-        for directory in ("apps", "packages", "services")
-        for path in sorted((ROOT / directory).glob("*/pyproject.toml"))
+        for pattern in PROJECT_PATTERNS
+        for path in sorted(ROOT.glob(pattern))
     }
     errors = check(lock_text, constraints_text, source_text, project_files=project_files)
     if errors:
@@ -295,7 +339,17 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     count = len(parse_pins(lock_text))
-    print(f"Verrou et contraintes cohérents ({count} épingles, pilotes du Lot H vérifiés).")
+    if not POSTE_LOCK_PATH.is_file():
+        print(f"Verrou du poste introuvable : {POSTE_LOCK_PATH.relative_to(ROOT).as_posix()}", file=sys.stderr)
+        return 1
+    poste_errors = check_poste(POSTE_LOCK_PATH.read_text(encoding="utf-8"), parse_pins(lock_text), project_files)
+    if poste_errors:
+        print("Verrou du poste incohérent :", file=sys.stderr)
+        for error in poste_errors:
+            print(f"- {error}", file=sys.stderr)
+        return 1
+    poste_count = len(parse_pins(POSTE_LOCK_PATH.read_text(encoding="utf-8")))
+    print(f"Verrou et contraintes cohérents ({count} épingles) ; verrou du poste cohérent ({poste_count} épingles).")
     return 0
 
 

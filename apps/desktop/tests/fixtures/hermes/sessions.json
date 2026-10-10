@@ -1,0 +1,21 @@
+{
+  "sessions": [
+    {
+      "id": "s1",
+      "title": "Plan du site vitrine",
+      "source": "cli",
+      "started_at": 1790300000,
+      "last_active": 1790301000,
+      "message_count": 12
+    },
+    {
+      "id": "s2",
+      "title": null,
+      "source": "cli",
+      "started_at": 1790200000,
+      "last_active": 1790200500,
+      "message_count": 3
+    }
+  ],
+  "total": 2
+}

@@ -1,0 +1,78 @@
+{
+  "projets": [
+    {
+      "id": "p_367e23fd51b7",
+      "titre": "Outil",
+      "tableau": "acp-outil-3dd5",
+      "etat": "actif",
+      "profil": "base",
+      "depot": "jetable",
+      "reponses": "proprietaire",
+      "tour": 0,
+      "origine": "tableau_de_bord",
+      "etat_derive": "exploration",
+      "compteurs": {
+        "faites": 0,
+        "total": 2,
+        "en_cours": 0,
+        "en_attente_du_poste": 0,
+        "bloquees": 0,
+        "triage": 0
+      },
+      "derniere_note": null,
+      "questions_ouvertes": 1,
+      "plafonds": {
+        "tours": 3,
+        "cartes": 30
+      },
+      "cartes_creees": 2,
+      "cree_le": 1790423039
+    },
+    {
+      "id": "p_a35a8b99fb0e",
+      "titre": "Veille LLM",
+      "tableau": "acp-veille-llm-b43a",
+      "etat": "actif",
+      "profil": "recherche",
+      "depot": null,
+      "reponses": "hermes_d_abord",
+      "tour": 1,
+      "origine": "tableau_de_bord",
+      "etat_derive": "en_cours",
+      "compteurs": {
+        "faites": 2,
+        "total": 4,
+        "en_cours": 1,
+        "en_attente_du_poste": 0,
+        "bloquees": 0,
+        "triage": 0
+      },
+      "derniere_note": "Plan posé : deux recherches.",
+      "questions_ouvertes": 0,
+      "plafonds": {
+        "tours": 3,
+        "cartes": 30
+      },
+      "cartes_creees": 4,
+      "cree_le": 1790423038
+    }
+  ],
+  "poste": {
+    "pause_reclamations": false,
+    "cartes_en_attente": 0,
+    "etat": "en_ligne",
+    "machine": "poste-simule",
+    "derniere_vue": 1790423039,
+    "derniere_vue_lisible": "26/09/2026 13:43",
+    "hors_ligne_depuis": null,
+    "source": "simule"
+  },
+  "pause_generale": null,
+  "notifications": {
+    "canal": "aucune",
+    "configure": false,
+    "connu": true,
+    "message": "Notifications non configurées."
+  },
+  "questions_ouvertes": 1
+}

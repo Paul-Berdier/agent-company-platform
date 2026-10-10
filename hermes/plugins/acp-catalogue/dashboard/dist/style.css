@@ -1,0 +1,837 @@
+/* acp-catalogue 1.0.0 (ACP) — style généré par apps/interface/esbuild.mjs depuis apps/interface/src ; ne pas modifier à la main. Aucun code tiers embarqué : React vient du SDK du tableau de bord de Hermes. */
+/* Styles des greffons acp-interface, acp-catalogue et acp-projets.
+ * Uniquement des variables du thème actif (thème « acp », généré depuis design/tokens par
+ * scripts/generer_themes.py) : aucune couleur recopiée ici. Échelle d'espacement et rayons de
+ * design/tokens/spacing.json et radius.json ; cibles tactiles de 44 px au moins. */
+
+.acp-page {
+  max-width: 1080px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  color: var(--color-foreground, var(--midground-base));
+}
+
+.acp-entete {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.acp-titre {
+  margin: 0;
+  font-size: 20px;
+  line-height: 26px;
+  font-weight: 700;
+  letter-spacing: -0.2px;
+}
+
+.acp-discret {
+  margin: 0;
+  color: var(--color-muted-foreground);
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.acp-grille,
+.acp-entrees {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: minmax(0, 1fr);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+@media (min-width: 768px) {
+  .acp-grille,
+  .acp-entrees {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1280px) {
+  .acp-grille {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+/* Étape P7 : Accueil, même ordre à toutes les largeurs (une colonne à 390 px, trois au bureau). */
+.acp-grille--accueil {
+  grid-template-columns: repeat(auto-fit, minmax(min(20rem, 100%), 1fr));
+}
+
+@media (min-width: 768px) {
+  .acp-grille--accueil {
+    grid-template-columns: repeat(auto-fit, minmax(min(20rem, 100%), 1fr));
+  }
+}
+
+.acp-chiffre {
+  margin: 0;
+  font-size: 28px;
+  line-height: 34px;
+  font-weight: 700;
+}
+
+.acp-projet-court {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.acp-projet-court:last-child {
+  border-bottom: 0;
+}
+
+.acp-sections {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.acp-carte,
+.acp-entree {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius, 8px);
+  background: var(--color-card);
+  color: var(--color-card-foreground);
+}
+
+.acp-entree {
+  background: var(--color-secondary, var(--color-card));
+  color: var(--color-secondary-foreground, var(--color-card-foreground));
+}
+
+/* Étape P7 : demande ciblée par le lien profond d'une notification (aria-current), marquée sans dépendre de la
+   couleur seule : bordure épaissie. */
+.acp-entree--cible {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 2px var(--color-primary);
+}
+
+.acp-carte__titre,
+.acp-sous-titre,
+.acp-entree__nom {
+  margin: 0;
+  font-size: 14px;
+  line-height: 20px;
+  font-weight: 600;
+}
+
+.acp-entree__nom {
+  overflow-wrap: anywhere;
+}
+
+.acp-carte p {
+  margin: 0;
+}
+
+.acp-liste {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.acp-ligne {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px 12px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.acp-ligne:last-child {
+  border-bottom: 0;
+}
+
+.acp-ligne dt {
+  color: var(--color-muted-foreground);
+  font-size: 13px;
+}
+
+.acp-ligne dd {
+  margin: 0;
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
+.acp-mono {
+  font-family: var(--theme-font-mono, monospace);
+  font-size: 12px;
+}
+
+.acp-inconnu {
+  color: var(--color-muted-foreground);
+  font-style: italic;
+}
+
+.acp-pastille {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  font-size: 12px;
+  line-height: 16px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.acp-pastille--succes {
+  color: var(--color-success);
+}
+
+.acp-pastille--degrade {
+  color: var(--color-warning);
+}
+
+.acp-pastille--echec {
+  color: var(--color-destructive);
+}
+
+/* Inconnu, non configuré, hors ligne : trait pointillé, jamais plein (règle de forme des jetons). */
+.acp-pastille--neutre {
+  color: var(--color-muted-foreground);
+  border-style: dashed;
+}
+
+.acp-etat {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.acp-lien {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius, 8px);
+  color: var(--color-primary);
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.acp-lien:hover {
+  background: var(--color-accent);
+  color: var(--color-accent-foreground);
+}
+
+.acp-raccourcis {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.acp-raccourcis .acp-lien {
+  width: 100%;
+  justify-content: center;
+}
+
+.acp-sessions,
+.acp-noms,
+.acp-outils {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.acp-session {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.acp-session__titre {
+  overflow-wrap: anywhere;
+}
+
+.acp-session__meta {
+  color: var(--color-muted-foreground);
+  font-size: 12px;
+}
+
+.acp-nom-etat {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.acp-details summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+  cursor: pointer;
+  color: var(--color-primary);
+}
+
+.acp-filtres {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 0;
+  padding: 16px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius, 8px);
+}
+
+.acp-filtres legend {
+  padding: 0 4px;
+  font-weight: 600;
+}
+
+.acp-choix {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1 1 180px;
+  min-width: 0;
+}
+
+.acp-choix label {
+  font-size: 13px;
+  color: var(--color-muted-foreground);
+}
+
+.acp-choix select {
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--color-input);
+  border-radius: var(--radius, 8px);
+  background: var(--color-card);
+  color: var(--color-card-foreground);
+  font: inherit;
+}
+
+.acp-erreur {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 16px;
+  border: 1px solid var(--color-destructive);
+  border-radius: var(--radius, 8px);
+  background: var(--color-card);
+  color: var(--color-card-foreground);
+}
+
+.acp-erreur p {
+  margin: 0;
+}
+
+.acp-alerte-texte {
+  color: var(--color-warning);
+}
+
+.acp-banniere {
+  margin: 8px 12px;
+  padding: 12px 16px;
+  border: 1px solid var(--color-warning);
+  border-left-width: 4px;
+  border-radius: var(--radius, 8px);
+  background: var(--color-card);
+  color: var(--color-card-foreground);
+}
+
+.acp-banniere--refus {
+  border-color: var(--color-destructive);
+}
+
+.acp-banniere p {
+  margin: 0;
+}
+
+.acp-banniere__titre {
+  margin: 0 0 4px;
+  font-size: 14px;
+  line-height: 20px;
+  font-weight: 600;
+}
+
+.acp-banniere__liste {
+  margin: 0;
+  padding-left: 20px;
+}
+
+.acp-marque-racine {
+  display: inline-flex;
+}
+
+.acp-marque {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0 8px;
+  border-radius: var(--radius, 8px);
+  background: var(--color-primary);
+  color: var(--color-primary-foreground);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-decoration: none;
+}
+
+.acp-pied {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  color: var(--color-muted-foreground);
+  font-size: 12px;
+}
+
+/* ------------------------------------------------------------------ page Projets (étape P4) */
+
+.acp-pastille--actif {
+  color: var(--color-primary);
+}
+
+.acp-onglets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.acp-onglet {
+  display: inline-flex;
+  flex: 1 1 auto;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius, 8px);
+  color: var(--color-primary);
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.acp-onglet[aria-current="page"] {
+  border-color: var(--color-primary);
+  background: var(--color-accent);
+  color: var(--color-accent-foreground);
+}
+
+.acp-compteur {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  padding: 0 6px;
+  border: 1px solid var(--color-warning);
+  border-radius: 999px;
+  color: var(--color-warning);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.acp-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.acp-bouton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  min-width: 44px;
+  padding: 0 16px;
+  border: 1px solid var(--color-input);
+  border-radius: var(--radius, 8px);
+  background: transparent;
+  color: var(--color-card-foreground);
+  font: inherit;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.acp-bouton--principal {
+  border-color: var(--color-primary);
+  background: var(--color-primary);
+  color: var(--color-primary-foreground);
+}
+
+.acp-bouton--danger {
+  border-color: var(--color-destructive);
+  color: var(--color-destructive);
+}
+
+.acp-bouton:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.acp-succes {
+  margin: 0;
+  color: var(--color-success);
+}
+
+.acp-banniere--pause {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  border-color: var(--color-destructive);
+}
+
+.acp-confirmation {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px dashed var(--color-destructive);
+  border-radius: var(--radius, 8px);
+}
+
+.acp-confirmation p {
+  margin: 0;
+  font-weight: 600;
+}
+
+.acp-lien--titre {
+  width: 100%;
+  box-sizing: border-box;
+  justify-content: flex-start;
+  font-size: 15px;
+  overflow-wrap: anywhere;
+}
+
+.acp-carte__titre--grand {
+  font-size: 18px;
+  line-height: 24px;
+  overflow-wrap: anywhere;
+}
+
+.acp-avancement {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+}
+
+.acp-barre {
+  display: block;
+  width: 120px;
+  height: 6px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--color-secondary, var(--color-border));
+}
+
+.acp-barre__plein {
+  display: block;
+  height: 100%;
+  background: var(--color-primary);
+}
+
+.acp-entrees.acp-entrees--une {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.acp-groupe {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.acp-texte-long,
+.acp-question__texte {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.acp-question__texte {
+  font-size: 15px;
+  line-height: 22px;
+}
+
+.acp-question-courte {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.acp-journal {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 12px;
+}
+
+.acp-journal li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.acp-journal__detail {
+  flex-basis: 100%;
+  overflow-wrap: anywhere;
+}
+
+.acp-formulaire {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.acp-champ {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.acp-champ label {
+  font-weight: 600;
+}
+
+.acp-champ input,
+.acp-champ textarea,
+.acp-champ select {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 44px;
+  padding: 8px 12px;
+  border: 1px solid var(--color-input);
+  border-radius: var(--radius, 8px);
+  background: var(--color-card);
+  color: var(--color-card-foreground);
+  font: inherit;
+}
+
+.acp-champ textarea {
+  resize: vertical;
+}
+
+.acp-champ select:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.acp-groupe-choix {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 0;
+  padding: 12px 16px 16px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius, 8px);
+}
+
+.acp-groupe-choix legend {
+  padding: 0 4px;
+  font-weight: 600;
+}
+
+.acp-choix-radio {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  min-height: 44px;
+  cursor: pointer;
+}
+
+.acp-choix-radio input {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  margin: 2px 0 0;
+  accent-color: var(--color-primary);
+}
+
+.acp-choix-radio > span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.acp-choix-radio__titre {
+  font-weight: 600;
+}
+
+/* Étape P5 : page Poste (greffon acp-poste-vues). */
+.acp-code {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px dashed var(--color-border);
+  border-radius: 8px;
+}
+
+.acp-code__valeur {
+  font-size: 15px;
+  line-height: 22px;
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+
+.acp-entree-routage {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+  padding: 12px 0;
+  border-top: 1px solid var(--color-border);
+}
+
+@media (min-width: 900px) {
+  .acp-entree-routage {
+    grid-template-columns: repeat(4, minmax(0, 1fr)) auto;
+    align-items: end;
+  }
+}
+
+.acp-jauge-bloc {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.acp-jauge {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 12px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--color-secondary, var(--color-border));
+}
+
+.acp-jauge__plein {
+  display: block;
+  height: 100%;
+  background: var(--color-primary);
+}
+
+.acp-jauge--depasse .acp-jauge__plein {
+  background: var(--color-destructive, var(--color-primary));
+}
+
+.acp-jauge__seuil {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  margin-left: -1px;
+  background: var(--color-warning, var(--color-muted-foreground));
+}
+
+/* Étape P7, part D : discussion réduite (greffon acp-discussion). Texte brut, retours à la ligne gardés. */
+.acp-fil {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.acp-bulle {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-width: 100%;
+  padding: 8px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius, 8px);
+  box-sizing: border-box;
+}
+
+.acp-bulle--utilisateur {
+  align-self: flex-end;
+  max-width: 90%;
+  border-color: var(--color-primary);
+}
+
+.acp-bulle--hermes {
+  align-self: flex-start;
+  max-width: 95%;
+  background: var(--color-secondary, var(--color-card));
+  color: var(--color-secondary-foreground, var(--color-card-foreground));
+}
+
+.acp-bulle--outil {
+  display: block;
+  align-self: flex-start;
+  padding: 4px 12px;
+  color: var(--color-muted-foreground);
+  font-size: 12px;
+}
+
+.acp-bulle--erreur {
+  border-color: var(--color-destructive);
+}
+
+.acp-bulle__auteur {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-muted-foreground);
+}
+
+.acp-bulle__texte {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.acp-choix-bouton {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  height: auto;
+  padding: 8px 16px;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+
+.acp-choix-bouton[aria-pressed="true"] {
+  border-color: var(--color-primary);
+  background: var(--color-primary);
+  color: var(--color-primary-foreground);
+}
+
+.acp-choix-bouton[aria-pressed="true"] .acp-discret {
+  color: inherit;
+}

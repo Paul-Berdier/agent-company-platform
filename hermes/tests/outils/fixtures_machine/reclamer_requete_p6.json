@@ -1,0 +1,1 @@
+{"protocole": "acp-machine/1", "version_poste": "1.0.0", "peut_executer": true, "ordres_acquittes": [], "attente_max_s": 25, "politique_valide": true, "voies_disponibles": ["poste-claude", "poste-integration"], "carte_en_cours": null, "espace_libre_mio": 3120}

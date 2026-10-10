@@ -1,6 +1,6 @@
 // Ce que la coquille QML a le droit de voir.
 //
-// Règle appliquée ici : QML ne parle JAMAIS directement à ApiClient, à AuthManager ni au
+// Règle appliquée ici : QML ne parle JAMAIS directement à ApiClient, à la session ni au
 // coffre. Il lit ce modèle de vue, qui ne publie que des faits déjà interprétés et
 // aucune donnée secrète. C'est ce qui rend vérifiable l'affirmation « aucun secret
 // n'atteint QML » : il suffit de lire les propriétés déclarées ci-dessous.
@@ -15,12 +15,10 @@
 namespace acp {
 
 class ApiClient;
-class AuthManager;
-class CompatibilityService;
 class CommandRegistry;
-class EventStreamService;
 class HealthService;
 class NavigationModel;
+class SessionHermes;
 class SettingsStore;
 
 class ShellViewModel : public QObject
@@ -32,7 +30,6 @@ class ShellViewModel : public QObject
     Q_PROPERTY(bool authenticated READ isAuthenticated NOTIFY shellStateChanged)
     Q_PROPERTY(QString serverUrl READ serverUrl NOTIFY shellStateChanged)
     Q_PROPERTY(QString serverUrlLabel READ serverUrlLabel NOTIFY shellStateChanged)
-    Q_PROPERTY(QString workspaceLabel READ workspaceLabel NOTIFY shellStateChanged)
     Q_PROPERTY(QString statusSummary READ statusSummary NOTIFY shellStateChanged)
     Q_PROPERTY(QString lastNotice READ lastNotice NOTIFY noticeChanged)
     Q_PROPERTY(bool commandPaletteOpen READ isCommandPaletteOpen WRITE setCommandPaletteOpen NOTIFY
@@ -45,8 +42,7 @@ class ShellViewModel : public QObject
     Q_PROPERTY(int inspectorWidth READ inspectorWidth WRITE setInspectorWidth NOTIFY panelWidthsChanged)
 
 public:
-    ShellViewModel(ApiClient *client, AuthManager *auth, HealthService *health,
-                   CompatibilityService *compatibility, EventStreamService *streams,
+    ShellViewModel(ApiClient *client, SessionHermes *session, HealthService *health,
                    NavigationModel *navigation, CommandRegistry *commands,
                    SettingsStore *settings, QObject *parent = nullptr);
 
@@ -55,10 +51,7 @@ public:
 
     /*!
         Vrai tant que l'écran de connexion doit remplacer la coquille : aucune adresse,
-        ou aucune session utilisable. « Hors ligne » n'en fait pas partie : la session
-        peut être encore valide, et la coquille garde les dernières informations reçues.
-        « Connexion en cours » non plus n'ouvre pas la coquille : une tentative qui
-        échoue doit laisser l'opérateur sur l'écran qui affiche le refus.
+        ou aucune session utilisable.
     */
     [[nodiscard]] bool isConnectionRequired() const;
     [[nodiscard]] static bool connectionRequired(bool serverConfigured,
@@ -71,11 +64,7 @@ public:
     /*! « Non configuré » quand aucune adresse n'est posée. Jamais une URL inventée. */
     [[nodiscard]] QString serverUrlLabel() const;
 
-    /*! Identité de l'environnement affichée dans la barre supérieure. Elle ne prétend
-        pas connaître un nom d'espace de travail tant qu'aucune route ne l'a fourni. */
-    [[nodiscard]] QString workspaceLabel() const;
-
-    /*! Résumé d'une ligne pour la barre basse : lien, session, flux. */
+    /*! Résumé d'une ligne pour la barre basse : lien et session. */
     [[nodiscard]] QString statusSummary() const;
 
     [[nodiscard]] const QString &lastNotice() const { return m_lastNotice; }
@@ -115,12 +104,11 @@ signals:
 
 private:
     void refreshCommandContext();
+    [[nodiscard]] SessionStatus::State sessionState() const;
 
     ApiClient *m_client = nullptr;
-    AuthManager *m_auth = nullptr;
+    SessionHermes *m_session = nullptr;
     HealthService *m_health = nullptr;
-    CompatibilityService *m_compatibility = nullptr;
-    EventStreamService *m_streams = nullptr;
     NavigationModel *m_navigation = nullptr;
     CommandRegistry *m_commands = nullptr;
     SettingsStore *m_settings = nullptr;
