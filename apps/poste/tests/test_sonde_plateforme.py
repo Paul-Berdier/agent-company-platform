@@ -7,6 +7,8 @@ défaut : bubblewrap refusé attendu, régime B — ce n'est PAS une preuve pour
 
 from __future__ import annotations
 
+import re
+
 import json
 import os
 import sys
@@ -161,8 +163,7 @@ def test_sonde_reelle_conteneur_docker_par_defaut(tmp_path):
 
 
 def _politique_linux(tmp_path):
-    texte = VERSIONNEE.read_text(encoding="utf-8").replace(
-        'origine = "https://<libellé-hermes>.up.railway.app"', 'origine = "https://hermes-acp-test.up.railway.app"')
+    texte = re.sub(r'(?m)^origine = "[^"\n]*"$', 'origine = "https://hermes-acp-test.up.railway.app"', VERSIONNEE.read_text(encoding="utf-8"), count=1)
     return analyser_executant(texte.encode("utf-8"), EmplacementsLinux.de_test(tmp_path))
 
 

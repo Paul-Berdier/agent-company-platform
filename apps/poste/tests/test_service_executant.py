@@ -8,6 +8,8 @@ le changement d'UID est éprouvé à part (``test_execution.py``, ``test_platefo
 
 from __future__ import annotations
 
+import re
+
 import asyncio
 import dataclasses
 import json
@@ -104,8 +106,7 @@ class Banc:
         (self.distant / "nouveau.py").write_text("X = 0\n", encoding="utf-8")
         _git(self.distant, "add", "-A")
         _git(self.distant, "commit", "-qm", "initial")
-        texte = (RACINE_DEPOT / "executant" / "politique" / "executant.toml").read_text(encoding="utf-8").replace(
-            'origine = "https://<libellé-hermes>.up.railway.app"', 'origine = "https://hermes-acp-test.up.railway.app"')
+        texte = re.sub(r'(?m)^origine = "[^"\n]*"$', 'origine = "https://hermes-acp-test.up.railway.app"', (RACINE_DEPOT / "executant" / "politique" / "executant.toml").read_text(encoding="utf-8"), count=1)
         texte += ('\n[depots.jetable]\nurl = "https://github.com/proprietaire-factice/jetable.git"\nacces = "public"\n'
                   f'verification = ["{PYTHON}", "-c", "import sys; sys.exit(0)"]\n'
                   'verification_sans_bac_a_sable = true\n')
@@ -397,8 +398,9 @@ async def test_carte_rendue_proprement_pas_de_reprise(banc):
 async def test_politique_au_gabarit_refusee_code_2(banc, capsys):
     politique = banc.emplacements.politique
     os.chmod(politique, 0o644)
-    politique.write_text((RACINE_DEPOT / "executant" / "politique" / "executant.toml").read_text(encoding="utf-8"),
-                         encoding="utf-8")
+    texte = (RACINE_DEPOT / "executant" / "politique" / "executant.toml").read_text(encoding="utf-8")
+    texte = re.sub(r'(?m)^origine = "[^"\n]*"$', 'origine = "https://<libellé-hermes>.up.railway.app"', texte, count=1)
+    politique.write_text(texte, encoding="utf-8")
     assert await banc.servir() == 2
     assert "gabarit" in capsys.readouterr().err
 

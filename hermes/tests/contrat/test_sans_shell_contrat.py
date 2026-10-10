@@ -2,7 +2,7 @@
 d'exécution, et Hermes ne tourne jamais hors des gardes d'ACP.
 
 Ce qu'ils prouvent, sur l'image réellement construite :
-1. démarrage et gardes : refus hors PID 1 (acp-entree), passerelle et tableau de bord lancés
+1. démarrage et gardes : validation avant démarrage, avec ou sans PID 1 (acp-entree), passerelle et tableau de bord lancés
    hors de s6 arrêtés par le greffon (code 78), hooks/ et scripts/ du volume exigés vides puis
    repris par root, règle du volume Railway simulée, aucune installation paresseuse ;
 2. outils d'exécution refusés par les VRAIS processus : api_server en HTTP, agent cron, worker
@@ -54,30 +54,23 @@ def _executer_jusqu_a_l_arret(ressources, image: str, *options: str, commande: L
 # =========================================================================== 1. gardes
 
 
-def test_entree_refuse_hors_pid1(ressources, image):
-    """docker run --init : tini est PID 1 ; le repli officiel sans s6 tournerait sans garde
-    (entrypoint-dispatch.sh:17-25). acp-entree refuse, code 1, en français."""
-    code, journal = _executer_jusqu_a_l_arret(ressources, image, "--init")
-    afficher(f"docker run --init : code {code}", _lignes_acp(journal))
+def test_entree_externe_refuse_la_configuration_invalide(ressources, image):
+    """Le mode --init ne doit jamais emprunter le repli amont qui saute les gardes."""
+    env = dict(ENV_VALIDE, HERMES_DASHBOARD_OIDC_ISSUER="http://idp.acp.test:8443")
+    code, journal = _executer_jusqu_a_l_arret(ressources, image, "--init", env=env)
+    afficher(f"docker run --init, émetteur invalide : code {code}", _lignes_acp(journal))
     assert code == 1
-    assert "[acp] REFUS : l'image n'a pas le PID 1" in journal
-    assert "[acp] Démarrage arrêté (échec fermé)" in journal
-    assert "Retirez --init" in journal
+    assert "REFUS" in journal and "HERMES_DASHBOARD_OIDC_ISSUER" in journal
     assert "[stage2]" not in journal and "not PID 1; skipping s6-overlay" not in journal
 
 
-def test_entree_refuse_hors_pid1_sur_railway(ressources, image):
-    """Relecture P2 : sur Railway (marqueurs présents), ni --init ni Start Command n'ont de sens ;
-    le refus renvoie à la procédure du § 10 f de railway.md et interdit tout contournement."""
-    env = dict(ENV_VALIDE, RAILWAY_DEPLOYMENT_ID="dep-contrat", RAILWAY_VOLUME_MOUNT_PATH="/opt/data")
+def test_entree_externe_refuse_le_volume_railway_non_declare(ressources, image):
+    """Même sur Railway : aucun serveur quand les métadonnées du montage manquent."""
+    env = dict(ENV_VALIDE, RAILWAY_DEPLOYMENT_ID="dep-contrat")
     code, journal = _executer_jusqu_a_l_arret(ressources, image, "--init", env=env)
-    afficher(f"docker run --init « sur Railway » : code {code}", _lignes_acp(journal))
-    assert code == 1
-    assert "[acp] REFUS : l'image n'a pas le PID 1" in journal
-    assert "Sur Railway, la plateforme n'a pas donné le PID 1 à l'image" in journal
-    assert "docs/refonte/railway.md § 10 f" in journal
-    assert "Retirez --init" not in journal
-    assert "[stage2]" not in journal
+    afficher(f"docker run --init, volume Railway non déclaré : code {code}", _lignes_acp(journal))
+    assert code == 1 and "RAILWAY_VOLUME_MOUNT_PATH" in journal
+    assert "[stage2]" not in journal and "not PID 1; skipping s6-overlay" not in journal
 
 
 @pytest.mark.parametrize("commande", [["gateway", "run"], ["dashboard", "--host", "0.0.0.0", "--port", "9119"]])
@@ -321,8 +314,7 @@ JOURNAL_FACTICE = "/tmp/modele-factice.jsonl"
 SCENARIOS = "/tmp/acp-scenarios.json"
 
 
-@pytest.fixture(scope="module")
-def pile(ressources, image_tests):
+def construire_pile(ressources, image_tests, *, init_externe=False):
     """Faux fournisseur d'identité, cible « attache.acp.test » qui consigne toute requête, et
     Hermes (image de test) avec le modèle factice, sur un réseau privé jetable."""
     reseau = ressources.reseau()
@@ -337,7 +329,8 @@ def pile(ressources, image_tests):
     docker("run", "-d", "--name", attache, "--network", reseau, "--network-alias", "attache.acp.test",
            "--entrypoint", "/opt/hermes/.venv/bin/python", image_tests, "-u", "-m", "http.server", "80")
     volume = ressources.volume(image_tests, {"config.yaml": MODELE})
-    hermes = lancer(ressources, image_tests, ENV_VALIDE, volume=volume, reseau=reseau)
+    hermes = lancer(ressources, image_tests, ENV_VALIDE, volume=volume, reseau=reseau,
+                    init_externe=init_externe)
     hermes.sh("mkdir -p /tmp/acp-temoins && chmod 1777 /tmp/acp-temoins", verifier=True)
     hermes.executer(["sh", "-c", f"echo '{{}}' > {SCENARIOS}"], utilisateur="hermes", verifier=True)
     docker("exec", "-d", "-u", "hermes", hermes.nom, "/opt/hermes/.venv/bin/python",
@@ -346,6 +339,11 @@ def pile(ressources, image_tests):
     attendre_modele_factice(hermes, JOURNAL_FACTICE)
     hermes.attache = attache  # type: ignore[attr-defined]
     return hermes
+
+
+@pytest.fixture(scope="module")
+def pile(ressources, image_tests):
+    return construire_pile(ressources, image_tests)
 
 
 def jeton(hermes: Conteneur) -> str:

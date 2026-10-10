@@ -43,6 +43,10 @@ COPY skills/ /opt/acp/skills/
 COPY catalogue/ /opt/acp/catalogue/
 COPY THIRD_PARTY.md /opt/acp/THIRD_PARTY.md
 COPY image/acp_demarrage.py image/acp-gardes image/acp-run-dashboard image/acp-entree /opt/acp/bin/
+# Compatibilité 1.0.1 : initialisation explicite sous un init externe, sans changer le parent épinglé.
+COPY image/acp_init_plateforme.py image/adapter_amont.py /opt/acp/bin/
+COPY plugins/acp-poste/acp_supervision.py /opt/acp/bin/acp_supervision.py
+COPY plugins/acp-poste/acp_supervision.py /opt/hermes/hermes_cli/acp_supervision.py
 # Étape P7 : script du bilan quotidien (tâche cron « no_agent » créée par le propriétaire). 05-acp le RECOPIE à chaque
 # démarrage dans /opt/data/scripts (root, 0644) ; les gardes n'admettent dans ce répertoire que ce fichier, d'empreinte
 # connue (acp_demarrage.py, EMPREINTES_BILAN_ADMISES, vérifiée dès la construction ci-dessous).
@@ -80,6 +84,7 @@ RUN set -eu; \
         /opt/hermes/plugins/acp-discussion -type f -exec chmod 0644 {} +; \
     chmod 0755 /opt/acp/bin/acp-gardes /opt/acp/bin/acp-run-dashboard /opt/acp/bin/acp-entree \
         /etc/cont-init.d/05-acp; \
+    /opt/hermes/.venv/bin/python -I -B /opt/acp/bin/adapter_amont.py; \
     /opt/hermes/.venv/bin/python -I -B /opt/acp/bin/acp_demarrage.py construire
 
 # Enveloppe root du service s6 « dashboard » : à chaque (re)lancement, y compris quand

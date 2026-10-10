@@ -6,6 +6,8 @@ Windows est éprouvé sur toutes les plateformes.
 
 from __future__ import annotations
 
+import re
+
 import json
 import os
 import subprocess
@@ -35,8 +37,7 @@ def _contexte(racine: Path, **options) -> Contexte:
 
 def _politique(contexte: Contexte, *, depot: bool = True, executables: dict[str, Path] | None = None) -> None:
     e = contexte.emplacements
-    texte = (RACINE_DEPOT / "executant" / "politique" / "executant.toml").read_text(encoding="utf-8").replace(
-        'origine = "https://<libellé-hermes>.up.railway.app"', 'origine = "https://hermes-acp-test.up.railway.app"')
+    texte = re.sub(r'(?m)^origine = "[^"\n]*"$', 'origine = "https://hermes-acp-test.up.railway.app"', (RACINE_DEPOT / "executant" / "politique" / "executant.toml").read_text(encoding="utf-8"), count=1)
     texte = texte.replace('home = "/donnees/codex"', f'home = "{e.codex_home}"')
     for outil, chemin in (executables or {}).items():
         ancien = f'executable = "/opt/acp/outils/{outil}/{outil}"'

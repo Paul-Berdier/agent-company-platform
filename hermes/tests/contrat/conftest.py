@@ -258,13 +258,16 @@ def attendre_modele_factice(conteneur: Conteneur, journal: str, delai: float = 6
 
 
 def lancer(ressources: Ressources, image: str, env: Dict[str, str], *, volume: Optional[str] = None,
-           reseau: Optional[str] = None, hotes: Optional[List[str]] = None) -> Conteneur:
+           reseau: Optional[str] = None, hotes: Optional[List[str]] = None,
+           init_externe: bool = False) -> Conteneur:
     """Conteneur Hermes complet (s6). ``hotes`` remplace la résolution de mcp.context7.com (par défaut
     le bouclage local : SANS_CONTEXT7)."""
     nom = ressources.nom("hermes")
     ressources.conteneurs.append(nom)
     volume = volume or ressources.volume(image)
     options = ["run", "-d", "--name", nom, "-v", f"{volume}:/opt/data", *(hotes if hotes is not None else SANS_CONTEXT7)]
+    if init_externe:
+        options += ["--init"]
     if reseau:
         options += ["--network", reseau]
     docker(*options, *options_env(env), image)

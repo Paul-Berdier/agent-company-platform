@@ -65,7 +65,7 @@ def _python(image: str, code: str, *options: str) -> str:
 def test_image_amd64(image):
     inspecte = json.loads(docker("image", "inspect", image, verifier=True).stdout)[0]
     assert inspecte["Architecture"] == "amd64" and inspecte["Os"] == "linux"
-    assert inspecte["Config"]["Entrypoint"] == ["/usr/bin/tini", "--", "/opt/acp/bin/acp-entree-executant"]
+    assert inspecte["Config"]["Entrypoint"] == ["/usr/bin/tini", "-s", "--", "/opt/acp/bin/acp-entree-executant"]
     assert not inspecte["Config"].get("ExposedPorts") and not inspecte["Config"].get("Healthcheck")
 
 
@@ -166,7 +166,7 @@ print(json.dumps({'ecarts': ecarts[:20], 'modes': modes}))
 
 def test_entree_refuse_hors_tini(image):
     resultat = lancer(image, point_d_entree="/opt/acp/bin/acp-entree-executant")
-    assert resultat.returncode == 2 and "tini n'est pas le PID 1" in resultat.stderr
+    assert resultat.returncode == 2 and "superviseur de processus" in resultat.stderr
 
 
 def test_entree_refuse_sans_volume(image):
@@ -178,6 +178,7 @@ def test_entree_refuse_sans_volume(image):
 def test_politique_gabarit_refusee_et_modes_du_volume(image, ressources):
     """Image de production telle quelle : le volume est préparé, puis le superviseur REFUSE de démarrer tant que
     l'origine de Hermes vaut le gabarit (règle P2, échec fermé ; code 2, relancé ON_FAILURE par Railway)."""
+    image = ressources.image_politique_de_test(image, origine="https://<libellé-hermes>.up.railway.app")
     volume = ressources.volume()
     resultat = docker("run", "--rm", "-v", f"{volume}:/donnees", "-e", "RAILWAY_GIT_COMMIT_SHA=" + "a" * 40, image)
     assert resultat.returncode == 2, resultat.stderr

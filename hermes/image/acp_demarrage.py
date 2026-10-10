@@ -2555,11 +2555,25 @@ def environnement_de_reference(chemins: Chemins) -> Tuple[Optional[Dict[str, str
     morceaux = [m.decode("utf-8", errors="replace") for m in brut.split(b"\0") if m]
     programme = os.path.basename(morceaux[0])
     affiche = "".join(c for c in " ".join(morceaux) if c.isprintable())[:160]
-    if programme == "s6-svscan":
+    # 1.0.1 : sous un init externe, ne jamais prendre les variables de la plateforme
+    # pour celles du service. Une preuve root lie notre snapshot au vrai s6 vivant.
+    plateforme = False
+    preuve = Path("/run/acp-supervision/etat.json")
+    if chemins.proc_pid1 == Path("/proc/1") and preuve.exists():
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("acp_supervision", "/opt/acp/bin/acp_supervision.py")
+        if spec is None or spec.loader is None:
+            return None, "inconnue (preuve de supervision plateforme illisible)"
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        plateforme = module.superviseur_actif() is not None
+        if not plateforme:
+            return None, "inconnue (preuve de supervision plateforme invalide ou périmée)"
+    if programme == "s6-svscan" or plateforme:
         env = lire_env_s6(chemins.env_s6)
         if env is None:
             return None, f"inconnue ({chemins.env_s6} illisible alors que le PID 1 est s6-svscan)"
-        return env, f"{chemins.env_s6} (PID 1 : {affiche})"
+        return env, f"{chemins.env_s6} ({'s6 attesté sous init externe' if plateforme else 'PID 1 : ' + affiche})"
     environ = chemins.proc_pid1 / "environ"
     donnees = _lire_octets(environ)
     if donnees is None:

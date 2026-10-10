@@ -2,7 +2,7 @@
 # Entrée root de l'exécutant (cahier P6 § 8.3), lancée par tini (ENTRYPOINT de executant/Dockerfile). Échec fermé :
 # tout écart arrête le démarrage avec un message français et le code 2 (Railway relance ON_FAILURE, 10 fois au plus).
 #
-# 1. tini doit être le PID 1 ; root exigé ;
+# 1. notre tini root doit être le parent direct, avec -s (subreaper) ;
 # 2. /donnees doit être un point de montage (volume « executant-donnees ») ;
 # 3. dossiers du volume créés ou remis aux propriétaires et modes attendus ; un lien symbolique à leur place, ou un
 #    fichier d'un autre propriétaire dans un dossier d'identifiants, est refusé ;
@@ -23,9 +23,9 @@ refuser() {
     exit 2
 }
 
-if [ "$(cat /proc/1/comm 2>/dev/null || true)" != "tini" ]; then
-    refuser "tini n'est pas le PID 1 : l'exécutant ne démarre que sous son entrée (ENTRYPOINT de l'image), jamais sans superviseur de processus."
-fi
+# Tini peut être sous l'init Railway : le vérifier par son exécutable réel,
+# son ascendance et ses arguments, jamais uniquement par /proc/1/comm.
+/usr/local/bin/python3.12 -I /opt/acp/bin/verifier-superviseur "$$" || exit 2
 if [ "$(id -u)" != "0" ]; then
     refuser "l'entrée de l'exécutant tourne en root (elle prépare le volume et change d'UID pour chaque agent)."
 fi

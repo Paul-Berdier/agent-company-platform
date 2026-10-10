@@ -119,13 +119,14 @@ def _sentinelle_chaine_s6(argv: Optional[Sequence[str]] = None, environ: Optiona
     if not _lance_un_serveur(commande):
         return
     programme = _programme_pid1(cmdline)
-    if programme == "s6-svscan":
+    from .acp_supervision import dans_la_chaine
+    if programme == "s6-svscan" or dans_la_chaine():
         return
     print(
         f"[acp] REFUS : « hermes {' '.join(commande)} » a été lancé hors de la chaîne s6 d'ACP "
         f"(PID 1 : {programme or 'illisible'}) : ni les gardes de démarrage ni la managed scope "
         "vérifiée ne s'appliqueraient. Arrêt (code 78). Démarrez l'image par son ENTRYPOINT, sans "
-        "--init ni commande de démarrage personnalisée.",
+        "commande de démarrage personnalisée.",
         file=sys.stderr, flush=True)
     os._exit(CODE_HORS_S6)
 

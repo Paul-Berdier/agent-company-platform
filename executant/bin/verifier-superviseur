@@ -1,0 +1,46 @@
+#!/usr/local/bin/python3.12 -I
+"""Exiger notre vrai Tini root parent, avec -s, et non un simple nom de processus.
+
+L'entrée shell donne son PID. Ce vérificateur doit être son enfant direct ; son
+parent est ensuite identifié par le couple périphérique/inode de /proc/PID/exe,
+les arguments exacts de l'ENTRYPOINT et l'instant de création du processus.
+"""
+import os
+from pathlib import Path
+import sys
+
+
+def donnees(pid):
+    contenu = Path(f'/proc/{pid}/stat').read_text()
+    champs = contenu[contenu.rindex(')') + 2:].split()
+    return int(champs[1]), int(champs[19])
+
+
+def main():
+    try:
+        if os.geteuid() != 0 or len(sys.argv) != 2 or not sys.argv[1].isdecimal():
+            raise ValueError('vérification réservée à l’entrée root')
+        entree = int(sys.argv[1])
+        if entree != os.getppid():
+            raise ValueError('le vérificateur doit être lancé par l’entrée')
+        parent, naissance_entree = donnees(entree)
+        _, naissance = donnees(parent)
+        if Path(f'/proc/{parent}').stat().st_uid != 0:
+            raise ValueError('superviseur non-root')
+        reel, livre = os.stat(f'/proc/{parent}/exe'), os.stat('/usr/bin/tini')
+        if (reel.st_dev, reel.st_ino) != (livre.st_dev, livre.st_ino):
+            raise ValueError('le parent n’est pas le binaire tini livré dans l’image')
+        args = Path(f'/proc/{parent}/cmdline').read_bytes().split(b'\0')
+        attendu = [b'/usr/bin/tini', b'-s', b'--', b'/opt/acp/bin/acp-entree-executant', b'']
+        if args != attendu:
+            raise ValueError('Tini doit être lancé avec -s et l’entrée déclarée')
+        if donnees(entree) != (parent, naissance_entree) or donnees(parent)[1] != naissance:
+            raise ValueError('la chaîne de processus a changé pendant la vérification')
+        return 0
+    except (OSError, ValueError, IndexError) as exc:
+        print(f'[acp] REFUS : superviseur de processus : {exc}.', file=sys.stderr)
+        return 2
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())

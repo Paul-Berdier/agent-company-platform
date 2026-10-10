@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import itertools
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -75,13 +76,12 @@ class Ressources:
         for nom in self.images:
             docker("rmi", "-f", nom)
 
-    def image_politique_de_test(self, image: str) -> str:
+    def image_politique_de_test(self, image: str, *, origine: str = "https://hermes-acp-test.up.railway.app") -> str:
         """Image dérivée JETABLE : la même image, avec la politique versionnée dont l'origine de Hermes ne vaut plus
         le gabarit (le superviseur démarre alors et attend l'enrôlement, sans aucune requête). Rien d'autre."""
         texte = (EXECUTANT / "politique" / "executant.toml").read_text(encoding="utf-8")
-        gabarit = 'origine = "https://<libellé-hermes>.up.railway.app"'
-        assert texte.count(gabarit) == 1
-        texte = texte.replace(gabarit, 'origine = "https://hermes-acp-test.up.railway.app"')
+        texte, nombre = re.subn(r'(?m)^origine = "[^"\n]*"$', f'origine = "{origine}"', texte)
+        assert nombre == 1
         nom = f"acp-contrat-exec-{os.getpid()}-politique{next(_COMPTEUR)}"
         with tempfile.TemporaryDirectory(prefix="acp-exec-politique-") as dossier:
             contexte = Path(dossier)
