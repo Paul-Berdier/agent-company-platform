@@ -41,7 +41,7 @@ jobs:
               except urllib.error.HTTPError as erreur:
                   reponse = erreur
               with reponse:
-                  return reponse.code, dict(reponse.headers), reponse.read(65536)
+                  return reponse.code, {k.lower(): v for k, v in reponse.headers.items()}, reponse.read(65536)
 
           for nom, origine in [('hermes', HERMES), ('identite', IDENTITE)]:
               statut, entetes, corps = lire(origine + '/api/health')
@@ -61,11 +61,27 @@ jobs:
           assert statut == 401, f'Route privée sans session : HTTP {statut}, attendu 401'
           print(json.dumps({'route_privee_sans_session': statut}))
 
-          statut, entetes, corps = lire(HERMES + '/auth/login')
-          assert statut in (200, 302, 303, 307, 308), f'Entrée connexion : HTTP {statut}'
-          destination = urllib.parse.urlsplit(entetes.get('Location', entetes.get('location', '')))
-          # Ne jamais journaliser les valeurs state, nonce ou cookies d'une connexion.
-          print(json.dumps({'entree_connexion_http': statut, 'destination_hote': destination.netloc,
-                            'destination_chemin': destination.path}))
+          statut, entetes, corps = lire(HERMES + '/api/auth/providers')
+          assert statut == 200, f'Fournisseurs interactifs : HTTP {statut}'
+          fournisseurs = json.loads(corps)['providers']
+          assert [p['name'] for p in fournisseurs] == ['self-hosted'], 'Fournisseur interactif inattendu'
+          statut, entetes, corps = lire(HERMES + '/login')
+          assert statut == 200 and b'html' in corps.lower(), 'Page de connexion indisponible'
+          # La route amont exige provider ; /auth/login seul doit répondre 422.
+          statut, entetes, corps = lire(HERMES + '/auth/login?provider=self-hosted')
+          assert statut == 302, f'Entrée connexion OIDC : HTTP {statut}'
+          destination = urllib.parse.urlsplit(entetes.get('location', ''))
+          autorisation = urllib.parse.urlsplit(configuration['authorization_endpoint'])
+          assert (destination.scheme, destination.netloc, destination.path) == (
+              autorisation.scheme, autorisation.netloc, autorisation.path), 'Redirection OIDC inattendue'
+          parametres = urllib.parse.parse_qs(destination.query)
+          assert parametres['client_id'] == ['hermes-acp']
+          assert parametres['redirect_uri'] == [HERMES + '/auth/callback']
+          assert parametres['code_challenge_method'] == ['S256']
+          assert parametres.get('code_challenge') and parametres.get('state')
+          # Ne jamais journaliser state, nonce, challenge ou valeurs des cookies.
+          print(json.dumps({'connexion_oidc_http': statut, 'destination_hote': destination.netloc,
+                            'destination_chemin': destination.path, 'pkce': 'S256',
+                            'cookie_pkce_secure': '; secure' in entetes.get('set-cookie', '').lower()}))
           print('VALIDATION_PUBLIQUE_REUSSIE — aucun compte utilisé, aucune authentification simulée.')
           PY
