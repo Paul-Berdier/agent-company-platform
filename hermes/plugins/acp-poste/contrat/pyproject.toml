@@ -1,6 +1,6 @@
 [project]
 name = "acp-poste-contrat"
-version = "1.0.0"
+version = "1.0.1"
 description = "Contrat Python partagé par le poste Windows et le greffon Hermes acp-poste"
 requires-python = ">=3.11"
 dependencies = ["pydantic>=2.7"]

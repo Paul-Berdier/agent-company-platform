@@ -1,6 +1,6 @@
 [project]
 name = "acp-poste"
-version = "1.0.0"
+version = "1.0.1"
 description = "Poste Windows d'ACP : exécuteurs Codex et Claude Code, runner sous Job Object, sondes de quotas"
 requires-python = ">=3.11"
 dependencies = [

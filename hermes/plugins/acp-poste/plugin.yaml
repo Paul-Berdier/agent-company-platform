@@ -13,7 +13,7 @@
 # seulement), routes /machine/v1/{enrolement,reclamer,inventaire} (protocole acp-machine/1), schéma v2,
 # routes du propriétaire (poste, routage, quotas).
 name: acp-poste
-version: 1.0.0
+version: 1.0.1
 description: "ACP — projets autonomes sur Hermes (un tableau par projet, huit outils de l'agent, routes /v1/projets et /v1/questions, émetteur de notifications), poste connecté (jeton machine haché, routes machine acp-machine/1, pages Poste, Routage et Quotas) et garde d'exécution de l'agent (liste blanche pre_tool_call). Contrat acp-poste/1."
 author: ACP
 kind: backend
