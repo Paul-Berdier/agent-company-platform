@@ -1,15 +1,15 @@
 ---
 name: acp-espace-travail-qml
-description: "Conventions du shell QML de la station de travail Qt d'ACP (apps/desktop) : modules Acp.Design, Acp.Theme, Acp.Pixel, Acp.Controls, Acp.Components, Acp.Pages, Acp.Station et Acp.Desktop, un dossier pour un URI, déclaration CMake obligatoire et check_layout.py, singletons Acp.Runtime enregistrés en C++, objectName lus par les tests, refus de tout texte anglais visible et de tout AcpButton sans nom accessible, animations gatées par Motion et suspendues hors écran, aucun Canvas animé, Layout.* dans les layouts, aucune propriété on suivie d'une majuscule. À utiliser dès qu'on crée, modifie, renomme ou déplace un fichier .qml, une page, un panneau, un composant ou un ViewModel exposé au QML de la station, même pour une petite retouche visuelle."
+description: "Conventions du shell QML de la station de travail Qt d'ACP (apps/desktop) : modules Acp.Design, Acp.Theme, Acp.Pixel, Acp.Controls, Acp.Components, Acp.Pages, Acp.Station et Acp.Desktop, un dossier pour un URI, déclaration CMake obligatoire et check_layout.py, singletons Acp.Runtime enregistrés en C++, objectName lus par les tests, refus de tout texte anglais visible et de tout AcpButton sans nom accessible, animations conditionnées par Motion et suspendues hors écran, aucun Canvas animé, Layout.* dans les layouts, aucune propriété on suivie d'une majuscule. À utiliser dès qu'on crée, modifie, renomme ou déplace un fichier .qml, une page, un panneau, un composant ou un ViewModel exposé au QML de la station, même pour une petite retouche visuelle."
 ---
 
 # Espace de travail QML de la station
 
-Agencement fixé par D167 (projets et missions à gauche, mission au centre, agents à droite, volet bas, pages
-techniques sous Réglages) ; vocabulaire par D166 ; l'Accueil garde ses sept blocs (D99). Lignes relevées le
-11 octobre 2026 dans l'arbre de travail : le shell change pendant le chantier, le nom de la fonction ou de l'objet
-fait foi si une ligne a bougé. Règles générales de commit et de test : skill `acp-changement-sur`. Pièges vérifiés
-sur Qt 6.8.3 : [references/pieges-qml.md](references/pieges-qml.md).
+Agencement décrit par D167 (projets et missions à gauche, mission au centre, agents à droite, volet bas, pages
+techniques sous Réglages) et vocabulaire par D166, deux décisions de conception à confirmer ; l'Accueil garde ses
+sept blocs (D99). Lignes relevées le 11 octobre 2026 dans l'arbre de travail : le shell change pendant le chantier,
+le nom de la fonction ou de l'objet fait foi si une ligne a bougé. Règles générales de commit et de test : skill
+`acp-changement-sur`. Pièges vérifiés sur Qt 6.8.3 : [references/pieges-qml.md](references/pieges-qml.md).
 
 ## Déclencheur
 
@@ -54,19 +54,23 @@ Un module par dossier, un URI par module (`apps/desktop/qml/CMakeLists.txt:3-4`)
    vérifie les deux sens (`check_singletons`, `check_layout.py:202-232`).
 4. **Un singleton `Acp.Runtime`** (ViewModel ou service) : le construire dans `Application::Application`,
    l'enregistrer par `qmlRegisterSingletonInstance` dans `Application::registerQmlTypes` (`Application.cpp:210`,
-   `:244-264`), et l'ajouter aux listes d'oubli s'il lit le serveur : `oublierLesPages` (`:146`) et la liste du
-   greffon bloqué (`:175`). Les singletons ne s'enregistrent qu'une fois par processus : d'où un seul cas de
-   test qui charge toutes les pages (`apps/desktop/tests/cpp/tst_pages_bureau.cpp:7-8`).
+   `:244-264`). S'il lit le serveur, l'ajouter à `oublierLesPages` (`:146-152`) ; s'il lit le greffon `acp-poste`,
+   aussi à la liste du greffon bloqué (`:174-175`), qui omet Sauvegarde et Discussion. Les singletons ne
+   s'enregistrent qu'une fois par processus : d'où un seul cas de test qui charge toutes les pages
+   (`apps/desktop/tests/cpp/tst_pages_bureau.cpp:7-8`).
 5. **Ne pas importer `Acp.Runtime`** dans un composant testé par `tst_qml_shell` : ce harnais n'injecte aucun
    singleton C++ (`apps/desktop/tests/qml/tst_qml_shell.cpp:27-33`).
 6. **Garder les `objectName`.** Les tests trouvent les éléments par nom : `parNom`
    (`apps/desktop/tests/cpp/tst_pages_interactions.cpp:71-81`), le bout en bout Windows aussi
-   (`apps/desktop/tests/e2e/acp_desktop_e2e.cpp:771`, hors CI). Les pages se chargent par module et nom ; la
-   coquille par `charger("Acp.Station", "ShellRoot")` (`apps/desktop/tests/cpp/tst_pages_bureau.cpp:653`). Un
-   renommage se fait dans le QML **et** dans tous ces tests, dans le même commit.
+   (`apps/desktop/tests/e2e/acp_desktop_e2e.cpp:766-779`), compilé en CI mais jamais lancé par elle
+   (`apps/desktop/tests/CMakeLists.txt:105-110`) : un nom cassé n'y échoue qu'à l'exécution. Les pages se chargent
+   par module et nom ; la coquille par `charger("Acp.Station", "ShellRoot")`
+   (`apps/desktop/tests/cpp/tst_pages_bureau.cpp:662`). Un renommage se fait dans le QML **et** dans tous ces tests,
+   dans le même commit.
 7. **Écrire en français, nommer chaque bouton.** `tst_pages_bureau` refuse dans tout texte visible `undefined`,
-   `NaN`, `Loading`, `Error`, `Unknown`, `Cancel`, `Submit`, `Retry`, `Close`, `Connection refused`, `not found`,
-   `timed out` (`kInterdits`, `tst_pages_bureau.cpp:58-64`), et tout `AcpButton` dont `Accessible.name` est vide
+   `NaN`, `[object Object]`, `Loading`, `Error`, `Unknown`, `Cancel`, `Submit`, `Retry`, `Close`,
+   `Connection refused`, `not found`, `timed out` (`kInterdits`, `tst_pages_bureau.cpp:58-64`), et tout
+   `AcpButton` dont `Accessible.name` est vide
    (`tst_pages_bureau.cpp:72-78`). Tout avertissement du moteur QML pendant le chargement fait aussi échouer
    l'étape (`tst_pages_bureau.cpp:236-238`, `:267-269`). `AcpButton` annonce son `label`
    (`qml/controls/AcpButton.qml:152`) : un bouton à icône seule pose `Accessible.name`. Les boutons standard de Qt
@@ -74,17 +78,17 @@ Un module par dossier, un URI par module (`apps/desktop/qml/CMakeLists.txt:3-4`)
 8. **Animer seulement ce qui est admis.**
    - Durées et courbes lues dans `Motion.active.<entrée>`, jamais en dur (exemple :
      `qml/controls/AcpButton.qml:54-58`).
-   - Ambiance gatée par `Motion.ambianceActive`, activité par `Motion.spriteActivityActive` et un état **observé**
-     (`qml/pixel/PortraitAgent.qml:27-29`). Aucune animation ne prouve une activité (D165).
+   - Ambiance conditionnée par `Motion.ambianceActive`, activité par `Motion.spriteActivityActive` et un état
+     **observé** (`qml/pixel/PortraitAgent.qml:27-29`). Aucune animation ne prouve une activité (D165).
    - Suspendue hors écran : un minuteur ne tourne que si l'élément est visible et la fenêtre ni réduite ni cachée
      (`qml/pixel/SpritePixel.qml:26-27`, `:48-53`).
    - Profil réduit : aucune boucle (`qml/components/StatusChip.qml:81-82`).
    - **Aucun Canvas animé.** Le seul Canvas est `AcpIcon` (`qml/controls/AcpIcon.qml:5`), redessiné quand une
      propriété change (`:13-17`). Préférer des `Rectangle` ou une planche pixel (`qml/pixel/FondPixel.qml:3-5`).
 9. **Dans un layout, `Layout.*` seulement.** Ni `anchors` ni `width`/`height` sur un enfant de `RowLayout`,
-   `ColumnLayout` ou `GridLayout` : Qt 6.8.3 émet alors un avertissement QML à l'exécution (mesure dans
-   [references/pieges-qml.md](references/pieges-qml.md)), et `tst_pages_bureau` échoue sur tout avertissement du
-   moteur (étape 7).
+   `ColumnLayout` ou `GridLayout`. Mesure sur Qt 6.8.3 ([references/pieges-qml.md](references/pieges-qml.md)) : un
+   ancrage y produit un avertissement du moteur à l'exécution, qui fait échouer `tst_pages_bureau` (étape 7) ; une
+   largeur ou une hauteur fixe n'en produit pas, seul `qmllint` la signale, comme un comportement indéfini.
 10. **Aucune propriété `on` suivie d'une majuscule** (`onAccent`, `onSurface`) : avec la propriété de base dans le
     même objet, le chargement échoue (« Cannot assign a value to a signal »), et `qmllint` 6.8.3 ne le voit pas
     (mesure dans la référence). Le générateur écrit déjà `textOnAccent` (`qml/theme/generated/Colors.qml:36`).
@@ -104,9 +108,10 @@ Un module par dossier, un URI par module (`apps/desktop/qml/CMakeLists.txt:3-4`)
 ## Limites
 
 - Style `Basic` imposé (`src/main.cpp:97`) : les contrôles de Qt Quick Controls ne prennent les jetons que par la
-  palette. Chaînes C++ par `QStringLiteral` (`QT_NO_CAST_FROM_ASCII`, `apps/desktop/CMakeLists.txt:270-271`).
+  palette (`qml/theme/NativePalette.qml`). Chaînes C++ par `QStringLiteral` (`QT_NO_CAST_FROM_ASCII`,
+  `apps/desktop/CMakeLists.txt:270-271`).
 - Sous Linux, préréglage Debug sans avertissements en erreurs ; la preuve est la Desktop CI Windows.
-- Aucun test ne mesure la cadence d'image ni ne compare de capture : la fluidité reste au lot F
+- Aucun test ne mesure la cadence d'image ni ne compare de capture : la fluidité relève du lot F, au backlog
   ([atelier.md](../../../docs/refonte/atelier.md), section 6).
 - `qmllint` ne résout pas les modules `Acp.*` depuis le dossier de construction (mesure dans la référence) : son
   verdict ne remplace pas les tests.
@@ -114,7 +119,7 @@ Un module par dossier, un URI par module (`apps/desktop/qml/CMakeLists.txt:3-4`)
 ## Vérification
 
 ```sh
-python3.12 apps/desktop/cmake/check_layout.py          # 13 constats connus au plus
+python3.12 apps/desktop/cmake/check_layout.py          # 13 constats connus au plus ; code 1 dès un constat
 cd apps/desktop && cmake --build --preset linux-gcc-debug && ctest --preset linux-gcc-debug
 ```
 

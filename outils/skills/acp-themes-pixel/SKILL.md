@@ -46,14 +46,18 @@ Ces sorties portent la mention « ne pas modifier à la main » (`apps/desktop/q
      `design/tokens/semantic-status.json:16-21`).
    - Sous un seuil, la génération est refusée avec la liste des paires. Changer la couleur ; ne jamais baisser un
      seuil pour passer.
-   - Quatre jetons ne sont pas mesurés (`unverified`, `colors.json:23`) : les regarder sur capture.
+   - `measure_contrasts` ne mesure pas huit des 27 jetons de couleur : les quatre que nomme `unverified`
+     (`colors.json:23`, liste déclarative que le générateur ne lit pas), plus `border.subtle`, `border.default`,
+     `state.disabled` et `accent.secondaryMuted` (atelier-da.md § 3.3). Les regarder sur capture.
+   - Le générateur n'imprime pas les minima : ils sont la valeur de retour de `measure_contrasts`.
 2. **Ajouter ou renommer un thème.**
    - Jetons : `$themes` et `$defaultTheme` (`colors.json:7-8`), la même liste dans `semantic-status.json:7` et
      `elevation.json:7` (refus sinon : `generate_design_tokens.py:359`, `:863`), une famille avec variante sombre et
-     claire dans `$themeFamilies` (`theme_metadata`, `:210-233`), et `$themeLabels`.
+     claire dans `$themeFamilies` (`theme_metadata`, `:210-233`), et `$themeLabels` (`colors.json:256`).
    - Station : `SystemAppearance::themeFor` (`apps/desktop/src/system/SystemAppearance.cpp:102-112`),
      `SettingsStore::families` (`apps/desktop/src/storage/SettingsStore.cpp:58-62`), les familles écrites dans
-     `apps/desktop/qml/pages/ApparencePage.qml:80-83`, et `tst_design_tokens.qml:25`.
+     `apps/desktop/qml/pages/ApparencePage.qml:80-83`, et les tests (`tst_design_tokens.qml:25`, `:36-41` ; liste
+     complète dans [references/fichiers.md](references/fichiers.md)).
    - En QML, un nom inconnu retombe sur le thème par défaut et `Colors.known` devient faux (`theme_preamble`,
      `generate_design_tokens.py:236-255`).
 3. **Changer le mouvement.**
@@ -66,17 +70,22 @@ Ces sorties portent la mention « ne pas modifier à la main » (`apps/desktop/q
      `generate_design_tokens.py:849-852`). Une animation n'est jamais une preuve d'activité (D165).
    - Un nouveau profil : aussi `SettingsStore::motionProfiles` (`SettingsStore.cpp:64-68`) et les données de
      `tst_design_tokens.qml:213-219`.
+   - Les durées des trames de portraits sont **écrites** dans `design/pixel/manifeste.json` (2600, 160 et 240 ms).
+     Changer `duration.ambiance` ou `duration.spriteFrame` (`motion.json:41-42`) ne les change pas, et rien ne
+     vérifie leur égalité (atelier-da.md § 10).
 4. **Changer la disposition ou la densité.** `design/tokens/spacing.json` : jetons `layout.*` et `$densities`
-   (`:72`). Les bornes des panneaux sont **recopiées** en C++ (`SettingsStore.cpp:32-38`) : les comparer à la main
-   après toute retouche.
+   (`:72`). Sont **recopiés** en C++ : les bornes des panneaux (`SettingsStore.cpp:32-38`) et les noms des densités
+   (`SettingsStore::densities`, `:70-74`). Les comparer à la main après toute retouche.
 5. **Changer un asset pixel.**
    - Grille texte : un caractère par pixel, `.` pour la transparence, `== nom` ouvre une image, `#` commente
      (`lire_images`, `generer_assets_pixel.py:106-132`). Toutes les lignes d'une image ont la même largeur.
    - Palette du manifeste : clés d'un caractère, valeurs `#rrggbb`, `#rrggbbaa` ou `jeton:<thème>:<jeton>`
      (`charger_palettes`, `:82-103`).
-   - Séquence : `etat`, `boucle`, `decoratif` (`construire`, `:434`), durées de 60 à 4000 ms (`:416-417`).
+   - Séquence : `etat`, `boucle`, `decoratif` (`construire`, `:432-434`), durées de 60 à 4000 ms (`:416-417`).
      Décoratif veut dire ambiance ; sinon, la séquence suit un état **observé**.
-   - Emblème et icône : tailles `TAILLES_ICO` (`:48`) ; planche de 2048 px au plus (`PLAFOND_PLANCHE`, `:50`).
+   - Icône : exactement les tailles `TAILLES_ICO` (`:48`), refus sinon (`:375-376`) ; les exports de l'emblème,
+     listés au manifeste, en reprennent les neuf tailles. Planche de 2048 px au plus de côté (`PLAFOND_PLANCHE`,
+     `:50`, contrôlé `:398-399`).
    - Un nouveau PNG s'ajoute aux `RESOURCES` d'`Acp.Pixel` (`apps/desktop/qml/pixel/CMakeLists.txt:19-31`).
    - Création originale seulement : rien de LimeZu, rien des chemins gelés (atelier-da.md § 6.6). La police pixel
      reste réservée aux libellés courts (D165).
@@ -109,10 +118,13 @@ Ces sorties portent la mention « ne pas modifier à la main » (`apps/desktop/q
   du thème web.
 - La CI contrôle les assets par l'étape « Vérifier les assets pixel générés » (`.github/workflows/ci.yml:141-143`),
   et Desktop CI se déclenche sur `design/pixel/**` (`.github/workflows/desktop-ci.yml:26-27`). Ces deux ajouts du
-  chantier ne sont prouvés qu'au premier run qui les porte.
+  chantier ne sont prouvés qu'à la première exécution de CI qui les porte.
 - Aucun test ne compare une image de référence (atelier-da.md § 10). Le rendu hors écran sous Linux diffère de
   Windows. Le rendu de l'icône dans l'Explorateur, la barre des tâches et l'installeur n'est pas vérifié sans
-  Windows : c'est le lot F ([atelier.md](../../../docs/refonte/atelier.md), section 6).
+  Windows : c'est le lot F, au backlog ([atelier.md](../../../docs/refonte/atelier.md), section 6).
+- `tst_pages_interactions` compare la barre latérale à `surface.sidebar` écrit en dur (`#10131b` et `#eee9f4`,
+  `apps/desktop/tests/cpp/tst_pages_interactions.cpp:1072`, `:1078`, `:1082` ; `colors.json:37-38`) : changer ces
+  valeurs oblige à changer le test.
 - `tst_pages_bureau` passe l'espace de travail dans les quatre thèmes (boucle `themes`,
   `apps/desktop/tests/cpp/tst_pages_bureau.cpp:400-411`) : une capture par thème. Les autres étapes suivent la
   préférence d'apparence en vigueur à ce moment du test.

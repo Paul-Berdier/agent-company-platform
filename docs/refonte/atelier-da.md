@@ -8,10 +8,11 @@ chantier et matrice des écarts : [atelier.md](atelier.md). Outils, réseau et s
 **Statut.** Les jetons de `design/tokens` et les deux générateurs sont le contrat d'exécution. Les assets pixel
 (emblème, portraits, pictogrammes, police) sont des **propositions** : le propriétaire ne les a pas validés.
 
-**Convention de preuve.** Les fichiers cités sont ceux de l'arbre de travail du 11 octobre 2026, relus entre 19 h 40
-et 20 h UTC, avant le commit du lot B. Un autre agent modifie le code en parallèle : si un numéro de ligne bouge, le
-nom de fonction, de propriété ou de jeton cité fait foi. « À `85b458b` » renvoie au commit de départ
-(`git show 85b458b:<chemin>`). Chaque mesure donne sa commande et sa date.
+**Convention de preuve.** Les fichiers cités sont ceux du commit du lot B (`067acd0`). Une première lecture a eu
+lieu le 11 octobre 2026 entre 19 h 40 et 20 h UTC, avant ce commit ; une relecture indépendante a revérifié chaque
+citation après lui, entre 20 h 30 et 21 h UTC. Si un numéro de ligne bouge ensuite, le nom de fonction, de propriété
+ou de jeton cité fait foi. « À `85b458b` » renvoie au commit de départ (`git show 85b458b:<chemin>`). Chaque mesure
+donne sa commande et sa date.
 
 Sommaire : § 1 intention · § 2 familles et thèmes · § 3 contrastes mesurés · § 4 typographie · § 5 mouvement ·
 § 6 assets · § 7 facteurs d'échelle fractionnaires · § 8 pont Figma · § 9 références d'ergonomie · § 10 limites.
@@ -32,14 +33,14 @@ les pixels l'habillent sans la ralentir. Trois idées guident chaque écran :
 
 Intensité voulue par zone, et ce que fait la station le 11 octobre 2026 :
 
-| Zone | Décor voulu | Constat dans l'arbre de travail |
+| Zone | Décor voulu | Constat au commit `067acd0` |
 |---|---|---|
 | Accueil | Le plus présent : emblème, scène d'accueil en profil Complet | Pas encore fait : `apps/desktop/qml/pages/HomePage.qml` n'importe pas `Acp.Pixel` (`grep -c 'Acp.Pixel'` rend 0) |
 | Supervision des agents | Portraits par rôle, bulle d'état observé | `PortraitAgent` dans le panneau des agents (`apps/desktop/qml/shell/AgentsPanel.qml:86`) ; titre pixel « AGENTS » (`:28`) |
-| Projets et missions (barre de gauche) | Emblème, titre pixel, pictogrammes | `FondPixel`, `Embleme`, `TextePixel` (`apps/desktop/qml/shell/SideNavigation.qml:38`, `:119-120`) ; `PictoProjet` par ligne (`apps/desktop/qml/shell/LigneArbre.qml:60`) |
-| Mission (centre) | Calme : pictogramme du titre, cadres crantés | `PictoProjet` et `FondPixel` (`apps/desktop/qml/pages/MissionPage.qml:64`, `:313`) |
+| Projets et missions (barre de gauche) | Emblème, titre pixel, pictogrammes | `FondPixel`, `Embleme`, `TextePixel` (`apps/desktop/qml/shell/SideNavigation.qml:38`, `:119-120`) ; `PictoProjet` par ligne (`apps/desktop/qml/shell/LigneArbre.qml:62`) |
+| Mission (centre) | Calme : pictogramme du titre, cadres crantés | `PictoProjet` et `FondPixel` (`apps/desktop/qml/pages/MissionPage.qml:64`, `:316`) |
 | Volet bas : changements, tests, sorties | Discret : surface creusée, aucun ornement | Fond `Colors.surfaceSunken` (`apps/desktop/qml/shell/BottomDrawer.qml:17`) ; le module `Acp.Pixel` y est importé (`:11`) sans composant pixel |
-| Réglages | Titres pixel, aperçu de l'apparence | `apps/desktop/qml/pages/ReglagesPage.qml:58` ; `apps/desktop/qml/pages/ApparencePage.qml:65-68` et `:218-220` |
+| Réglages | Titres pixel, aperçu de l'apparence | `apps/desktop/qml/pages/ReglagesPage.qml:58` ; `apps/desktop/qml/pages/ApparencePage.qml:65-68` et `:214-226` |
 
 **Ce que D165 remplace.**
 
@@ -121,8 +122,10 @@ lecture de `colors.json` par un script Python de la session, le 11 octobre 2026.
   `#9aaa9d` à `#a3b2a5`, et les dix bordures d'état `status.*.border` sont un peu éclaircies.
 - Quatre jetons sont nouveaux dans les quatre thèmes : `accent.secondary`, `accent.secondaryMuted`, `decor.grid` et
   `decor.outline` (`colors.json:210-241`).
-- Côté web, seule la teinte `mutedForeground` change dans `hermes/theme/acp.yaml` (`git diff hermes/theme/acp.yaml`),
-  comme D169 l'annonce.
+- Côté web, une seule teinte change dans `hermes/theme/acp.yaml` : `mutedForeground` passe de `#9aaa9d` à `#a3b2a5`
+  (`git diff 85b458b 067acd0 -- hermes/theme/acp.yaml`), comme D165 l'annonce. L'en-tête de commentaires du fichier
+  change aussi : versions et empreinte des jetons, trois contrastes recalculés. D169 en tire la conséquence : la
+  fusion relancera `image.yml` et redéploiera Hermes.
 
 ---
 
@@ -150,7 +153,8 @@ Soit 106 paires par thème et 424 au total.
 
 ### 3.2 Minima mesurés
 
-Mesure du **11 octobre 2026 à 19 h 55 UTC**, Python 3.12.3, depuis la racine du dépôt :
+Mesure du **11 octobre 2026 à 19 h 55 UTC**, Python 3.12.3, depuis la racine du dépôt. Relancée à 20 h 36 UTC par la
+relecture, sur le commit `067acd0` : même sortie, mêmes empreintes.
 
 ```sh
 python3.12 -c "
@@ -187,7 +191,10 @@ est ajoutée) :
 | bordureSurPanneau | 3.02 | 3.01 | 3.02 | 3.01 |
 
 **Paire qui fixe chaque minimum.** Méthode : même fonction, seuils portés à 99 dans une copie en mémoire des jetons ;
-chaque paire échoue alors, et le message de refus donne sa mesure. Résultat :
+chaque paire échoue alors, et le message de refus donne sa mesure. La relecture a recalculé chaque paire avec
+`contrast_ratio` : même résultat, mais elle a trouvé des ex aequo, ajoutés au tableau. « Ex aequo » signale deux
+paires de même rapport ; `unknown` et `notConfigured` ont le même premier plan et la même teinte dans les quatre
+thèmes. Résultat :
 
 | Règle | atelier-nuit | atelier-jour | studio-graphite | studio-papier |
 |---|---|---|---|---|
@@ -196,8 +203,8 @@ chaque paire échoue alors, et le message de refus donne sa mesure. Résultat :
 | focus | sur `surface.panelRaised` | sur `surface.sidebar` | sur `surface.panelRaised` | sur `surface.sidebar` |
 | accent | `accent.primary` sur `surface.panelRaised` | `accent.secondary` sur `surface.sidebar` | `accent.primary` sur `surface.panelRaised` | `accent.primary` sur `surface.sidebar` |
 | encreSurAccent | sur `accent.pressed` | sur `accent.primary` | sur `accent.pressed` | sur `accent.primary` |
-| premierPlan | `notConfigured` sur `surface.panelRaised` | `blocked` sur `surface.sunken` | `failed` sur `surface.panelRaised` | `notConfigured` sur `surface.sunken` |
-| premierPlanSurTeinte | `notConfigured` | `blocked` | `notConfigured` | `notConfigured` |
+| premierPlan | `notConfigured` et `unknown` (ex aequo) sur `surface.panelRaised` | `blocked` sur `surface.sunken` | `failed` sur `surface.panelRaised` | `notConfigured` et `unknown` (ex aequo) sur `surface.sunken` |
+| premierPlanSurTeinte | `notConfigured` et `unknown` (ex aequo) | `blocked` | `notConfigured` et `unknown` (ex aequo) | `notConfigured` et `unknown` (ex aequo) |
 | bordureSurPanneau | `offline` | `pending` | `failed` | `succeeded` |
 
 Les bordures d'état sont au plus près du seuil (3.01 à 3.02) : une retouche de `surface.panel` ou d'une bordure peut
@@ -225,14 +232,16 @@ Mesures complémentaires, faites par ce document avec `contrast_ratio` du géné
 
 ### 3.4 Avant ce chantier
 
-À `85b458b`, les minima de `$contrast` étaient saisis à la main : 5.63 en sombre et 5.11 en clair
-(`design/tokens/colors.json:21-22` à `85b458b`). Le contrôle automatique a révélé deux écarts dans l'ancien thème
-sombre, mesurés ici avec la même formule :
+À `85b458b`, `$contrast` consignait deux minima calculés une fois, le 23 septembre 2026, sur les six surfaces opaques
+de base : 5.63 en sombre et 5.11 en clair (`design/tokens/colors.json:20-22` à `85b458b`). Le générateur du desktop
+ne les vérifiait pas : son code ne contenait aucun calcul de contraste. Les règles actuelles, appliquées à l'ancien thème
+sombre avec la même formule, y trouvent deux écarts :
 
 - `text.muted` (`#9aaa9d`) sur `state.selected` (`#2b4435`) : 4.35:1, sous 4,5:1 ;
 - les dix bordures d'état sur `surface.panel` (`#1e2420`) : de 2.91 à 2.96:1, sous 3:1.
 
-Les deux ont été relevés dans `studio-graphite` (§ 2).
+Les deux ont été relevés dans `studio-graphite` (§ 2). L'ancien thème clair passe ces règles, hors `accent.secondary`
+qui n'existait pas : 4.94:1 au plus bas pour le texte, 3.01:1 pour les bordures d'état.
 
 ### 3.5 Référentiel
 
@@ -285,6 +294,8 @@ au-dessous (`design/pixel/sources/police.txt:1-4`).
   « COMPTES », « APPARENCE ».
 - `TextePixel` met le texte en capitales selon la langue française (`TextePixel.qml:23`) et l'expose aux lecteurs
   d'écran (`Accessible.name`, `TextePixel.qml:27-28`). Un caractère sans glyphe s'affiche « ? » (`:34-35`).
+- Ces libellés tout en capitales dérogent à la règle qui réserve les capitales intégrales à `columnHeader`
+  (`typography.json:63`) ; les jetons ne l'ont pas amendée (§ 10).
 - La police pixel ne suit pas la taille du texte : elle s'agrandit par multiples entiers (`typography.json:67`),
   selon l'échelle choisie par l'écran qui l'emploie (`TextePixel.qml:16`).
 
@@ -307,7 +318,7 @@ au-dessous (`design/pixel/sources/police.txt:1-4`).
 - **Discret** : fonctionnel seulement, sans ambiance. C'était le profil « standard » des versions 1.0.x
   (`motion.json:63-64`).
 - **Réduit** (`motion.json:15`) : aucun déplacement, aucune boucle, aucun changement de taille ; les fondus restants
-  durent 80 ms ; l'information passe par le texte et le symbole (`motion.json:81-82`).
+  durent 80 ms ; l'information passe par le texte et le symbole (`motion.json:3`, `:81-82`).
 - **Concentration** : préférence distincte du profil. Elle coupe l'ambiance quel que soit le profil
   (`motion.json:12` ; `Motion.ambianceActive`, `apps/desktop/qml/theme/generated/Motion.qml:229`). Clé
   `appearance/concentration` (`SettingsStore.cpp:21`), appliquée par `ThemeBridge.qml:30-33`.
@@ -353,13 +364,21 @@ Sprites des portraits (`design/pixel/manifeste.json`, planche `portraits`) : au 
 **Garde-fous dans le code.**
 
 - Un portrait « au travail » ne s'anime que si l'état est observé **et** si le profil l'admet ; au repos, seulement si
-  l'ambiance est admise (`apps/desktop/qml/pixel/PortraitAgent.qml:27-29`).
-- Un sprite ne tourne que s'il est visible et si la fenêtre n'est ni réduite ni cachée ; sinon la première image
-  reste fixe et aucun minuteur ne tourne (`apps/desktop/qml/pixel/SpritePixel.qml:26-27`, `:48-53`).
+  l'ambiance est admise (`apps/desktop/qml/pixel/PortraitAgent.qml:27-29`). La propriété `observe` vaut vrai par
+  défaut (`PortraitAgent.qml:19`) : c'est l'état fourni qui porte l'observation. Dans le panneau des agents, l'état
+  « travail » vient du statut `running` d'une carte servie par le greffon
+  (`apps/desktop/src/viewmodels/EspaceTravailViewModel.cpp:441`). Seul l'aperçu de la page Apparence anime un
+  portrait « travail » sans état servi, sous le titre « Mission d'exemple (aperçu, aucune donnée) »
+  (`ApparencePage.qml:218`, `:224`).
+- Un sprite ne tourne que s'il est visible et si la fenêtre n'est ni réduite ni cachée ; sinon l'image fixe
+  (`image`, la première par défaut) reste affichée et aucun minuteur ne tourne
+  (`apps/desktop/qml/pixel/SpritePixel.qml:26-27`, `:33`, `:48-53`). Ce contrôle ne regarde que `visible` et l'état de la
+  fenêtre : le cas d'un sprite encore instancié mais sorti de la zone visible d'une liste n'est pas traité à part
+  (non mesuré).
 - La transition de palette couvre la fenêtre de l'ancienne couleur du canevas, puis l'efface ; en Réduit, le
   changement est instantané (`apps/desktop/qml/App.qml:60-90`).
 
-**Branchement au moment de la rédaction** (`grep -rn 'Motion\.' apps/desktop/qml --include=*.qml`, hors fichiers
+**Branchement au commit `067acd0`** (`grep -rn 'Motion\.' apps/desktop/qml --include=*.qml`, hors fichiers
 engendrés) : `press` (`apps/desktop/qml/controls/AcpButton.qml:55-59`), `overlayEnter`
 (`apps/desktop/qml/shell/CommandPalette.qml:54-60`), `paletteTransition` (`App.qml:68`, `:86`), `spriteActivity` et
 `ambiance` (`PortraitAgent.qml:27-29`), pulsation d'activité (`apps/desktop/qml/components/StatusChip.qml:82-94`).
@@ -372,9 +391,12 @@ Les autres animations sont déclarées dans les jetons, pas encore employées pa
 | `standard` | `discret` | `motion.json:21-25` (`$legacyProfiles`) ; `SettingsStore.cpp:171-185` |
 | `reduced` | `reduit` | idem |
 | aucune valeur enregistrée | `complet`, nouveau défaut | `SettingsStore.cpp:173`, `:184` |
+| `system` ou toute autre valeur | `complet` | `SettingsStore.cpp:184` |
 
-En 1.0.x, l'écran Réglages n'enregistrait que `standard` ou `reduced` (`apps/desktop/qml/pages/SettingsPage.qml:62-66`
-à `85b458b`). Une station qui n'a jamais réglé le mouvement passe donc au profil Complet.
+En 1.0.x, l'écran Réglages et la commande `appearance.toggleMotion` n'enregistraient que `standard` ou `reduced`
+(`apps/desktop/qml/pages/SettingsPage.qml:62-66` et `apps/desktop/src/app/Application.cpp:532-543` à `85b458b`). La
+couche C++ de 1.0.x acceptait aussi `system` (`SettingsStore.cpp:108-117` à `85b458b`), mais aucun écran ne l'écrivait.
+Une station qui n'a jamais réglé le mouvement passe donc au profil Complet.
 
 ---
 
@@ -402,22 +424,25 @@ sont des multiples entiers, agrandis au plus proche voisin (`agrandir`, `scripts
 | 256 px | 32 | × 8 |
 
 Source : `embleme.exports` (`manifeste.json:541-616`). Le générateur refuse un export dont la taille ne correspond
-pas (`generer_assets_pixel.py:327-333`).
+pas (`generer_assets_pixel.py:362-363`).
 
 **Icône Windows.** `apps/desktop/resources/windows/AgentCompanyPlatform.ico` : neuf entrées (16, 20, 24, 32, 40, 48,
 64, 128 et 256 px ; `TAILLES_ICO`, `generer_assets_pixel.py:48`), en 32 bits : DIB (BGRA, masque ET vide) jusqu'à
-128 px, PNG pour 256 px seulement, comme Microsoft le recommande (`encoder_ico`, `:264`). Relu le 11 octobre 2026 par
-le générateur et, indépendamment, par Pillow : neuf entrées, pixels identiques aux PNG de l'emblème, alpha 0 ou 255
-seulement ; la taille 256 est codée 0 dans le répertoire, selon la convention du format.
+128 px, PNG pour 256 px seulement (`encoder_ico`, `:264-283`). Le générateur justifie ce choix par une recommandation
+de Microsoft (page « Icons », `:267-269`) ; cette page n'a pas été relue ici. Relu le 11 octobre 2026 par le
+générateur (`--check`) et, indépendamment, par Pillow 12.3.0 : neuf entrées, pixels identiques aux PNG de l'emblème,
+alpha 0 ou 255 seulement ; la taille 256 est codée 0 dans le répertoire, selon la convention du format.
 
-Branchements dans l'arbre de travail :
+Branchements au commit `067acd0` :
 
 - exécutable : ressource `IDI_ICON1` (`apps/desktop/resources/windows/AgentCompanyPlatform.rc.in:10`), ajoutée sous
   Windows seulement (`apps/desktop/CMakeLists.txt:307-323`) ;
 - fenêtre et barre des tâches : `QGuiApplication::setWindowIcon` avec les neuf PNG
   (`apps/desktop/src/main.cpp:99-106`) ;
-- installeur : pas de `SetupIconFile` au moment de la rédaction ; l'icône de désinstallation vient de l'exécutable
-  (`packaging/windows/AgentCompanyPlatform.iss:50`).
+- installeur : `SetupIconFile` reçoit le chemin de l'icône (`packaging/windows/AgentCompanyPlatform.iss:57`), passé
+  par `scripts/package-desktop.ps1`, qui refuse d'empaqueter si le fichier manque (`:301-305`, `:311`) ; l'icône de
+  désinstallation vient de l'exécutable (`AgentCompanyPlatform.iss:55`). Aucun installeur n'a été compilé dans cette
+  session : ni Windows ni Inno Setup.
 
 **Lisibilité vérifiée sur fond clair et sombre, aux tailles réelles.** Méthode : les PNG de 16, 20, 24, 32 et 48 px,
 décodés par le décodeur du générateur, posés à 1:1 sur six fonds (`#f6f2ea`, `#ffffff`, `#f7f6f0`, `#151923`,
@@ -425,8 +450,10 @@ décodés par le décodeur du générateur, posés à 1:1 sur six fonds (`#f6f2e
 brouillon de la session, hors dépôt. Constats :
 
 - Fond clair : la silhouette du carreau est franche (contour `#0b0d14` à 17.38:1 sur `#f6f2ea`, 19.41:1 sur blanc).
-- Fond sombre : le carreau se fond dans le fond (1.10:1 sur `#151923`, 1.13:1 sur `#191c1a`, 1.08:1 sur noir). Les
-  ailes menthe (10.67:1 sur le carreau) et le noyau lavande (7.32:1) portent seuls la forme ; ils restent lisibles.
+- Fond sombre : le carreau se fond dans le fond. Son contour mesure 1.10:1 sur `#151923`, 1.13:1 sur `#191c1a` et
+  1.08:1 sur noir ; son remplissage `#151923` est la couleur même du canevas `atelier-nuit`. Les ailes menthe
+  (10.67:1 sur le remplissage) et le noyau lavande (7.32:1) portent seuls la forme ; ils restent lisibles. Rapports
+  calculés par `contrast_ratio` sur la palette `embleme` (`manifeste.json:6-17`).
 - À 16 px, les trois agents se réduisent à trois points de 1, 2 et 1 pixels (`embleme.txt:19`).
 - Non vérifié : le rendu par Windows (Explorateur, barre des tâches, menu Démarrer), faute de machine Windows (§ 10).
 
@@ -474,11 +501,12 @@ python scripts/generer_assets_pixel.py --check    # échoue si une sortie est p�
   (`design/pixel/generes/*.json`) et le singleton QML `PlanchesPixel`.
 - **Vérification par pixels décodés, pas par octets** : deux versions de zlib peuvent compresser différemment la même
   image (`generer_assets_pixel.py:14-17`). `verifier` décode chaque PNG et chaque entrée de l'icône, et compare les
-  pixels (`:470-490`) ; le JSON et le QML sont comparés en texte.
-- Refus explicites, en français : caractère absent de la palette, calques de tailles différentes, durée d'image hors
-  de 60 à 4000 ms (`:385`), planche de plus de 2048 px (`PLAFOND_PLANCHE`, `:50`), chemin de sortie non confiné.
-- Mesure du 11 octobre 2026 : `python3.12 scripts/generer_assets_pixel.py --check` rend « 17 assets pixel à jour. »,
-  code 0.
+  pixels (`:501-521`) ; le JSON et le QML sont comparés en texte.
+- Refus explicites, en français : caractère absent de la palette (`:141`), calques de tailles différentes (`:349`),
+  durée d'image hors de 60 à 4000 ms (`:416-417`), planche de plus de 2048 px (`PLAFOND_PLANCHE`, `:50`, `:398-399`),
+  chemin de sortie non confiné (`:315-316`).
+- Mesure du 11 octobre 2026, relancée par la relecture sur le commit `067acd0` :
+  `python3.12 scripts/generer_assets_pixel.py --check` rend « 17 assets pixel à jour. », code 0.
 - Après une retouche de jetons : `python scripts/generer_themes.py --check` contrôle le thème web et le QML de
   `Acp.Design` ; `generer_assets_pixel.py --check` contrôle la police (§ 6.4).
 
@@ -489,12 +517,12 @@ python scripts/generer_assets_pixel.py --check    # échoue si une sortie est p�
 - **Proposées au propriétaire, non validées par lui** (`design/pixel/manifeste.json:3` ; `embleme.txt:4`).
 - **Licence** : le dépôt n'en déclare aucune. Il n'a pas de fichier `LICENSE` à la racine, et `package.json:3` dit
   seulement `"private": true`. Le choix de la licence, assets compris, appartient au propriétaire.
-- **Aucun asset LimeZu, aucun asset du moteur gelé.** Le générateur ne lit que `design/pixel` et
-  `design/tokens/colors.json` (`generer_assets_pixel.py:37-39`, `:304`).
-  `git status --short packages apps/web plugins` ne montre aucun changement. Les packs sous licence restent exclus
-  par `.gitignore:39-46`.
-  `scripts/check_engine_frozen.py` est invérifiable dans ce clone : l'étiquette `archive/acp-0.10.0-avant-hermes` y
-  est absente. La CI, qui la récupère, en reste juge.
+- **Aucun asset LimeZu, aucun asset du moteur gelé.** En entrée, le générateur ne lit que `design/pixel` et
+  `design/tokens/colors.json` (`generer_assets_pixel.py:37-39`, `:75`, `:335`).
+  `git diff --stat 85b458b 067acd0 -- packages apps/web plugins` ne montre aucun changement. Les packs sous licence
+  restent exclus par `.gitignore:39-46`. Relancé le 11 octobre 2026 par la relecture, l'étiquette
+  `archive/acp-0.10.0-avant-hermes` étant présente dans le clone, `python3.12 scripts/check_engine_frozen.py` rend
+  « Moteur gelé : […] identiques à archive/acp-0.10.0-avant-hermes. », code 0.
 - **Aseprite n'a pas été utilisé** : il est absent de la session ([atelier-outillage.md](atelier-outillage.md) § 2.1).
 - **Aucune police tierce** : la police pixel est un dessin original (§ 4).
 
@@ -505,14 +533,16 @@ python scripts/generer_assets_pixel.py --check    # échoue si une sortie est p�
 **Politique de Qt mesurée.** La station ne règle pas la politique d'arrondi du facteur d'échelle (`grep` de
 `RoundingPolicy` et `HighDpi` dans `apps/desktop/src` : vide). Qt 6.8.3 garde alors `PassThrough`. Sonde compilée
 contre `/opt/acp-outils/qt683`, plateforme `offscreen`, le 11 octobre 2026 : politique 5 (= `PassThrough`) ; avec
-`QT_SCALE_FACTOR` à 1.25 et 1.5, `devicePixelRatio` vaut 1.250 et 1.500. Sur un écran à 125 % ou 150 %, le facteur
-fractionnaire passe donc tel quel.
+`QT_SCALE_FACTOR` à 1.25 et 1.5, `devicePixelRatio` vaut 1.250 et 1.500. Qt transmet donc un facteur fractionnaire
+tel quel. Avec un vrai écran Windows réglé à 125 % ou 150 % : non mesuré. La relecture a relancé les sondes de ce
+paragraphe et des deux suivants le même jour (moteur de rendu logiciel de Qt Quick) : mêmes résultats.
 
 **Sprites et police pixel.** Ils sont agrandis par **multiples entiers en pixels logiques**, sans lissage :
 `SpritePixel` mesure `case × echelle` (`apps/desktop/qml/pixel/SpritePixel.qml:30-31`) avec `smooth: false` et
 `mipmap: false` (`:43-44`) ; `TextePixel` agrandit aussi sans lissage (`TextePixel.qml:36-41`). En pixels
-physiques, le multiple n'est entier que si `echelle × facteur` l'est. Mesure, même sonde, damier de huit pixels
-affiché à l'échelle 2 avec `smooth: false` (moteur de rendu logiciel) :
+physiques, le multiple n'est entier que si `echelle × facteur` l'est. Mesure : une seconde sonde affiche un damier
+de huit pixels à l'échelle 2 avec `smooth: false` et relève, sur la capture de la fenêtre, la largeur de chaque
+pixel source :
 
 | Facteur | Largeur physique de chaque pixel source |
 |---|---|
@@ -524,12 +554,12 @@ affiché à l'échelle 2 avec `smooth: false` (moteur de rendu logiciel) :
 À 125 %, un sprite à l'échelle 2 a donc des pixels de largeur inégale. Sous Windows, le moteur de rendu peut répartir
 autrement les largeurs de 2 et de 3, sans pouvoir les rendre égales : non mesuré.
 
-**Emblème.** `Embleme` choisit la plus petite taille dessinée qui couvre `taille × facteur`
-(`apps/desktop/qml/pixel/Embleme.qml:13-22`). À 125 %, un emblème de 24 px logiques demande 30 px physiques : la
-grille de 32 px est retenue, puis réduite à 30 px au plus proche voisin. Mesure, même sonde, avec un dégradé de
-32 colonnes distinctes : 30 colonnes source sur 32 restent visibles. Deux colonnes de la grille tombent ; la même
-réduction s'applique aux rangées (non mesuré séparément). À 150 %, la grille de 40 px est réduite à 36 px : non
-mesuré.
+**Emblème.** `Embleme` choisit la plus petite taille exportée (`PlanchesPixel.embleme.tailles`) qui couvre
+`taille × facteur` (`apps/desktop/qml/pixel/Embleme.qml:13-22`). À 125 %, un emblème de 24 px logiques demande 30 px
+physiques : l'image de 32 px est retenue, puis réduite à 30 px au plus proche voisin. Mesure, troisième sonde, avec
+un dégradé de 32 colonnes distinctes affiché sur 24 px logiques : 30 colonnes source sur 32 restent visibles. Deux
+colonnes de la grille tombent ; la même réduction s'applique aux rangées (non mesuré séparément). À 150 %, l'export
+de 40 px (grille de 20 px agrandie × 2) est réduit à 36 px : non mesuré.
 
 **Polices et contrôles.** Ils ne sont pas pixelisés. Le texte courant reste en polices système vectorielles, mises à
 l'échelle par Qt ; les contrôles sont des rectangles. Seule la taille du texte choisie par l'opérateur (§ 4) les
@@ -548,8 +578,12 @@ fichier Figma n'a été lu ni écrit ([atelier-outillage.md](atelier-outillage.m
 - Les **jetons versionnés** de `design/tokens` sont le contrat d'exécution. Le générateur les refuse sous les seuils
   de contraste (§ 3) ; aucune maquette ne les contourne.
 - La **galerie native** sert de référence visuelle : des captures de la vraie application, rendues par Qt hors écran,
-  gardées hors dépôt (D17). Au moment de la rédaction, elle compte les 17 captures « avant » du lot A, dans le dossier
-  de brouillon de la session. Les captures « après » restent à produire.
+  gardées hors dépôt (D17). `tst_pages_bureau` les écrit quand `ACP_CAPTURES_DIR` est défini
+  (`apps/desktop/tests/cpp/tst_pages_bureau.cpp:271-277`). Relevé du 11 octobre 2026 à 20 h 40 UTC, dans le dossier
+  de brouillon de la session : 17 captures « avant » (lot A) ; 36 captures « après » à 100 % (1280 × 850 pour la
+  coquille), 35 à 125 % et 35 à 150 %, prises entre 20 h 20 et 20 h 23 UTC. `LigneArbre.qml` et `DiscussionPage.qml`
+  ont encore changé ensuite, avant le commit : ces captures ne garantissent pas l'état exact de `067acd0`. Aucune
+  comparaison automatique.
 
 **Procédure proposée pour un futur pont.** Rien de ceci n'est fait.
 
@@ -588,11 +622,13 @@ CLI que l'exécutant pilote réellement (§ 6.2).
 
 ## 10. Limites
 
-- **Captures.** Aucune capture « après » n'existe encore, et aucun test ne compare une image de référence.
+- **Captures.** Les captures « avant » et « après » restent hors dépôt, dans le dossier de brouillon de la session
+  (§ 8). Aucun test ne compare une image de référence.
 - **Pas de profilage.** Aucune mesure de cadence ni de charge GPU : la session n'a ni GPU ni machine de référence. Le
   profilage à 60 images par seconde reste au lot F ([atelier.md](atelier.md) § 6).
 - **Icône non installée sous Windows.** Aucune installation de test : l'icône n'a été vue ni dans l'Explorateur, ni
-  dans la barre des tâches, ni dans le menu Démarrer. L'installeur n'a pas encore de `SetupIconFile`.
+  dans la barre des tâches, ni dans le menu Démarrer. L'installeur déclare son icône (`SetupIconFile`) mais n'a pas
+  été compilé (§ 6.1).
 - **Échelle fractionnaire.** À 125 %, les pixels des sprites ont des largeurs inégales, et l'emblème perd des
   colonnes (§ 7).
 - **Emblème sur fond sombre.** Le carreau se fond dans un fond sombre ; seuls les ailes et le noyau portent la forme
@@ -604,14 +640,21 @@ CLI que l'exécutant pilote réellement (§ 6.2).
   Elles égalent les jetons `duration.ambiance` et `duration.spriteFrame` (`motion.json:41-42`) ; rien ne vérifie
   cette égalité.
 - **Contrastes partiels.** Couches à canal alpha, ornements et rendu réel ne sont pas mesurés (§ 3.3).
-- **Police pixel.** Pas de Œ, Æ ni Ÿ ; pas de minuscules. Elle ne suit pas la taille du texte (§ 4).
+- **Police pixel.** Pas de Œ, Æ ni Ÿ ; pas de minuscules. Elle ne suit pas la taille du texte. Ses libellés tout en
+  capitales dérogent à la règle « Aucune capitale intégrale en dehors du rôle columnHeader »
+  (`design/tokens/typography.json:63`), que les jetons n'ont pas amendée (§ 4).
 - **Métadonnées des pictogrammes.** Leurs séquences portent `"decoratif": false` dans `PlanchesPixel`, faute du champ
   dans le manifeste. Sans effet aujourd'hui : `PictoProjet` s'exclut de l'accessibilité.
 - **Textes hérités.** La description de `accent.primary` parle encore de « sarcelle » (`colors.json:115`), et celle de
   `surface.canvas` de « graphite chaud » (`colors.json:27`) : vrai pour Studio seulement. Le README des images dit
   toujours « QUIET OPERATIONS » (`apps/desktop/resources/images/README.md:7-8`).
-- **Contrôles non branchés en CI.** Au moment de la rédaction, aucun workflow n'appelle
-  `scripts/generer_assets_pixel.py --check` (`grep -rn generer_assets_pixel .github` : vide), et `scripts/tests` n'a
-  aucun test des assets. `apps/desktop/tests/qml/tst_pixel.qml` (nouveau, non suivi) couvre portraits, police, tailles
-  de l'emblème et garde-fous d'animation ; ce document ne l'a pas exécuté.
+- **Contrôles branchés, résultats de CI non consultés.** Au commit `067acd0`, `.github/workflows/ci.yml:141-143`
+  appelle `scripts/generer_assets_pixel.py --check`, et l'étape `python -m pytest -q -rs` (`ci.yml:161`) collecte
+  `scripts/tests` (`pytest.ini:9-13`), dont `scripts/tests/test_generer_assets_pixel.py`.
+  `apps/desktop/tests/qml/tst_pixel.qml` couvre portraits, police, tailles de l'emblème et garde-fous d'animation ;
+  `tst_qml_shell` le charge (`apps/desktop/tests/CMakeLists.txt:120-141`). Exécutions de la relecture, le
+  11 octobre 2026 : `test_generer_assets_pixel.py`, 25 tests réussis (pytest de `/opt/acp-outils/py-venv`,
+  Python 3.13.16, pas 3.12) ; `tst_pixel.qml`, 8 tests réussis sur 8 (binaire `tst_qml_shell` du préréglage
+  `linux-gcc-debug`, plateforme `offscreen`, Qt 6.8.3, construit à 20 h 18 UTC, avant le commit ; les sources de
+  `Acp.Pixel` et `Acp.Design` n'ont pas changé depuis). Ce document n'a consulté aucun résultat de CI.
 - **Assets non validés, licence non déclarée** (§ 6.6).

@@ -2,13 +2,13 @@
 
 État du 11 octobre 2026. **Rien de ce document n'est implémenté côté serveur dans ce chantier.** Le greffon
 `acp-poste`, son contrat partagé, l'exécutant et `apps/poste` sont identiques au commit `85b458b` (ACP 1.0.1) :
-`git status --short` est vide sur ces dossiers le 11 octobre 2026. Ce document propose des formes de données, de routes
-et de protocole pour les lots C, D et E ; chacune attend la validation du propriétaire. Il ne crée aucune décision
-numérotée.
+`git diff --stat 85b458b -- hermes/plugins/acp-poste apps/poste executant hermes/tests` est vide le 11 octobre 2026,
+arbre de travail compris. Ce document propose des formes de données, de routes et de protocole pour les lots C, D et
+E ; chacune attend la validation du propriétaire. Il ne crée aucune décision numérotée.
 
 Contexte : état réel, matrice des écarts et plan des lots dans [atelier.md](atelier.md) ; décisions D165 à D169 dans
-[plan.md](plan.md), § 1, sous-section « Chantier « atelier » ». D166 (vocabulaire) et D168 (« Auto » par défaut) sont
-des choix de conception, à confirmer.
+[plan.md](plan.md), § 1, sous-section « Chantier « atelier », 11 octobre 2026 ». D166 (vocabulaire) et D168 (« Auto »
+par défaut) sont des choix de conception, à confirmer.
 
 **Convention de preuve.** Chaque `chemin:ligne` a été relu le 11 octobre 2026 ; il vaut à `85b458b` et dans l'arbre de
 travail, ces fichiers n'ayant pas changé. Préfixes abrégés :
@@ -33,12 +33,15 @@ Sommaire : § 1 règles communes · § 2 projet durable · § 3 missions · § 4
 
 ### 1.1 `acp-poste/1` : ajouts annoncés dans `/v1/meta`
 
-- Le contrat s'appelle `acp-poste/1` (`meta.py:21`). Chaque ajout de P3 à P7 y figure comme « contrat inchangé »
-  (`meta.py:537-549`), par exemple `"accueil": True` (`meta.py:546`) et le bloc `flux` (`meta.py:549`).
-- La station lit l'annonce avant de lire ou d'écrire. Sans elle, elle dit « Non disponible sur ce serveur »
-  (`apps/desktop/src/api/ClientGreffonPoste.cpp:39-52`, `124-130` ; D159).
-- Les routes d'écriture refusent tout champ inconnu, en 400 (`dashboard/plugin_api.py:245-247`, `933-937`). Un client
-  n'envoie donc un champ nouveau qu'après l'avoir vu annoncé.
+- Le contrat s'appelle `acp-poste/1` (`meta.py:21`). Les ajouts des étapes P3, P4, P5 et P7 y sont commentés
+  « contrat acp-poste/1 inchangé » (`meta.py:537-549`), par exemple `"accueil": True` (`meta.py:546`) et le bloc `flux`
+  (`meta.py:549`).
+- La station lit la clé `accueil` avant d'appeler les routes de P7. Sans elle, elle dit « Non disponible sur ce
+  serveur » (`apps/desktop/src/api/ClientGreffonPoste.cpp:39-52`, `124-130` ; D159).
+- Le lancement refuse tout champ inconnu, en 400 (`dashboard/plugin_api.py:245-247`), comme les routes qui passent par
+  `_champs` (`dashboard/plugin_api.py:933-937`). D'autres routes d'écriture ignorent un champ en trop : pause, reprise,
+  réponse, triage, pause générale (`dashboard/plugin_api.py:276-338`). Un client n'envoie donc un champ nouveau
+  qu'après l'avoir vu annoncé.
 - Ajouter un champ à une réponse reste compatible. Renommer ou retirer un champ est une rupture : 2.0.0 (D130).
 - Règle proposée : **une clé par capacité** dans `/v1/meta` (`regroupements`, `missions`, `activite`, `modes_routage`).
   Clé absente : capacité non offerte. Clé illisible : « Inconnu ».
@@ -60,21 +63,24 @@ Sommaire : § 1 règles communes · § 2 projet durable · § 3 missions · § 4
 - Ordre K21 : les colonnes s'ajoutent **après** les reconstructions (`noyau/base.py:33-40`, `306`, `500`). Une
   reconstruction ne recopie que les colonnes de sa forme explicite (`DEMANDES_V3`, `noyau/base.py:258-284`). Toute
   reconstruction v5 listerait donc les colonnes v1 à v5.
-- Une contrainte `CHECK` élargie impose une reconstruction (`noyau/base.py:27-31`). Les propositions ci-dessous
-  l'évitent : tables nouvelles, colonnes sans contrainte resserrée.
+- Une contrainte `CHECK` élargie impose une reconstruction (`noyau/base.py:27-31`). Les propositions des § 2 à § 6
+  l'évitent : tables nouvelles, colonnes sans contrainte resserrée. Seule l'origine `recurrence` du § 9 en exigerait
+  une.
 - Mécanique : `SCHEMA_V5` et `COLONNES_V5` placés après `RECONSTRUCTIONS_V4` (`noyau/base.py:504-506`) ;
   `VERSION_SCHEMA = "5"` ; `'4'` ajouté à l'`UPDATE` de version (`noyau/base.py:508-509`) ; tables nouvelles dans
   `TABLES` (`noyau/base.py:328-333`) ; réglages nouveaux dans `REGLAGES_PAR_DEFAUT` (`noyau/base.py:337-373`), sans
   quoi `poser_reglage` les refuse (`noyau/base.py:528-530`).
 - SQLite : `ALTER TABLE … ADD COLUMN` ne porte pas `UNIQUE` ; on passe par un index unique partiel, comme
-  `un_seul_poste_actif` (`noyau/base.py:177`). Une colonne `REFERENCES` ajoutée vaut `NULL` par défaut ; la base tourne
-  en `foreign_keys=ON` (`noyau/routage.py:130-132`).
+  `un_seul_poste_actif` (`noyau/base.py:177`). Une colonne `REFERENCES` ajoutée vaut `NULL` par défaut. La connexion,
+  ouverte par Hermes (`ka.plugin_db`, `noyau/base.py:397`), tourne en `foreign_keys=ON`
+  (`tests-image/test_migration_v2.py:128` ; `noyau/routage.py:130-132`).
 - Retour arrière : une version antérieure du greffon ne refuse pas un schéma plus récent
   (`docs/exploitation.md:447-449`). Le v5 doit donc rester lisible par le code v4 : aucune colonne renommée ni
   retirée, aucune contrainte resserrée.
 - Si les lots C, D et E sont livrés séparément : une version de schéma par lot (v5, v6, v7), chacune additive.
 - Tests à mettre à jour : la version `"4"` est figée dans `tests-image/test_migration_v2.py:53`, `57`, `100`,
-  `test_migration_v3.py:69`, `134` et `test_migration_v4.py:75`, `151`, `176`. Base neuve et bases migrées doivent
+  `test_migration_v3.py:69`, `134`, `test_migration_v4.py:75`, `151`, `176` et `test_projets_base.py:16`, `27`.
+  `test_empreinte_volume.py:239` pose aussi `'4'` à la main. Base neuve et bases migrées doivent
   garder le même schéma (`tests-image/test_migration_v4.py:134-153`). Un `test_migration_v5.py` reprend les trois
   motifs de v4 : idempotence, deux processus concurrents (`:156`), compteurs `AUTOINCREMENT` gardés (`:102`).
 - Montée de données : job « montee » d'`image.yml` (entrée `ref_avant`, `.github/workflows/image.yml:107`, `123`)
@@ -156,8 +162,9 @@ l'outil ne change pas.
 
 ### 2.3 Migration
 
-- Une seule fois, lors du passage de v4 à v5. La version est lue en début de transaction (`version_schema`,
-  `noyau/base.py:512-514`), avant l'`UPDATE` de version.
+- Une seule fois, lors du passage de v4 à v5. `migrer()` lirait la version en début de transaction, avant l'`UPDATE`
+  de version. La fonction de lecture existe (`version_schema`, `noyau/base.py:512-514`) ; `migrer()` ne l'appelle pas
+  aujourd'hui (`noyau/base.py:478-509`).
 - Pour chaque `depot_alias` non nul des missions existantes : une ligne `regroupements`, titre = alias (32 caractères au
   plus : `contrat/inventaire.py:56`), provenance `regroupement_automatique_par_depot`, auteur `acp-poste:migration`,
   `cree_le` = plus ancienne mission du dépôt. Puis `projets.regroupement_id` pour ces missions.
@@ -194,10 +201,11 @@ UPDATE projets SET regroupement_id = (SELECT r.id FROM regroupements r WHERE r.d
 ### 2.5 Risques
 
 - Deux mots pour une chose : l'API dit « projets » là où l'interface dit « missions » (D166). La documentation des
-  routes le dira.
+  routes devra le dire.
 - Après un retour à une image v4, les missions lancées entre-temps restent à `NULL`, et la migration ne repasse pas.
   La règle (a) ne les rattache qu'à leur création : un geste « Rattacher » reste nécessaire.
-- Le titre automatique est l'alias du dépôt : vrai, mais sec. Le propriétaire le renomme.
+- Le titre automatique est l'alias du dépôt : vrai, mais sec. Le propriétaire peut le renommer
+  (`POST /v1/regroupements/{id}/modifier`).
 
 ---
 
@@ -212,7 +220,7 @@ UPDATE projets SET regroupement_id = (SELECT r.id FROM regroupements r WHERE r.d
 | Reprendre une tâche (même session) | Aucun geste : automatique | `noyau/execution.py:48`, `340` | Reprise du fil local si l'issue est `question`, `bloquee:quota`, `arret`, `rendue` ou `revue_refusee`, sur la même machine | Le propriétaire ne choisit pas |
 | Réessayer une tâche | Relancer une carte | `POST /v1/cartes/{tableau}/{carte}/relancer` (`dashboard/plugin_api.py:1173-1188` ; `noyau/questions.py:461-534` ; D94) | Carte de l'exécutant : `issue = 'relancee'`, **session neuve**, consigne recomposée en tête (`:510-515`, `534`) ; carte Hermes : consigne en commentaire ; intégration : sans consigne (D117) | Carte `blocked` d'une mission active seulement (`noyau/questions.py:325-337`) |
 | Continuer au plafond | « Prolonger » ou « Relancer la planification » | `POST /v1/triage/{tableau}/{carte}/reprendre` (`dashboard/plugin_api.py:310-317` ; `noyau/questions.py:556-590` ; D41) | Plafond relevé (tours + 1 ou cartes + 10), consigne du propriétaire, journal `prolongation` ou `relance_planification` | Exige une carte de décision ; le journal sert de preuve à `graphe.planifier` (`noyau/graphe.py:329-334`) |
-| Arrêter | « Conclure » ou « Clore » | `noyau/questions.py:593-615` ; `noyau/projets.py:490-544` | « Conclure » : `termine` si la mission a au moins un tour (`noyau/questions.py:607`) ; « Clore » : `termine` si la synthèse du tour est faite (`noyau/projets.py:509`), sinon `abandonne` | États finaux |
+| Arrêter | « Conclure » ou « Clore » | `POST /v1/triage/{tableau}/{carte}/conclure` (`dashboard/plugin_api.py:320-327` ; `noyau/questions.py:593-615`) ; `POST /v1/projets/{id}/clore` (`dashboard/plugin_api.py:1205-1216` ; `noyau/projets.py:490-544`) | « Conclure » : `termine` si la mission a au moins un tour (`noyau/questions.py:607`) ; « Clore » : `termine` si la synthèse du tour est faite (`noyau/projets.py:509`), sinon `abandonne` | États finaux |
 
 ### 3.2 Ce qui manque
 
@@ -286,12 +294,12 @@ UPDATE projets SET regroupement_id = (SELECT r.id FROM regroupements r WHERE r.d
   `source_id = '<tableau>#<id>'`.
 - `evenement_id` d'une copie : UUID v5 dérivé de `source_id`. Une copie refaite garde la même identité.
 - `ka.evenements_apres` ne lit pas `run_id` (`noyau/kanban_adapter.py:217-222`), alors que la colonne existe
-  (`tests-image/test_kanban_adapter.py:63-68`). Il faut l'ajouter à la lecture et au test du schéma.
+  (`tests-image/test_kanban_adapter.py:65-70`). Il faut l'ajouter à la lecture et au test du schéma.
 - Charge utile : liste blanche de clés par genre, seulement pour les genres dont le greffon lit déjà la forme :
   `blocked` (`kind`, `reason` : `noyau/emetteur.py:135-138`), `scheduled` (`reason` : `noyau/projets.py:405-407`). Pour
   tout autre genre, le genre seul, et la ligne le dit (« détail non copié »). Chaque autre forme se vérifie d'abord sur
   Hermes 0.21.5 par un test d'image, comme `test_schema_des_evenements_attendu`.
-- Genres déjà nommés par le code : `created` (`tests-image/test_kanban_adapter.py:72`), `blocked`, `review_requested`,
+- Genres déjà nommés par le code : `created` (`tests-image/test_kanban_adapter.py:74`), `blocked`, `review_requested`,
   `block_loop_detected`, `gave_up` (`noyau/emetteur.py:135-149`), `completed`, `claimed`, `promoted`
   (`noyau/emetteur.py:23-24`), `scheduled` (`noyau/projets.py:406`).
 - **Non vérifié ici** : Hermes range-t-il un événement par battement ? Si oui, une ligne par minute et par carte en
@@ -329,7 +337,9 @@ Réponse :
 - La station garde son curseur (le dernier `sequence` reçu). Sur un signal `activite`, elle relit `apres=<curseur>`
   jusqu'à `plus: false`.
 - Annonce : `"activite": {"chemin": "/api/plugins/acp-poste/v1/activite", "schema_version": 1, "limite_max": 500}`.
-- `GET /v1/projets/{id}` garde ses 100 lignes de journal : `acp-poste/1` ne change pas.
+- `GET /v1/projets/{id}` garde ses 100 lignes de journal : `acp-poste/1` ne change pas. Sa requête prend les 100
+  dernières lignes de la mission, quelle que soit leur nature (`noyau/projets.py:326-327`) : elle devra exclure
+  `source = 'kanban'`, sinon les copies chasseraient les gestes d'ACP de ces 100 lignes.
 
 ### 4.5 Sujet de flux `activite`
 
@@ -369,8 +379,10 @@ Niveau d'observation, par règle fixe :
 - `observe` : constaté par Hermes ou reçu par une route du greffon. Copies kanban ; gestes `proprietaire:<id>`
   (`dashboard/plugin_api.py:160-163`) et `discussion:<session>`.
 - `rapporte` : dit par un tiers, non vérifiable par Hermes. Acteurs `poste:<machine>` (`noyau/execution.py:565-567`),
+  `poste` seul (question et correction reçues de l'exécutant : `noyau/questions.py:83`, `noyau/graphe.py:482`),
   `carte:<t>` (outil de l'agent, `noyau/questions.py:142`), `releve:<source>` (`noyau/routage.py:117`).
-- `deduit` : calculé par le greffon. Acteur `acp-poste:emetteur` (`noyau/emetteur.py:227`, `266`).
+- `deduit` : calculé par le greffon. Acteurs `acp-poste` et `acp-poste:<rôle>` : émetteur (`noyau/emetteur.py:227`,
+  `266`), plan (`noyau/graphe.py:259`), bilan (`noyau/bilan.py:122`), enrôlement (`noyau/machines.py:125`).
 
 L'acteur reste servi tel quel, champ `acteur`.
 
@@ -405,8 +417,8 @@ Impossible sans étendre le protocole :
 
 | Donnée du brief | Pourquoi elle manque |
 |---|---|
-| Sorties en direct | Le stdout de l'agent est gardé en mémoire (`poste/execution.py:851`), analysé après la fin du processus (`:921-939`) ; le stderr est lu puis jeté (`:860-866`) ; rien n'est transmis brut (`poste/evenements.py:4-5`) |
-| Outils en cours | Claude : seuls `system/init`, `rate_limit_event` et `result` sont lus (`poste/evenements.py:229-263`). Codex : les commandes sont comptées (`:174-175`), et ce compte n'est lu nulle part |
+| Sorties en direct | Le stdout de l'agent est gardé en mémoire (`poste/execution.py:851`), analysé après la fin du processus (`:921-939`), hors le contrôle de l'`init` de Claude, fait en cours de route (`:853-858`) ; le stderr est lu puis jeté (`:860-866`) ; rien n'est transmis brut (`poste/evenements.py:4-5`) |
+| Outils en cours | Claude : seuls `system/init`, `rate_limit_event` et `result` sont lus (`poste/evenements.py:229-263`). Codex : les commandes sont comptées (`:174-175`), et ce compte n'est lu que par un test (`apps/poste/tests/test_evenements_gardes.py:43`) |
 | Fichiers touchés | Seuls le diffstat chiffré et les chemins de pilotage remontent (`poste/execution.py:704-712` ; `contrat/machine.py:857-866`, `914-936`) |
 | Sous-agents | Délégation coupée (§ 8) ; `parent_tool_use_id` n'est lu nulle part dans `apps/poste` |
 | Étapes locales | Préparation, vérification, commit et contrôles sont écrits dans un fichier local (`poste/execution.py:271-279`), jamais envoyés |
@@ -416,8 +428,9 @@ Amélioration possible **sans** changer de protocole : l'exécutant n'envoie de 
 (`poste/execution.py:884-895`), toutes les 60 s (`:65`). Envoyer aussi des battements pendant la préparation et la
 vérification ne touche que l'exécutant : même route, même forme, note libre de 500 caractères au plus
 (`contrat/machine.py:817-825`). Cela réduit aussi un risque : `verification_max_s` peut atteindre 7 200 s
-(`poste/politique.py:824`) pour une réclamation de 2 700 s (`noyau/base.py:361`). La note n'est pas gardée par le
-greffon (`noyau/execution.py:472`) et reste du texte libre.
+(`poste/politique.py:824`) pour une réclamation de 2 700 s (`noyau/base.py:361`). Le greffon ne range pas la note dans
+sa base : il la transmet, masquée, au battement du worker de Hermes (`ka.heartbeat_worker`, `noyau/execution.py:472`).
+Elle reste du texte libre.
 
 Proposition `acp-machine/2`, négociée :
 
@@ -503,7 +516,7 @@ Libellés de la station : `apps/desktop/src/viewmodels/Libelles.cpp:116-130`.
 | Exécute | `running` ; carte annoncée par l'exécutant, modèle demandé et servi, dernier battement (`noyau/execution.py:771-794`) | Oui |
 | Outil en cours | Rien : outils ignorés (§ 4.8) ; battement générique (`poste/execution.py:887-888`) | **Non** sans `acp-machine/2` |
 | Attend une décision | `triage` ; `review` ; question ouverte ou escaladée et sa règle `chez` (`noyau/projets.py:302-305`) | Oui |
-| Attend un quota | `scheduled` et une ligne `attentes` (`noyau/execution.py:619-624`) | **Partiel** : `attentes` n'est servie par aucune route ; seul le flux la lit (`noyau/flux.py:193`) |
+| Attend un quota | `scheduled` et une ligne `attentes` (`noyau/execution.py:619-624`) | **Partiel** : `attentes` n'est servie par aucune route ; seuls l'émetteur, pour débloquer (`noyau/attentes.py:33`), et l'empreinte du flux (`noyau/flux.py:193`) la lisent |
 | Annulation demandée | Le battement répond `annuler: true` si la mission n'est plus active (`noyau/execution.py:485`) | **Déduit** seulement : la réponse n'est pas gardée |
 | Arrêt confirmé | Route `arret` : journal `carte_rendue` avec son motif, `presence.arret_propre_le` (`noyau/execution.py:647-648`, `659-661`) ; motifs `sigterm`, `pause_locale`, `annulee` (`contrat/machine.py:759`) | Oui, par le journal |
 | Terminé | `done` | Oui |
@@ -517,6 +530,14 @@ Propositions :
 - Ne dire « télémétrie interrompue » que sur une présence hors ligne ou une réclamation perdue, tant que les battements
   ne couvrent pas toutes les étapes.
 - « Outil en cours » reste « Non observé » jusqu'à `acp-machine/2`.
+- Lot D : servir pour chaque carte `relue_carte`, l'identifiant kanban de la carte relue, à côté de `relue` (la clé
+  de demande, inchangée). Aujourd'hui la station rapproche la clé `acp:<mission>:t<tour>:<ref>:<suffixe>`
+  (`noyau/graphe.py`, `_cle`) des champs servis `tour`, `ref` et `role`, au rang de la carte dans l'ordre servi
+  (`noyau/cartes.py`, `cartes_du_projet` : `tour, cree_le, rowid`) pour `relecture2` ou `correction1`
+  (`EspaceTravailViewModel::construireAgents`) ; le champ servi rendrait ce rapprochement inutile. Un rapprochement
+  impossible laisse la relecture à plat sous Hermes ; aucune relation n'est inventée.
+- Lot D : servir la raison d'une carte `scheduled` (question, pause de la mission, quota). D'ici là, la station dit
+  « Suspendue (question, pause ou quota) » sans choisir la cause.
 
 ---
 
@@ -530,8 +551,10 @@ Propositions :
 - Critères gardés par demande : voie, modèle, effort, palier, `source_routage`, relevé, mention
   (`noyau/base.py:102-112`). Le rang retenu et les raisons des entrées écartées sont perdus (liste `raisons`,
   `noyau/routage.py:551-557`).
-- Le plan de Hermes donne souvent voie, modèle et effort par étape : `composer` les passe en choix explicite
-  (`noyau/graphe.py:156-163`). Un choix explicite passe avant la table.
+- Le plan de Hermes peut fixer voie, modèle et effort par étape (champs facultatifs, `noyau/graphe.py:103-104`).
+  `composer` les passe à `resoudre` (`noyau/graphe.py:163-164`), qui en fait un choix explicite
+  (`noyau/routage.py:530-546`) : il passe avant la table. La part des étapes ainsi fixées dans les plans réels n'est
+  pas mesurée ici.
 
 ### 6.2 Forme proposée
 
@@ -570,9 +593,12 @@ Propositions :
 
 - Métrique : **coût du résultat accepté**. Numérateur : jetons d'entrée, de sortie et de cache rapportés par
   l'exécutant pour toutes les cartes de la mission, corrections et relances comprises. Ils sont rangés sur le run
-  (`noyau/execution.py:555` ; `contrat/machine.py:846-849`, `948`) et lisibles par `ka.list_runs`, importé mais
-  inutilisé (`noyau/kanban_adapter.py:53`). Dénominateur : 1 si le résultat est accepté ; sinon la mission ne compte
-  pas, et le taux d'acceptation est publié à côté.
+  (`noyau/execution.py:555` ; `contrat/machine.py:846-849`, `948`). `ka.list_runs` est importé mais inutilisé
+  (`noyau/kanban_adapter.py:53`) ; qu'il rende ces métadonnées n'est pas vérifié ici (code de Hermes absent de la
+  session). Seule l'issue `terminer` porte des jetons (`contrat/machine.py:997-1006`) : un run fini par une question,
+  un blocage, une reprise ou un arrêt n'en rapporte aucun (`contrat/machine.py:1053-1160`). Le numérateur sous-compte
+  donc ces runs, et doit le dire. Dénominateur : 1 si le résultat est accepté ; sinon la mission ne compte pas, et le
+  taux d'acceptation est publié à côté.
 - Mesures publiées à côté, jamais fondues dans le nombre : heures d'agent, cartes, corrections, relances, écart de
   quota entre deux relevés.
 - Les jetons des cartes Hermes ne sont pas relevés par le greffon : « non mesuré ». Aucun prix en euros : aucune donnée
@@ -621,7 +647,7 @@ Source : `GET /v1/poste`, dernier inventaire avec `recu_le` et `releve_le` (`das
 | `connexions.plan_codex` | Texte de 40 caractères au plus, ou `null` | `contrat/inventaire.py:651` |
 | `connexions.claude` | `jeton_reconnu`, `jeton_present_non_verifie`, `refuse`, `jeton_absent`, `inconnu` | `contrat/inventaire.py:648` ; code de sortie de `claude auth status`, sorties jetées (`poste/sondes_claude.py:5-9`) |
 | `connexions.claude_echeance` | Date **estimée** : dépôt du jeton plus 365 jours | `contrat/inventaire.py:653` ; `poste/service_executant.py:67`, `419-429` ; alerte à 30 jours (`noyau/inventaire.py:109-111`) |
-| Voies fermées et leur raison | `{voie: raison}` calculé par le greffon depuis le dernier inventaire ; voies annoncées par l'exécutant | `noyau/routage.py:347-369` ; bloc `executant` de `/v1/poste` (`noyau/execution.py:839`, `841`). La raison locale de l'exécutant (`poste/service_executant.py:202-226`) n'est pas transmise |
+| Voies fermées et leur raison | `{voie: raison}` calculé par le greffon depuis le dernier inventaire ; voies annoncées par l'exécutant | `noyau/routage.py:347-369` ; bloc `executant` de `/v1/poste` (`noyau/execution.py:839`, `841`). La raison locale de l'exécutant (`poste/service_executant.py:202-226`, `239-268`) n'est pas transmise |
 | Conditions d'usage décidées | Date, ou `null` : voie fermée | `contrat/inventaire.py:731` ; alerte `noyau/inventaire.py:106-108` |
 
 Libellés à tenir : « Jeton reconnu », jamais « valide » (`poste/sondes_claude.py:7`) ; « échéance estimée », jamais
@@ -667,7 +693,8 @@ Aucune route nouvelle n'est nécessaire. Une route de compte qui recevrait un se
 - Claude : liste blanche `--tools` de lecture et d'écriture de fichiers seulement (`poste/commandes_agents.py:51-52`,
   `116`). La liste noire du contrôle d'init contient `Task` mais pas `Agent` (`poste/evenements.py:33`) : la garantie
   vient de la liste blanche.
-- Hermes sur Railway : aucune délégation ; la garde n'admet aucun outil de délégation (`garde_execution.py:63-86`).
+- Hermes sur Railway : aucune délégation. Le jeu d'outils `delegation` est coupé
+  (`hermes/image/acp_demarrage.py:584-585`) et la garde n'admet aucun outil de délégation (`garde_execution.py:63-86`).
 
 Conditions avant toute ouverture, toutes exigées :
 
@@ -691,8 +718,9 @@ Jusque-là, la station affiche « Non observé » (D166).
 ## 9. Extensions du § 19 du brief : backlog
 
 - **Missions récurrentes**, désactivées par défaut.
-  - Fait établi : l'agent ne peut pas créer de tâche cron. Les outils sur `cron` sont coupés (D24) ; `cronjob` est
-    coupé (`hermes/image/acp_demarrage.py:1929-1930`) et absent de la liste blanche (`garde_execution.py:63-86`).
+  - Fait établi : l'agent ne peut pas créer de tâche cron. Les outils sur `cron` sont coupés (D24) ; le jeu d'outils
+    `cronjob` est coupé (`hermes/image/acp_demarrage.py:584-585`, rappelé en `1930`) et absent de la liste
+    blanche (`garde_execution.py:63-86`).
   - Seul modèle existant : le bilan quotidien, tâche native `no_agent` créée par le propriétaire (D98 ;
     `apps/desktop/src/viewmodels/AccueilViewModel.cpp:294`). La garde des scripts n'admet que `acp-bilan.py`,
     d'empreinte connue (`hermes/image/acp_demarrage.py:1932-1937`).
@@ -700,7 +728,9 @@ Jusque-là, la station affiche « Non observé » (D166).
     sans dépense. Ensuite seulement, sur décision : un second script admis par la garde, qui lance une mission depuis
     un modèle enregistré, soumis aux plafonds, à la pause générale et aux quotas.
   - Une origine `recurrence` élargirait la contrainte de `projets.origine` (`noyau/base.py:74`) : reconstruction, dans
-    l'ordre K21.
+    l'ordre K21. Elle serait plus délicate que celles de v3 et v4 : `tours`, `demandes` et `questions` référencent
+    `projets` (`noyau/base.py:87`, `96`, `121`), alors que la mécanique existante suppose qu'aucune table ne référence
+    la table reconstruite (`noyau/base.py:27-31`).
 - **Services.** Aujourd'hui, l'onglet ne peut montrer que l'exécutant : présence, inventaire, ordres (`GET /v1/poste`).
   L'exécutant n'écoute aucun port (`CLAUDE.md`), et le réseau des agents est coupé
   (`executant/politique/executant.toml:53`). Un service lancé par une mission demanderait une décision du propriétaire.

@@ -28,10 +28,11 @@ Prérequis
 
 Effets
 ------
-1. Inspecte ``<préfixe>/conda-meta`` sans rien télécharger. Si ``qt6-main`` 6.8.3 et les trois
-   compagnons y figurent, le script le dit (« déjà installé »), affiche les commandes CMake et sort
-   en 0. Un préfixe non vide qui ne contient pas exactement cette installation est refusé : il n'est
-   jamais complété ni écrasé.
+1. Inspecte ``<préfixe>/conda-meta`` sans rien télécharger. Si ``qt6-main`` 6.8.3 y figure avec le
+   build et le condensat épinglés, et les trois compagnons avec lui, le script le dit (« déjà
+   installé »), affiche les commandes CMake et sort en 0. Tout autre préfixe non vide est refusé (autre
+   version, autre build, autre condensat, compagnon manquant, dossier non conda) : il n'est jamais
+   complété ni écrasé.
 2. Si py-rattler 0.27.1 manque à l'interpréteur courant, crée au besoin l'environnement virtuel
    ``<parent du préfixe>/rattler-venv`` (option ``--venv``), y installe ``py-rattler==0.27.1`` par pip
    (roue manylinux x86_64 vérifiée par son condensat, ``--require-hashes``), puis se relance sous cet
@@ -49,7 +50,7 @@ Usage
     python3 scripts/installer_qt_linux.py                  # préfixe par défaut
     python3 scripts/installer_qt_linux.py /chemin/qt683     # autre préfixe
     python3 scripts/installer_qt_linux.py --verifier        # constate seulement, ne télécharge rien
-    python3 scripts/installer_qt_linux.py --simuler         # résout sans installer
+    python3 scripts/installer_qt_linux.py --simuler         # résout, n'installe rien dans le préfixe
 
 Codes de sortie : 0 en cas de succès ; 1 en cas d'échec ou de refus, avec un message en français sur
 la sortie d'erreur.
@@ -170,6 +171,10 @@ def deja_installe(prefixe: Path, etat: EtatPrefixe) -> bool:
     if etat.qt_version != QT_VERSION:
         raise Refus(f"{prefixe} contient {QT_NOM} {etat.qt_version}, pas {QT_VERSION} : préfixe refusé. "
                     "Supprimez-le vous-même ou choisissez un autre préfixe.")
+    if etat.qt_build != QT_BUILD or etat.qt_sha256 != QT_SHA256:
+        raise Refus(f"{prefixe} contient {QT_NOM} {QT_VERSION} de build {etat.qt_build or 'inconnu'} et de "
+                    f"condensat {etat.qt_sha256 or 'inconnu'}, pas l'épingle {QT_BUILD} ({QT_SHA256}) : "
+                    "préfixe refusé. Supprimez-le vous-même ou choisissez un autre préfixe.")
     manquants = etat.compagnons_manquants
     if manquants:
         raise Refus(f"{prefixe} contient {QT_NOM} {QT_VERSION} mais pas {', '.join(manquants)} : "
@@ -178,11 +183,7 @@ def deja_installe(prefixe: Path, etat: EtatPrefixe) -> bool:
 
 
 def afficher_installation(prefixe: Path, etat: EtatPrefixe) -> None:
-    print(f"{QT_NOM} {etat.qt_version} (build {etat.qt_build or 'inconnu'}) présent dans {prefixe}.")
-    if etat.qt_build != QT_BUILD:
-        print(f"Avertissement : build {etat.qt_build or 'inconnu'} différent de l'épingle {QT_BUILD}.")
-    if etat.qt_sha256 != QT_SHA256:
-        print(f"Avertissement : condensat {etat.qt_sha256 or 'inconnu'} différent de l'épingle {QT_SHA256}.")
+    print(f"{QT_NOM} {etat.qt_version} (build {etat.qt_build}, condensat de l'épingle) présent dans {prefixe}.")
     print(f"Compagnons présents : {', '.join(COMPAGNONS)} ; {len(etat.paquets)} paquets dans conda-meta.")
 
 
@@ -343,7 +344,8 @@ def analyser(argv: Sequence[str]) -> argparse.Namespace:
     mode.add_argument("--verifier", action="store_true",
                       help="constate l'état du préfixe sans rien télécharger ; code 1 si Qt n'y est pas")
     mode.add_argument("--simuler", action="store_true",
-                      help="résout les paquets et contrôle l'épingle, sans rien installer")
+                      help="résout les paquets et contrôle l'épingle, sans rien installer dans le "
+                           "préfixe (py-rattler peut l'être dans son environnement virtuel s'il manque)")
     analyseur.add_argument("-h", "--aide", "--help", action="help", help="affiche cette aide et sort")
     return analyseur.parse_args(argv)
 
@@ -399,6 +401,8 @@ def main() -> None:
         sortir_en_echec(str(refus))
     except KeyboardInterrupt:
         sortir_en_echec("interrompu par l'utilisateur.")
+    except OSError as erreur:  # droits, disque plein, interpréteur introuvable : jamais de trace brute
+        sortir_en_echec(f"erreur du système : {erreur}.")
 
 
 if __name__ == "__main__":

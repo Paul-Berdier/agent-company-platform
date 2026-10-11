@@ -33,12 +33,15 @@ fait foi si la ligne a bougé.
    - Railway au propriétaire seul (`CLAUDE.md:109-112`) ; aucun outil d'exécution pour l'agent sur Railway
      (`CLAUDE.md:101`) ; aucun secret dans `QSettings`, un JSON, du QML ou un journal (`CLAUDE.md:93`).
 3. **Écrire.**
-   - Fins de ligne LF, aucune ligne vide en fin de fichier (`scripts/tests/test_fins_de_fichier.py:30-33`).
+   - Fins de ligne LF (`CLAUDE.md:19`) ; aucune ligne vide en fin de fichier suivi
+     (`scripts/tests/test_fins_de_fichier.py:30-33`).
    - Documentation, commentaires et messages en français (`CLAUDE.md:71`) ; refus explicites, échec fermé
      (`CLAUDE.md:67`).
    - Aucune donnée inventée : « Inconnu », « Non configuré », « Hors ligne » (`CLAUDE.md:68-70`).
-   - Une décision citée `Dnnn` dans `docs/refonte/*.md`, `docs/reprise-poste.md`, `CHANGELOG.md` ou
-     `docs/exploitation.md` doit exister au plan (`scripts/tests/test_decisions_documentees.py:13-25`).
+   - Une décision citée `Dnnn` dans `docs/refonte/*.md`, `docs/reprise-poste.md`, `CHANGELOG.md`,
+     `hermes/catalogue/catalogue.lock.json` ou `docs/exploitation.md` doit exister au plan
+     (`scripts/tests/test_decisions_documentees.py:13-25`). Ailleurs, `outils/skills/` compris, le test ne lit rien :
+     vérifier à la main.
 4. **Tester.** Choisir les suites dans [references/suites-par-chemin.md](references/suites-par-chemin.md). Lancer
    tout ce qui s'applique et noter le résultat réel : réussis, ignorés, échecs.
 5. **Committer.**
@@ -48,10 +51,10 @@ fait foi si la ligne a bougé.
    - `git add <fichier>` fichier par fichier, jamais `git add -A` ni `git add .` (`CLAUDE.md:17-18`).
    - `git diff --check` pour les fichiers suivis, puis `git diff --cached --check` après l'ajout (`CLAUDE.md:19`).
      Un fichier non suivi n'apparaît dans `git diff --check` qu'une fois ajouté.
-   - Ne jamais employer `git stash` : la pile est commune à tous les worktrees (`docs/reprise-poste.md:202`).
+   - Ne jamais employer `git stash` : la pile est commune à tous les worktrees (`docs/reprise-poste.md:222`, § 5).
 6. **Publier.** Suivre la recette d'un lot (`CLAUDE.md:45-56`) : version ouverte, journal en six rubriques, CI verte,
-   PR vers `main`, fusion et étiquette seulement après l'accord du propriétaire. Pour ce chantier : version 1.1.0
-   ouverte au moment de la PR (D169).
+   PR vers `main`, fusion et étiquette seulement après validation. Pour ce chantier, D169 (conception, à
+   confirmer) : version 1.1.0 ouverte au moment de la PR, fusion et étiquette sur accord du propriétaire.
 
 ## Docker (D160)
 
@@ -75,14 +78,17 @@ Un compte rendu court, sans faux succès (`CLAUDE.md:64-66`) :
 ## Limites
 
 - La preuve qui fait foi est la CI : Desktop CI sur `windows-2022` (`.github/workflows/desktop-ci.yml:74`), CI
-  (`.github/workflows/ci.yml`), Image Hermes (`.github/workflows/image.yml`).
+  (`.github/workflows/ci.yml`), Image Hermes (`.github/workflows/image.yml`), Image de l'exécutant
+  (`.github/workflows/executant.yml`).
 - Le préréglage `linux-gcc-debug` est en Debug (`apps/desktop/CMakePresets.json:75-87`) ; la Release Windows traite
   les avertissements en erreurs (`apps/desktop/CMakePresets.json:61`). Un vert Linux ne prouve pas MSVC.
-- Sous Linux, ni coffre ni DPAPI (`apps/desktop/CMakePresets.json:77`).
-- CTest compte « Passed » un test ignoré par `QSKIP` : lire les totaux de Qt Test (`docs/reprise-poste.md:283`).
-- Dans un clone superficiel sans étiquettes, `check_engine_frozen.py` échoue fermé (mesuré le 11 octobre 2026 :
-  « étiquette archive/acp-0.10.0-avant-hermes introuvable »). Récupérer l'étiquette modifie `.git` : geste d'un agent
-  qui écrit.
+- Sous Linux, le coffre refuse de stocker (`apps/desktop/CMakePresets.json:77`) et le chiffrement des sauvegardes n'a
+  pas de DPAPI (`apps/desktop/src/storage/ChiffrementSauvegarde.cpp:68-75`, `:90-94`) ; `tst_pages_bureau` y vérifie
+  le refus en français (`apps/desktop/tests/cpp/tst_pages_bureau.cpp:599-605`).
+- CTest compte « Passed » un test ignoré par `QSKIP` : lire les totaux de Qt Test (`docs/reprise-poste.md:303`, § 5).
+- Sans l'étiquette d'archive, `check_engine_frozen.py` échoue fermé : « étiquette archive/acp-0.10.0-avant-hermes
+  introuvable » (`scripts/check_engine_frozen.py:183-187`). Récupérer l'étiquette modifie `.git` : geste d'un agent
+  qui écrit. À la relecture du 11 octobre 2026, l'étiquette était présente et le script rendait « Moteur gelé », code 0.
 - Les tests `hermes/tests/image` ne tournent que dans l'image Docker de test (`hermes/tests/image/conftest.py:1-10`).
 - La session cloud du 11 octobre 2026 tourne en root (uid 0) : les tests marqués `RACINE_LINUX` s'y activent
   (`apps/poste/tests/test_execution.py:42-44`). Un échec peut alors venir de l'environnement : comparer à la même

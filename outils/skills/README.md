@@ -19,9 +19,12 @@ listes vivent dans son dossier `references/`. Les numéros de ligne cités ont �
 - Ce sont des outils de l'agent de développement, l'« outillage A » de
   [docs/refonte/atelier-outillage.md](../../docs/refonte/atelier-outillage.md) § 1. Rien ici n'entre dans un produit
   livré. Aucune de ces skills n'est inscrite au catalogue de Hermes (`hermes/catalogue/catalogue.lock.json`), qui
-  garde `skill-creator` exclue (D12) ; `scripts/verifier_catalogue.py` ne lit que `hermes/skills` (ligne 104).
-  Aucun workflow n'exécute ces skills : seuls les contrôles d'hygiène de l'arbre suivi les liront une fois
-  committées (`scripts/tests/test_fins_de_fichier.py`, balayage des secrets).
+  garde `skill-creator` exclue (D12) ; `scripts/verifier_catalogue.py` ne contrôle que les skills de `hermes/skills`
+  (`Chemins.skills`, ligne 104).
+- Aucun workflow n'exécute ces skills. Comme tout fichier suivi, elles passent seulement par les contrôles
+  d'hygiène : `scripts/tests/test_fins_de_fichier.py`, puis, dans `ci.yml`, « Vérifier les blancs des commits » et
+  le balayage des secrets (`.github/workflows/ci.yml:53-72`). `test_decisions_documentees.py` ne les lit pas : un
+  `Dnnn` cité ici se vérifie à la main dans `docs/refonte/plan.md`.
 
 ## Format
 
@@ -30,9 +33,10 @@ Structure de la skill `skill-creator` d'`anthropics/skills` (licence Apache 2.0)
 condensat SHA-256 (`dcd4803e…2bcf`) est celui que relève [atelier-outillage.md](../../docs/refonte/atelier-outillage.md)
 § 6.2. Aucun fichier de `skill-creator` n'est copié ici.
 
-Contrôle fait le 11 octobre 2026 : le script `quick_validate.py` de `skill-creator`, lancé hors dépôt, rend « Skill
-is valid! » pour les trois skills. La `description` de chacune compte moins de 1 024 caractères et ne contient aucun
-chevron.
+Contrôle fait le 11 octobre 2026 et rejoué à la relecture : le script `quick_validate.py` de `skill-creator`
+(SHA-256 `67cf5703…e365`, [atelier-outillage.md](../../docs/refonte/atelier-outillage.md) § 6.2), lancé hors
+dépôt avec `/usr/bin/python3.12 -I`, rend « Skill is valid! » pour les trois skills. La `description` de chacune
+compte moins de 1 024 caractères (652, 731 et 756) et ne contient aucun chevron.
 
 ## Activer localement
 
@@ -57,9 +61,10 @@ done
 - une skill ajoutée sous `~/.claude/skills/` est vue pendant la session, sans redémarrage ; l'effet d'une
   modification faite à travers le lien n'a pas été vérifié ;
 - une skill personnelle de même nom l'emporte sur une skill de projet ;
-- les sessions cloud et Cowork ne lisent pas le `~/.claude/skills/` du poste. Dans une session cloud, créer le lien
-  dans le conteneur de la session (non vérifié dans cette session), ou demander à l'agent de lire le `SKILL.md`
-  voulu.
+- les sessions cloud et Cowork ne lisent pas le `~/.claude/skills/` du poste. La même page dit qu'une session
+  cloud charge les skills committées sous `.claude/skills/` : voie fermée ici (`CLAUDE.md:20`). Dans une session
+  cloud, créer le lien dans le conteneur de la session (non vérifié dans cette session), ou demander à l'agent de
+  lire le `SKILL.md` voulu.
 
 ### Codex
 

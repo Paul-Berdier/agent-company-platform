@@ -1,8 +1,8 @@
 # Pièges QML mesurés sur Qt 6.8.3
 
-Essais faits le 11 octobre 2026 dans la session cloud Linux du chantier « atelier », avec le Qt 6.8.3 installé hors
-dépôt (`/opt/acp-outils/qt683`, voir [atelier-outillage.md](../../../../docs/refonte/atelier-outillage.md) § 2.2),
-plateforme `offscreen`. Fichiers d'essai écrits dans le dossier de brouillon de la session, jamais dans le dépôt.
+Essais faits le 11 octobre 2026 dans la session cloud Linux du chantier « atelier », rejoués à la relecture le même
+jour, avec le Qt 6.8.3 installé hors dépôt (`/opt/acp-outils/qt683`, voir
+[atelier-outillage.md](../../../../docs/refonte/atelier-outillage.md) § 2.2), plateforme `offscreen`. Fichiers d'essai écrits dans le dossier de brouillon de la session, jamais dans le dépôt.
 Outils : `qml` et `qmllint` de `/opt/acp-outils/qt683/lib/qt6/bin`.
 
 ## 1. Propriété `on` suivie d'une majuscule
@@ -14,8 +14,8 @@ Origine de la règle : skill `qt-qml` des Qt Agentic Tools, lue pendant le chant
 |---|---|
 | `property bool onLigne: true` seule dans un `Item`, lue par `Component.onCompleted` | chargé ; valeur `true` |
 | même propriété affectée par l'utilisateur du composant (`onLigne: false`), sans propriété `ligne` | chargé ; valeur `false` |
-| composant `QtObject { property color accent: … ; property color onAccent: … }` | **refusé au chargement** : « Cannot assign a value to a signal (expecting a script to be run) », puis « Type Jetons unavailable » |
-| `qmllint` sur ce dernier cas | code 0, aucun avertissement |
+| composant `Jetons` : `QtObject { property color accent: … ; property color onAccent: … }`, instancié par un autre fichier | **refusé au chargement** : « Type Jetons unavailable », causé par « Cannot assign a value to a signal (expecting a script to be run) » sur la ligne qui déclare `onAccent` |
+| `qmllint` sur ce composant et sur le fichier qui l'instancie | code 0, aucun avertissement |
 
 Conclusion : le nom passe tant qu'aucune propriété de base homonyme n'existe, puis casse sans que `qmllint` le
 signale. Règle retenue : aucun nom `on` suivi d'une majuscule. Le générateur de jetons préfixe déjà
@@ -27,8 +27,8 @@ Essai : un `Rectangle` avec `anchors.left: parent.left; width: 50; height: 20`, 
 
 | Outil | Résultat mesuré |
 |---|---|
-| `qml` (exécution) | avertissement du moteur : « Detected anchors on an item that is managed by a layout. This is undefined behavior; use Layout.alignment instead. » |
-| `qmllint` | deux avertissements `[Quick.layout-positioning]` : ancrage, puis largeur (« use implicitWidth or Layout.preferredWidth instead ») |
+| `qml` (exécution) | un seul avertissement du moteur, pour l'ancrage : « Detected anchors on an item that is managed by a layout. This is undefined behavior; use Layout.alignment instead. » ; aucun pour la largeur ni la hauteur |
+| `qmllint` | trois avertissements `[Quick.layout-positioning]`, code 0 : ancrage, largeur (« use implicitWidth or Layout.preferredWidth instead »), hauteur |
 
 Dans la station, `tst_pages_bureau` recueille les avertissements du moteur (`QQmlEngine::warnings`,
 `apps/desktop/tests/cpp/tst_pages_bureau.cpp:236-238`) et fait échouer l'étape qui en reçoit un
@@ -52,5 +52,5 @@ isolé ; il ne prouve rien sur un fichier de la station. Aucun workflow ne le la
 ## 4. Ce qui n'a pas été mesuré
 
 - Le comportement sous Windows et MSVC : seule la Desktop CI le dit.
-- La cadence d'image d'une animation : profilage au lot F
+- La cadence d'image d'une animation : le profilage relève du lot F, au backlog
   ([atelier.md](../../../../docs/refonte/atelier.md), section 6).

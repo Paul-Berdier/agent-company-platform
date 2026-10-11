@@ -11,9 +11,9 @@ le nom fait foi si la ligne bouge. Commandes depuis la racine du dépôt, sous L
 |---|---|---|
 | Tout changement | `git diff --check` ; `python3.12 scripts/balayer_secrets.py --arbre` ; pytest de `scripts/tests` | « Vérifier les blancs des commits » et « Balayer les secrets » (`ci.yml:53-72`) |
 | `apps/poste/**` | pytest de `apps/poste/tests` | « Exécuter les tests Python » (`ci.yml:158-161`, Ubuntu et Windows) ; en root dans l'image d'essais (`.github/workflows/executant.yml:134-137`) |
-| `hermes/plugins/acp-poste/contrat/**` | pytest de `hermes/plugins/acp-poste/contrat/tests` | idem |
+| `hermes/plugins/acp-poste/contrat/**` | pytest de `hermes/plugins/acp-poste/contrat/tests` | idem ; et `image.yml`, puisque le chemin est sous `hermes/**` |
 | `executant/**` | pytest de `executant/tests` ; `test_image.py` pilote Docker (`executant/tests/test_image.py:1`) | `executant.yml:106-107` |
-| `hermes/**` hors contrat | aucune suite locale sans Docker : `hermes/tests/image` ne tourne que dans l'image de test (`hermes/tests/image/conftest.py:1-10`) | `image.yml:315-344`, déclenché par `hermes/**` (`image.yml:134-135`) |
+| `hermes/**` hors contrat | sans Docker, seuls les tests statiques de `scripts/tests` (ligne « Tout changement ») ; `hermes/tests/image` ne tourne que dans l'image de test (`hermes/tests/image/conftest.py:1-10`), `hermes/tests/contrat` pilote Docker (`hermes/tests/contrat/conftest.py:1`) | `image.yml:315-344`, déclenché par `hermes/**` (`image.yml:134-135`) |
 | `apps/interface/**` | `npm ci --ignore-scripts --prefix apps/interface` ; `npm test --prefix apps/interface` ; `npm run build --prefix apps/interface`, puis `git diff --exit-code -- hermes/plugins` | job « interface » (`ci.yml:97-113`) ; les bundles sont committés |
 | `design/tokens/**` | `python3.12 apps/desktop/cmake/generate_design_tokens.py --tokens design/tokens --out apps/desktop/qml/theme/generated --check` ; `python3.12 scripts/generer_themes.py --check` ; `python3.12 scripts/generer_assets_pixel.py --check` (des palettes pixel lisent des jetons) ; pytest de `scripts/tests/test_generer_themes.py` ; ctest de la station | « Vérifier le thème généré et le QML du desktop » (`ci.yml:139-140`) ; Desktop CI (`desktop-ci.yml:25`, `:44`) ; `image.yml` si `hermes/theme/acp.yaml` change |
 | `design/pixel/**`, `scripts/generer_assets_pixel.py` | `python3.12 scripts/generer_assets_pixel.py --check` ; pytest de `scripts/tests/test_generer_assets_pixel.py` ; ctest de la station (`tst_qml_shell` lit `tst_pixel.qml`) | « Vérifier les assets pixel générés » (`ci.yml:141-143`) ; Desktop CI (`desktop-ci.yml:26-27`, `:45-46`) |
@@ -62,15 +62,15 @@ ctest --preset linux-gcc-debug
   à part (`cmake --build --preset linux-gcc-debug --target acp_check_design_tokens`). En CI, la fraîcheur du QML
   généré vient de `generer_themes.py --check` (`ci.yml:139-140`).
 - `check_layout.py` est hors CI. Il signale 13 constats connus (`apps/desktop/README.md:60-64`) ; mesuré à 13 le
-  11 octobre 2026. Viser 13 ou moins, jamais plus.
+  11 octobre 2026, avec le code de sortie 1 que rend tout constat. Viser 13 ou moins, jamais plus.
 - Lire les totaux de Qt Test, pas seulement le compte CTest : un `QSKIP` compte « Passed »
   (`docs/desktop-build.md:163`).
 
 ## Ce qui ne se prouve qu'ailleurs
 
 - Windows : DPAPI, coffre, compilation MSVC et empaquetage à blanc, par la Desktop CI sur `windows-2022`
-  (`desktop-ci.yml:74`). L'icône vue dans l'Explorateur et l'installeur installé ne sont prouvés nulle part avant
-  le lot F ([docs/refonte/atelier.md](../../../../docs/refonte/atelier.md), section 6).
+  (`desktop-ci.yml:74`). L'icône vue dans l'Explorateur et l'installeur installé ne sont prouvés nulle part : c'est le
+  lot F, au backlog ([docs/refonte/atelier.md](../../../../docs/refonte/atelier.md), section 6).
 - Docker : tests d'image, de contrat et de bout en bout (`image.yml`, `executant.yml`) ; en local seulement sous D160.
 - Les bouts en bout locaux `scripts/e2e-desktop-windows.ps1` et `scripts/e2e-poste-windows.ps1` ne sont appelés par
   aucun workflow (`docs/reprise-poste.md`, § 4).
