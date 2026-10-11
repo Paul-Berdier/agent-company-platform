@@ -1,5 +1,25 @@
 # Reprise du travail sur un autre poste
 
+## Priorité de reprise — 11 octobre 2026, chantier « atelier » (lots A et B)
+
+Refonte de la station en espace de travail de code (brief du propriétaire du 11 octobre 2026, décisions D165 à
+D169 du [plan](refonte/plan.md)). Branche `claude/wonderful-brahmagupta-rlbkuj`, ouverte depuis `main` (`85b458b`,
+1.0.1) ; **aucune PR**, aucune version ouverte (1.1.0 le sera au moment de la PR, D169), rien de déployé. Lire dans
+cet ordre : [atelier.md](refonte/atelier.md) (état réel, matrice des écarts, lots C à F et § « Reprise »),
+[atelier-da.md](refonte/atelier-da.md) (direction artistique, contrastes, mouvement),
+[atelier-contrats.md](refonte/atelier-contrats.md) (contrats à étendre côté greffon, rien d'implémenté côté serveur)
+et [atelier-outillage.md](refonte/atelier-outillage.md) (Qt 6.8.3 sous Linux, commandes de test, outils absents).
+
+- **Fait et testé sous Linux** (Qt 6.8.3 de conda-forge, plateforme Qt hors écran) : thèmes Pixel Atelier
+  Nuit/Jour et Studio Graphite/Papier générés depuis `design/tokens` avec contrôle de contraste, profils de
+  mouvement Complet/Discret/Réduit et Concentration, densité et taille du texte ; coquille à trois volets et volet
+  bas (`EspaceTravailViewModel`) ; Réglages, Apparence, Comptes ; « Auto » par défaut au lancement ; module
+  `Acp.Pixel` et assets générés par `scripts/generer_assets_pixel.py` (emblème, icône `.ico`, portraits, police,
+  pictogrammes). 37 tests natifs verts hors écran ; tests Python des générateurs verts.
+- **Jamais exécuté** : compilation MSVC et tests sous Windows (`desktop-ci.yml` ne tourne qu'en PR ou sur `main`
+  et `refonte/**`), Inno Setup et l'icône installée, captures à 125 et 150 % sous Windows, bouts en bout Docker.
+- Les paragraphes du 10 octobre ci-dessous restent l'état du serveur et de l'exploitation.
+
 ## Priorité de reprise — 10 octobre 2026, correctif 1.0.1
 
 `main` porte désormais 1.0.0 (`f76e7c5`, PR #25), et `v1.0.0` existe. Le propriétaire a demandé la correction
