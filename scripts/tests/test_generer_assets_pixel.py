@@ -54,8 +54,10 @@ def test_icone_windows_porte_toutes_les_tailles_nettes():
     # Les grandes tailles sont des multiples entiers de la grille 32 (plus proche voisin).
     assert par_taille[64] == gap.agrandir(par_taille[32], 2)
     assert par_taille[256] == gap.agrandir(par_taille[32], 8)
-    # 16, 20, 24 et 32 sont dessinées pour elles-mêmes : jamais une réduction de la grande.
-    assert par_taille[16] != par_taille[32][::2]
+    # 16 est dessinée pour elle-même : jamais une réduction (un pixel sur deux, quel que soit le décalage) de 32.
+    for dy in (0, 1):
+        for dx in (0, 1):
+            assert par_taille[16] != [rangee[dx::2] for rangee in par_taille[32][dy::2]]
 
 
 def test_les_png_de_l_embleme_suivent_leur_nom():

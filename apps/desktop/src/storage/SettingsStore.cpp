@@ -33,7 +33,7 @@ constexpr char kDrawerTab[] = "layout/bottomDrawerTab";
 constexpr int kSidebarMin = 220;
 constexpr int kSidebarMax = 420;
 constexpr int kAgentsMin = 260;
-constexpr int kAgentsMax = 600;
+constexpr int kAgentsMax = 560;
 constexpr int kDrawerMin = 120;
 constexpr int kDrawerMax = 520;
 

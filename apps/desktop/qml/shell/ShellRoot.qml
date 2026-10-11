@@ -48,6 +48,7 @@ Item {
         }
         function onLayoutChanged() { if (!centre.resizing) shell.applyPanels() }
         function onSidebarCollapsedChanged() { shell.applyNavigationWidth() }
+        function onBasculeNavigationDemandee() { shell.toggleNavigation() }
     }
     // Alt+←/→ sont déclarés au registre (App.qml) : un second Shortcut identique les rendrait ambigus.
     Shortcut {

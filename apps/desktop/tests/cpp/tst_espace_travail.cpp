@@ -91,6 +91,7 @@ struct Banc
     ProjetsViewModel projets{&client, &greffon, &flux};
     NavigationModel navigation;
     EspaceTravailViewModel espace{&greffon, &flux, &projets, &navigation};
+    QJsonObject detail = fixture(QStringLiteral("projet-detail.json"));
 
     Banc()
     {
@@ -107,7 +108,7 @@ struct Banc
         serveur.route("GET", kP + QStringLiteral("/projets"),
                       [](const RequeteRecue &) { return ReponseFaux::json(200, fixture(QStringLiteral("projets.json"))); });
         serveur.route("GET", kP + QStringLiteral("/projets/") + kId,
-                      [](const RequeteRecue &) { return ReponseFaux::json(200, fixture(QStringLiteral("projet-detail.json"))); });
+                      [this](const RequeteRecue &) { return ReponseFaux::json(200, detail); });
         serveur.route("GET", kP + QStringLiteral("/catalogue"),
                       [](const RequeteRecue &) { return ReponseFaux::json(200, fixture(QStringLiteral("catalogue-profils.json"))); });
         serveur.route("GET", kP + QStringLiteral("/poste"),
@@ -214,33 +215,48 @@ void TestEspaceTravail::groupeReplieGardeSaLigne()
 
 void TestEspaceTravail::relecturesSousLaCarteRelue()
 {
+    // Forme servie par le greffon : `relue` porte la CLÉ de la demande relue (noyau/graphe.py, _cle), les
+    // cartes arrivent dans l'ordre de leur création (tour, cree_le, rowid).
+    const auto cle = [](const QString &suffixe) { return QStringLiteral("acp:%1:t1:e1:%2").arg(kId, suffixe); };
+    const auto etape = [](QJsonObject carte, const QString &ref) {
+        carte.insert(QStringLiteral("ref"), ref);
+        return carte;
+    };
     const QJsonObject projet{
         {QStringLiteral("id"), kId},
         {QStringLiteral("etat"), QStringLiteral("actif")},
         {QStringLiteral("cartes"), QJsonArray{
-             carte(QStringLiteral("t_relecture2"), QStringLiteral("relecture"), QStringLiteral("todo"), 1, QStringLiteral("t_relecture1")),
-             carte(QStringLiteral("t_relecture1"), QStringLiteral("relecture"), QStringLiteral("review"), 1, QStringLiteral("t_impl")),
-             carte(QStringLiteral("t_impl"), QStringLiteral("implementation"), QStringLiteral("running"), 1),
              carte(QStringLiteral("t_plan"), QStringLiteral("planification"), QStringLiteral("done"), 0),
-             carte(QStringLiteral("t_orpheline"), QStringLiteral("relecture"), QStringLiteral("todo"), 1, QStringLiteral("t_absente")),
+             etape(carte(QStringLiteral("t_impl"), QStringLiteral("implementation"), QStringLiteral("running"), 1), QStringLiteral("e1")),
+             etape(carte(QStringLiteral("t_rel1"), QStringLiteral("relecture"), QStringLiteral("review"), 1, cle(QStringLiteral("implementation"))), QStringLiteral("e1")),
+             etape(carte(QStringLiteral("t_corr1"), QStringLiteral("correction"), QStringLiteral("todo"), 1, cle(QStringLiteral("relecture"))), QStringLiteral("e1")),
+             etape(carte(QStringLiteral("t_rel2"), QStringLiteral("relecture"), QStringLiteral("todo"), 1, cle(QStringLiteral("correction1"))), QStringLiteral("e1")),
+             // Clé d'une autre mission, puis étape relue absente : à plat sous Hermes.
+             etape(carte(QStringLiteral("t_autre"), QStringLiteral("relecture"), QStringLiteral("todo"), 1,
+                         QStringLiteral("acp:p_autremission:t1:e1:implementation")), QStringLiteral("e2")),
              carte(QStringLiteral("t_cycle_a"), QStringLiteral("relecture"), QStringLiteral("todo"), 2, QStringLiteral("t_cycle_b")),
              carte(QStringLiteral("t_cycle_b"), QStringLiteral("relecture"), QStringLiteral("todo"), 2, QStringLiteral("t_cycle_a")),
+             etape(carte(QStringLiteral("t_orpheline"), QStringLiteral("relecture"), QStringLiteral("todo"), 2,
+                         QStringLiteral("acp:%1:t2:e9:implementation").arg(kId)), QStringLiteral("e9")),
          }},
     };
     const QJsonArray lignes = EspaceTravailViewModel::construireAgents(projet);
     QCOMPARE(cles(lignes), (QStringList{QStringLiteral("hermes"), QStringLiteral("t_plan"), QStringLiteral("t_impl"),
-                                        QStringLiteral("t_relecture1"), QStringLiteral("t_relecture2"), QStringLiteral("t_orpheline"),
+                                        QStringLiteral("t_rel1"), QStringLiteral("t_corr1"), QStringLiteral("t_rel2"),
+                                        QStringLiteral("t_autre"), QStringLiteral("t_orpheline"),
                                         QStringLiteral("t_cycle_a"), QStringLiteral("t_cycle_b")}));
     QCOMPARE(ligne(lignes, QStringLiteral("hermes")).value(QStringLiteral("niveau")).toInt(), 0);
     QCOMPARE(ligne(lignes, QStringLiteral("t_impl")).value(QStringLiteral("parent")).toString(), QStringLiteral("hermes"));
-    QCOMPARE(ligne(lignes, QStringLiteral("t_relecture1")).value(QStringLiteral("niveau")).toInt(), 2);
-    QCOMPARE(ligne(lignes, QStringLiteral("t_relecture1")).value(QStringLiteral("parent")).toString(), QStringLiteral("t_impl"));
-    // Relecture de relecture : un niveau de plus, jamais perdue.
-    QCOMPARE(ligne(lignes, QStringLiteral("t_relecture2")).value(QStringLiteral("niveau")).toInt(), 3);
-    QCOMPARE(ligne(lignes, QStringLiteral("t_relecture2")).value(QStringLiteral("parent")).toString(), QStringLiteral("t_relecture1"));
-    // Carte relue absente de la mission : rangée sous Hermes.
+    // Relecture sous l'implémentation, correction sous la relecture, seconde relecture sous la correction.
+    QCOMPARE(ligne(lignes, QStringLiteral("t_rel1")).value(QStringLiteral("niveau")).toInt(), 2);
+    QCOMPARE(ligne(lignes, QStringLiteral("t_rel1")).value(QStringLiteral("parent")).toString(), QStringLiteral("t_impl"));
+    QCOMPARE(ligne(lignes, QStringLiteral("t_corr1")).value(QStringLiteral("niveau")).toInt(), 3);
+    QCOMPARE(ligne(lignes, QStringLiteral("t_corr1")).value(QStringLiteral("parent")).toString(), QStringLiteral("t_rel1"));
+    QCOMPARE(ligne(lignes, QStringLiteral("t_rel2")).value(QStringLiteral("niveau")).toInt(), 4);
+    QCOMPARE(ligne(lignes, QStringLiteral("t_rel2")).value(QStringLiteral("parent")).toString(), QStringLiteral("t_corr1"));
+    QCOMPARE(ligne(lignes, QStringLiteral("t_autre")).value(QStringLiteral("niveau")).toInt(), 1);
     QCOMPARE(ligne(lignes, QStringLiteral("t_orpheline")).value(QStringLiteral("niveau")).toInt(), 1);
-    // Cycle servi : chaque carte reste visible une seule fois.
+    // Cycle (forme directe) : chaque carte reste visible une seule fois.
     QCOMPARE(ligne(lignes, QStringLiteral("t_cycle_a")).value(QStringLiteral("niveau")).toInt(), 1);
     QCOMPARE(ligne(lignes, QStringLiteral("t_cycle_b")).value(QStringLiteral("parent")).toString(), QStringLiteral("t_cycle_a"));
     const QJsonObject impl = ligne(lignes, QStringLiteral("t_impl"));
@@ -249,7 +265,15 @@ void TestEspaceTravail::relecturesSousLaCarteRelue()
     QCOMPARE(impl.value(QStringLiteral("sourceRoutage")).toString(), QStringLiteral("Auto : table de routage"));
     QCOMPARE(impl.value(QStringLiteral("effort")).toString(), QStringLiteral("Par défaut"));
     QCOMPARE(impl.value(QStringLiteral("modeleServi")).toString(), QStringLiteral("Non observé"));
-    QCOMPARE(ligne(lignes, QStringLiteral("t_relecture1")).value(QStringLiteral("portrait")).toString(), QStringLiteral("relecteur"));
+    QCOMPARE(ligne(lignes, QStringLiteral("t_rel1")).value(QStringLiteral("portrait")).toString(), QStringLiteral("relecteur"));
+
+    // Deux implémentations servies pour la même étape (forme inattendue) : aucune relation devinée.
+    QJsonArray doubles = projet.value(QStringLiteral("cartes")).toArray();
+    doubles.insert(2, etape(carte(QStringLiteral("t_impl_bis"), QStringLiteral("implementation"), QStringLiteral("todo"), 1),
+                            QStringLiteral("e1")));
+    QJsonObject ambigu = projet;
+    ambigu.insert(QStringLiteral("cartes"), doubles);
+    QCOMPARE(ligne(EspaceTravailViewModel::construireAgents(ambigu), QStringLiteral("t_rel1")).value(QStringLiteral("niveau")).toInt(), 1);
     // Mission non lue : aucun agent, pas même Hermes.
     QVERIFY(EspaceTravailViewModel::construireAgents({}).isEmpty());
 }
@@ -291,7 +315,12 @@ void TestEspaceTravail::etatsDAgentTiresDesStatutsServis()
     QCOMPARE(inconnu.value(QStringLiteral("statusKey")).toString(), QStringLiteral("unknown"));
     QCOMPARE(EspaceTravailViewModel::etatAgent(QString()).value(QStringLiteral("etatLibelle")).toString(), QStringLiteral("Inconnu"));
     QCOMPARE(EspaceTravailViewModel::portraitDuRole(QStringLiteral("role_futur")), QStringLiteral("inconnu"));
-    QCOMPARE(EspaceTravailViewModel::libelleSourceRoutage(QStringLiteral("choix_explicite")), QStringLiteral("Choix manuel (verrou)"));
+    // Posé par le lancement comme par le plan de Hermes : le libellé n'attribue le choix à personne.
+    QCOMPARE(EspaceTravailViewModel::libelleSourceRoutage(QStringLiteral("choix_explicite")),
+             QStringLiteral("Choix explicite (plan ou lancement), sans repli"));
+    // « scheduled » : question, pause ou quota ; le libellé ne choisit pas la cause.
+    QCOMPARE(EspaceTravailViewModel::etatAgent(QStringLiteral("scheduled")).value(QStringLiteral("etatLibelle")).toString(),
+             QStringLiteral("Suspendue (question, pause ou quota)"));
     QCOMPARE(EspaceTravailViewModel::libelleSourceRoutage(QString()), QStringLiteral("Inconnu"));
 }
 
@@ -395,10 +424,17 @@ void TestEspaceTravail::brouillonsEnMemoireOubliesAvecLaSession()
     banc.espace.noterBrouillon(QStringLiteral("mission-suivante:jetable"), QStringLiteral("a"));
     banc.espace.noterBrouillon(QStringLiteral("mission-suivante:jetable"), QString());
     QCOMPARE(banc.espace.brouillon(QStringLiteral("mission-suivante:jetable")), QString());
+    // Oubli des données du greffon (verdict bloquant) : les brouillons de la Discussion restent.
+    banc.espace.noterBrouillon(QStringLiteral("discussion:rt-s1"), QStringLiteral("Message en cours"));
+    banc.espace.oublierDonneesGreffon();
+    QCOMPARE(banc.espace.brouillon(QStringLiteral("discussion:rt-s1")), QStringLiteral("Message en cours"));
+    QCOMPARE(banc.espace.brouillon(QStringLiteral("nouvelle-mission:objectif")), QString());
+    banc.espace.noterBrouillon(QStringLiteral("nouvelle-mission:objectif"), QStringLiteral("Écrire les tests"));
     // Oubli de la session (déconnexion) : plus rien, même pas la recherche.
     banc.espace.setRecherche(QStringLiteral("outil"));
     banc.espace.oublier();
     QCOMPARE(banc.espace.brouillon(QStringLiteral("nouvelle-mission:objectif")), QString());
+    QCOMPARE(banc.espace.brouillon(QStringLiteral("discussion:rt-s1")), QString());
     QCOMPARE(banc.espace.recherche(), QString());
     QVERIFY(!banc.espace.listeLue());
 }
@@ -456,11 +492,33 @@ void TestEspaceTravail::boutEnBoutContreLeFauxHermes()
     // La ligne de la mission est marquée choisie dans la barre.
     QTRY_VERIFY(banc.espace.arbre()->itemAt(1).value(QStringLiteral("selectionnee")).toBool());
 
-    // Choisir un agent puis le perdre (mission vide) : la sélection est effacée, jamais périmée.
+    QVERIFY(!banc.espace.essaisPartiels());
+
+    // Choisir un agent, puis une relecture du détail où il n'est plus servi : la sélection est effacée.
     banc.espace.setAgentSelectionne(QStringLiteral("t_7aa28f61"));
     QCOMPARE(banc.espace.agent().value(QStringLiteral("role")).toString(), QStringLiteral("exploration"));
-    banc.espace.setAgentSelectionne(QStringLiteral("absent"));
+    QJsonObject relu = banc.detail;
+    QJsonObject projetRelu = relu.contains(QStringLiteral("projet")) ? relu.value(QStringLiteral("projet")).toObject() : relu;
+    QJsonArray restantes;
+    for (const QJsonValue &c : projetRelu.value(QStringLiteral("cartes")).toArray()) {
+        if (c.toObject().value(QStringLiteral("carte")).toString() != QLatin1String("t_7aa28f61")) restantes.append(c);
+    }
+    projetRelu.insert(QStringLiteral("cartes"), restantes);
+    // Journal à sa borne (100 lignes servies) : la liste des vérifications se dit partielle.
+    QJsonArray journal;
+    for (int i = 0; i < EspaceTravailViewModel::kBorneJournal; ++i) {
+        journal.append(QJsonObject{{QStringLiteral("quand"), 1790423039 - i}, {QStringLiteral("acteur"), QStringLiteral("acp-poste")},
+                                   {QStringLiteral("action"), QStringLiteral("note")}, {QStringLiteral("cible"), kId},
+                                   {QStringLiteral("detail"), QStringLiteral("ligne")}});
+    }
+    projetRelu.insert(QStringLiteral("journal"), journal);
+    if (relu.contains(QStringLiteral("projet"))) relu.insert(QStringLiteral("projet"), projetRelu); else relu = projetRelu;
+    banc.detail = relu;
+    banc.projets.actualiser();
+    QTRY_COMPARE(banc.espace.agentSelectionne(), QString());
     QVERIFY(banc.espace.agent().isEmpty());
+    QTRY_VERIFY(banc.espace.essaisPartiels());
+    QCOMPARE(banc.espace.agents()->count(), 2);
 
     // Identifiant invalide : refusé sans geste ni navigation.
     banc.navigation.setCurrentRoute(QStringLiteral("home"));
@@ -473,6 +531,9 @@ void TestEspaceTravail::boutEnBoutContreLeFauxHermes()
     banc.espace.nouvelleMission(QStringLiteral("jetable"));
     QCOMPARE(banc.navigation.currentRoute(), QStringLiteral("projects"));
     QCOMPARE(banc.projets.vue(), QStringLiteral("nouveau"));
+    // Le dépôt demandé survit à la lecture asynchrone de l'inventaire (première ouverture du formulaire).
+    QTRY_VERIFY(banc.projets.formulaire().value(QStringLiteral("pret")).toBool());
+    QCOMPARE(banc.projets.formulaire().value(QStringLiteral("depot")).toString(), QStringLiteral("jetable"));
     for (int rang = avant; rang < banc.serveur.requetes.size(); ++rang) {
         QVERIFY2(banc.serveur.requetes.at(rang).methode != "POST", "aucun geste envoyé par la barre");
     }

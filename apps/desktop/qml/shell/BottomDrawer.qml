@@ -126,8 +126,10 @@ Rectangle {
                 Vide {
                     text: qsTr("Changements : le diff reste sur l'exécutant, qui ne pousse jamais. Ce serveur ne sert pas "
                                + "encore le résumé des changements par tâche (prévu au lot D : diffstat et branche servis "
-                               + "avec chaque tâche). La récupération du travail passe par la commande indiquée dans "
-                               + "l'onglet Pilotage.")
+                               + "avec chaque tâche). La station n'affiche pas encore la récupération du travail : "
+                               + "« acp-poste bundle <alias> <branche> » dans une session « railway ssh », puis git bundle "
+                               + "verify (docs/refonte/railway.md, § 13.7 ; branches prêtes sur la page Poste du tableau "
+                               + "de bord web).")
                 }
                 Item { Layout.fillHeight: true }
             }
@@ -167,10 +169,26 @@ Rectangle {
                         font.pixelSize: Type.metadata.pixelSize
                     }
                 }
+                // Le journal servi est borné (100 dernières lignes) : une liste coupée le dit.
+                header: Text {
+                    objectName: "volet-tests-partiel"
+                    width: essais.width - essais.leftMargin - essais.rightMargin
+                    visible: Espace.essaisPartiels && essais.count > 0
+                    height: visible ? implicitHeight + Space.space3 : 0
+                    text: qsTr("Liste partielle : seules les vérifications des 100 dernières lignes du journal sont servies.")
+                    textFormat: Text.PlainText
+                    wrapMode: Text.WordWrap
+                    color: Colors.textMuted
+                    font.family: Type.metadata.family
+                    font.pixelSize: Type.metadata.pixelSize
+                }
                 Vide {
                     anchors.fill: parent
                     visible: essais.count === 0
-                    text: qsTr("Aucune vérification rapportée : elles arrivent avec la fin de chaque tâche (état seulement ; "
+                    text: Espace.essaisPartiels
+                        ? qsTr("Aucune vérification dans les 100 dernières lignes du journal servies : des vérifications "
+                               + "plus anciennes peuvent exister.")
+                        : qsTr("Aucune vérification rapportée : elles arrivent avec la fin de chaque tâche (état seulement ; "
                                + "le détail des commandes reste sur l'exécutant).")
                 }
             }

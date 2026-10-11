@@ -319,6 +319,9 @@ if(WIN32)
         "${CMAKE_CURRENT_BINARY_DIR}/generated/windows/AgentCompanyPlatform.rc"
         @ONLY
     )
+    # rc.exe ne déclare pas l'icône comme dépendance : une icône régénérée doit recompiler la ressource.
+    set_source_files_properties("${CMAKE_CURRENT_BINARY_DIR}/generated/windows/AgentCompanyPlatform.rc"
+        PROPERTIES OBJECT_DEPENDS "${ACP_RC_ICONE}")
     target_sources(acp_desktop PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated/windows/AgentCompanyPlatform.rc")
 endif()
 

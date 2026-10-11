@@ -39,6 +39,7 @@ class TestReglagesSansSecret : public QObject
 private slots:
     void initTestCase();
     void aucunJetonDansLesPreferences();
+    void preferencesDesVersionsPrecedentesEtBornes();
 
 private:
     QTemporaryDir m_dossier;
@@ -132,6 +133,59 @@ void TestReglagesSansSecret::aucunJetonDansLesPreferences()
     }
     // Le coffre de test a bien été vidé par la déconnexion.
     QVERIFY(coffre.entrees.isEmpty());
+}
+
+// Chantier « atelier » : les préférences écrites par 1.0.x sont relues sans perte (profils de
+// mouvement « standard » et « reduced »), toute valeur inconnue retombe sur la valeur par défaut, les
+// largeurs suivent les bornes des jetons (design/tokens/spacing.json) et « Rétablir la disposition »
+// efface les seules clés de disposition.
+void TestReglagesSansSecret::preferencesDesVersionsPrecedentesEtBornes()
+{
+    QSettings brut;
+    brut.clear();
+    const QList<std::pair<QString, QString>> mouvements = {
+        {QStringLiteral("reduced"), QStringLiteral("reduit")},
+        {QStringLiteral("standard"), QStringLiteral("discret")},
+        {QStringLiteral("system"), QStringLiteral("complet")},
+        {QStringLiteral("inconnu"), QStringLiteral("complet")},
+        {QStringLiteral("reduit"), QStringLiteral("reduit")},
+    };
+    for (const auto &[ecrit, attendu] : mouvements) {
+        brut.setValue(QStringLiteral("appearance/motion"), ecrit);
+        brut.sync();
+        QCOMPARE(SettingsStore().motionPreference(), attendu);
+    }
+    brut.setValue(QStringLiteral("appearance/family"), QStringLiteral("pixel"));
+    brut.setValue(QStringLiteral("appearance/density"), QStringLiteral("xx"));
+    brut.setValue(QStringLiteral("appearance/textScale"), 113);
+    brut.setValue(QStringLiteral("layout/bottomDrawerTab"), QStringLiteral("zz"));
+    brut.setValue(QStringLiteral("layout/inspectorWidth"), 600);
+    brut.setValue(QStringLiteral("layout/sidebarWidth"), 9000);
+    brut.setValue(QStringLiteral("layout/bottomDrawerHeight"), 10);
+    brut.sync();
+    SettingsStore relu;
+    QCOMPARE(relu.familyPreference(), QStringLiteral("atelier"));
+    QCOMPARE(relu.density(), QStringLiteral("standard"));
+    QCOMPARE(relu.textScale(), 100);
+    QCOMPARE(relu.bottomDrawerTab(), QStringLiteral("activite"));
+    QCOMPARE(relu.inspectorWidth(), 560);
+    QCOMPARE(relu.sidebarWidth(), 420);
+    QCOMPARE(relu.bottomDrawerHeight(), 120);
+    // Valeur refusée : rien n'est écrit.
+    relu.setDensity(QStringLiteral("enorme"));
+    relu.setTextScale(300);
+    QCOMPARE(relu.density(), QStringLiteral("standard"));
+    QCOMPARE(relu.textScale(), 100);
+
+    relu.setDensity(QStringLiteral("aeree"));
+    relu.resetLayout();
+    relu.flush();
+    brut.sync();
+    for (const QString &cle : brut.allKeys()) {
+        QVERIFY2(!cle.startsWith(QStringLiteral("layout/")), qPrintable(cle));
+    }
+    QCOMPARE(SettingsStore().density(), QStringLiteral("aeree")); // l'apparence n'est pas une disposition
+    brut.clear();
 }
 
 QTEST_GUILESS_MAIN(TestReglagesSansSecret)

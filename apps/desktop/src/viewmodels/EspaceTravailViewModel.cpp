@@ -9,6 +9,7 @@
 #include "viewmodels/ProjetsViewModel.h"
 
 #include <QJsonDocument>
+#include <QRegularExpression>
 #include <QMap>
 
 #include <algorithm>
@@ -138,6 +139,7 @@ void EspaceTravailViewModel::surOubli()
     m_mission.clear();
     m_agentSelectionne.clear();
     m_brouillons.clear();
+    m_essaisPartiels = false;
     m_arbre->clear();
     m_agents->clear();
     m_essais->clear();
@@ -147,6 +149,16 @@ void EspaceTravailViewModel::surOubli()
     emit missionChange();
     emit agentChange();
     emit brouillonChange(QString());
+}
+
+void EspaceTravailViewModel::oublierDonneesGreffon()
+{
+    QHash<QString, QString> discussions;
+    for (auto it = m_brouillons.constBegin(); it != m_brouillons.constEnd(); ++it) {
+        if (it.key().startsWith(QStringLiteral("discussion:"))) discussions.insert(it.key(), it.value());
+    }
+    oublier();
+    m_brouillons = discussions;
 }
 
 void EspaceTravailViewModel::setRecherche(const QString &recherche)
@@ -384,6 +396,7 @@ void EspaceTravailViewModel::lireDetail()
     const QJsonObject lu = memeMission ? projet : QJsonObject();
     m_agents->setItems(construireAgents(lu));
     m_essais->setItems(construireEssais(lu));
+    m_essaisPartiels = lu.value(QStringLiteral("journal")).toArray().size() >= kBorneJournal;
     m_sorties->setItems(construireSorties(lu));
     QVariantMap mission;
     if (!lu.isEmpty()) {
@@ -437,7 +450,9 @@ QJsonObject EspaceTravailViewModel::etatAgent(const QString &statut)
         {QStringLiteral("todo"), {"en_file", "En file", "repos"}},
         {QStringLiteral("ready"), {"en_file", "Prête, en file", "repos"}},
         {QStringLiteral("a_creer"), {"en_file", "À créer", "repos"}},
-        {QStringLiteral("scheduled"), {"suspendue", "Suspendue (quota ou horaire)", "attente"}},
+        // « scheduled » couvre une question posée, la pause de la mission et l'attente d'un quota
+        // (questions.py, cartes.py) : le libellé ne choisit pas une cause que le statut ne dit pas.
+        {QStringLiteral("scheduled"), {"suspendue", "Suspendue (question, pause ou quota)", "attente"}},
         {QStringLiteral("running"), {"execute", "Exécute", "travail"}},
         {QStringLiteral("review"), {"attend_decision", "Attend votre relecture", "attente"}},
         {QStringLiteral("triage"), {"attend_decision", "Attend votre décision", "attente"}},
@@ -478,7 +493,8 @@ QString EspaceTravailViewModel::libelleSourceRoutage(const QString &source)
 {
     if (source == QLatin1String("table")) return QStringLiteral("Auto : table de routage");
     if (source == QLatin1String("profil")) return QStringLiteral("Auto : profil de Hermes");
-    if (source == QLatin1String("choix_explicite")) return QStringLiteral("Choix manuel (verrou)");
+    // Posé par le formulaire de lancement comme par le plan de Hermes (graphe.py, routage.py) : sans auteur.
+    if (source == QLatin1String("choix_explicite")) return QStringLiteral("Choix explicite (plan ou lancement), sans repli");
     if (source == QLatin1String("surcharge_carte")) return QStringLiteral("Surcharge de la carte");
     if (source == QLatin1String("surcharge_projet")) return QStringLiteral("Surcharge de la mission");
     if (source == QLatin1String("surcharge_globale")) return QStringLiteral("Surcharge globale");
@@ -580,12 +596,51 @@ QJsonArray EspaceTravailViewModel::construireAgents(const QJsonObject &projet)
         return ligne;
     };
 
-    // Relectures rangées sous la carte relue (observée par le greffon : champ `relue`).
+    // Relectures (et corrections) rangées sous la carte qu'elles relisent. Le greffon sert dans `relue` la
+    // CLÉ de la demande relue, « acp:<mission>:t<tour>:<ref>:<suffixe> » (noyau/graphe.py, _cle), et non son
+    // identifiant kanban. Le suffixe est le rôle, numéroté par rang pour les reprises : « implementation »,
+    // « relecture », puis « relecture2 »…, et « correction1 », « correction2 »… Les cartes sont servies dans
+    // l'ordre de leur création (noyau/cartes.py, cartes_du_projet : tour, cree_le, rowid) : le n-ième
+    // servi d'un rôle pour un même tour et une même étape porte le rang n. Un rapprochement impossible laisse
+    // la carte à plat sous Hermes : aucune relation n'est inventée.
+    QHash<QString, QStringList> parRang; // « tour|ref|rôle » → identifiants dans l'ordre servi ("" si à créer)
+    for (const QJsonValue &element : projet.value(QStringLiteral("cartes")).toArray()) {
+        const QJsonObject carte = element.toObject();
+        parRang[QStringLiteral("%1|%2|%3").arg(carte.value(QStringLiteral("tour")).toInt())
+                    .arg(carte.value(QStringLiteral("ref")).toString(), carte.value(QStringLiteral("role")).toString())]
+            .append(carte.value(QStringLiteral("carte")).toString());
+    }
+    const QString prefixe = QStringLiteral("acp:%1:t").arg(projet.value(QStringLiteral("id")).toString());
+    static const QRegularExpression suffixeNumerote(QStringLiteral("^(implementation|relecture|correction)(\\d*)$"));
+    const auto carteRelue = [&](const QJsonObject &carte) -> QString {
+        const QString relue = carte.value(QStringLiteral("relue")).toString();
+        if (relue.isEmpty()) return {};
+        if (identifiants.contains(relue)) return relue; // forme directe, si le greffon la sert un jour
+        if (!relue.startsWith(prefixe)) return {};
+        const QString reste = relue.mid(prefixe.size());
+        bool tourLu = false;
+        const int tour = reste.section(QLatin1Char(':'), 0, 0).toInt(&tourLu);
+        const QString ref = reste.section(QLatin1Char(':'), 1, -2);
+        const QRegularExpressionMatch suffixe = suffixeNumerote.match(reste.section(QLatin1Char(':'), -1));
+        if (!tourLu || ref.isEmpty() || !suffixe.hasMatch()) return {};
+        const QString role = suffixe.captured(1);
+        const int rang = suffixe.captured(2).isEmpty() ? 1 : suffixe.captured(2).toInt();
+        // Une seule implémentation par étape ; « correction » est toujours numérotée.
+        if ((role == QLatin1String("implementation") && rang != 1)
+            || (role == QLatin1String("correction") && suffixe.captured(2).isEmpty()) || rang < 1) {
+            return {};
+        }
+        const QStringList servis = parRang.value(QStringLiteral("%1|%2|%3").arg(tour).arg(ref, role));
+        if (role == QLatin1String("implementation") && servis.size() != 1) return {};
+        return rang <= servis.size() ? servis.at(rang - 1) : QString();
+    };
     QHash<QString, QList<int>> relectures;
+    QHash<int, QString> parentDe;
     for (int rang = 0; rang < cartes.size(); ++rang) {
-        const QString relue = cartes.at(rang).value(QStringLiteral("relue")).toString();
-        if (!relue.isEmpty() && identifiants.contains(relue)) {
-            relectures[relue].append(rang);
+        const QString parent = carteRelue(cartes.at(rang));
+        if (!parent.isEmpty() && parent != cartes.at(rang).value(QStringLiteral("carte")).toString()) {
+            relectures[parent].append(rang);
+            parentDe.insert(rang, parent);
         }
     }
     QSet<int> placees;
@@ -600,8 +655,7 @@ QJsonArray EspaceTravailViewModel::construireAgents(const QJsonObject &projet)
     };
     for (int rang = 0; rang < cartes.size(); ++rang) {
         if (placees.contains(rang)) continue;
-        const QString relue = cartes.at(rang).value(QStringLiteral("relue")).toString();
-        if (!relue.isEmpty() && identifiants.contains(relue)) continue; // placée sous sa carte relue
+        if (parentDe.contains(rang)) continue; // placée sous sa carte relue
         placer(rang, 1, QStringLiteral("hermes"));
     }
     // Filet : des relectures qui se relisent l'une l'autre (cycle servi) restent visibles, sous Hermes.

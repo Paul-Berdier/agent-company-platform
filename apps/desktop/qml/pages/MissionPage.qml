@@ -27,6 +27,15 @@ Item {
     readonly property bool detail: Projets.vue === "detail"
     readonly property var d: Projets.detail
     readonly property string contexteBrouillon: "mission-suivante:" + (Espace.mission.depot || "")
+    // Une autre mission (autre dépôt) ou l'oubli de la session : le champ relit SON brouillon, il ne garde
+    // jamais le texte écrit pour une autre mission.
+    onContexteBrouillonChanged: champ.text = Espace.brouillon(page.contexteBrouillon)
+    Connections {
+        target: Espace
+        function onBrouillonChange(contexte) {
+            if (contexte.length === 0) champ.text = Espace.brouillon(page.contexteBrouillon)
+        }
+    }
     property int onglet: 0
 
     component Section: Text {
@@ -371,8 +380,12 @@ Item {
         const objectif = champ.text.trim();
         if (objectif.length === 0)
             return;
-        Espace.noterBrouillon("nouvelle-mission:objectif", objectif);
-        Espace.noterBrouillon("nouvelle-mission:titre", objectif.split("\n")[0].slice(0, 120));
+        // Un brouillon déjà tapé dans le formulaire complet n'est jamais écrasé : le nouveau texte s'y ajoute.
+        const ancien = Espace.brouillon("nouvelle-mission:objectif").trim();
+        Espace.noterBrouillon("nouvelle-mission:objectif",
+                              ancien.length > 0 && ancien !== objectif ? ancien + "\n\n" + objectif : objectif);
+        if (Espace.brouillon("nouvelle-mission:titre").trim().length === 0)
+            Espace.noterBrouillon("nouvelle-mission:titre", objectif.split("\n")[0].slice(0, 120));
         champ.text = "";
         Espace.nouvelleMission(Espace.mission.depot === qsTr("Sans dépôt") ? "" : (Espace.mission.depot || ""));
     }

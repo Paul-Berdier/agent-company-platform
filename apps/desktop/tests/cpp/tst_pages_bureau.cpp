@@ -39,8 +39,10 @@
 #include <QQuickItem>
 #include <QQuickWindow>
 #include <QRegularExpression>
+#include <QSettings>
 #include <QTemporaryDir>
 #include <QTest>
+#include <QUuid>
 
 #include <functional>
 #include <memory>
@@ -126,8 +128,24 @@ class TestPagesBureau : public QObject
     Q_OBJECT
 
 private slots:
+    void initTestCase();
     void pagesAlimenteesPuisRacine();
+
+private:
+    //! Réglages jetables : le parcours change l'apparence et la disposition (QSettings), jamais
+    //! ceux du poste qui lance le test.
+    QTemporaryDir m_reglages;
 };
+
+void TestPagesBureau::initTestCase()
+{
+    QVERIFY(m_reglages.isValid());
+    QCoreApplication::setOrganizationName(
+        QStringLiteral("ACP Test bureau %1").arg(QUuid::createUuid().toString(QUuid::WithoutBraces)));
+    QCoreApplication::setApplicationName(QStringLiteral("tst_pages_bureau"));
+    QSettings::setDefaultFormat(QSettings::IniFormat);
+    QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, m_reglages.path());
+}
 
 void TestPagesBureau::pagesAlimenteesPuisRacine()
 {

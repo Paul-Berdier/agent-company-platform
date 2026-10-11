@@ -122,6 +122,9 @@ signals:
     void sidebarCollapsedChanged();
     void panelWidthsChanged();
     void layoutChanged();
+    //! Ctrl+B et la palette demandent le même basculement que le bouton de la barre du haut :
+    //! la coquille le fait (largeur étroite comprise), jamais en inversant seulement la préférence.
+    void basculeNavigationDemandee();
 
 private:
     void refreshCommandContext();

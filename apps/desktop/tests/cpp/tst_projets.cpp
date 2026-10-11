@@ -13,7 +13,8 @@
 //    geste non offert refusé sans envoi ;
 //  - étape P7 (partie E) : un exécutant fermé pour le dépôt choisi (fixture PARTAGÉE
 //    fixtures_poste/depots.json : Codex sur un dépôt non prouvé privé) est grisé avec la raison du
-//    greffon, jamais retenu ni envoyé ; aucun exécutant ouvert : le projet part sans exploration.
+//    greffon, jamais retenu ni envoyé ; aucun exécutant ouvert : refus avant l'envoi (avec un dépôt, le
+//    greffon résout toujours l'exploration et refuserait).
 
 #include "api/ApiClient.h"
 #include "api/ClientGreffonPoste.h"
@@ -841,7 +842,8 @@ void TestProjets::executantFermePourLeDepotJamaisRetenu()
     banc.projets.choisirDepot(QStringLiteral("jetable"));
     QCOMPARE(banc.projets.formulaire().value(QStringLiteral("voie")).toString(), QStringLiteral("poste-codex"));
 
-    // Tous les exécutants fermés pour ce dépôt : dit, et le projet part sans exploration (comme la page web).
+    // Tous les exécutants fermés pour ce dépôt : dit, et refusé avant l'envoi. Avec un dépôt, le greffon résout
+    // toujours l'exploration (noyau/projets.py) et refuserait ce lancement.
     QJsonArray toutesFermees = mesures;
     QJsonObject demo = toutesFermees.at(0).toObject();
     demo.insert(QStringLiteral("voies_fermees"), QJsonObject{{QStringLiteral("poste-codex"), raison},
@@ -859,10 +861,9 @@ void TestProjets::executantFermePourLeDepotJamaisRetenu()
     banc.projets.lancer(QStringLiteral("Démo 2"), QStringLiteral("Lire le dépôt."), QStringLiteral("base"),
                         QStringLiteral("proprietaire"), QString());
     QTRY_VERIFY(!banc.projets.gesteEnCours());
+    QVERIFY(banc.projets.erreurGeste().startsWith(QStringLiteral("Aucun exécutant n'est ouvert pour ce dépôt")));
     envois = banc.serveur.filtrer("POST", kP + QStringLiteral("/projets"));
-    QCOMPARE(envois.size(), 2);
-    QCOMPARE(envois.last().json().value(QStringLiteral("depot")).toString(), QStringLiteral("demo"));
-    QVERIFY(!envois.last().json().contains(QStringLiteral("exploration")));
+    QCOMPARE(envois.size(), 1); // seul le lancement précédent est parti
 }
 
 QTEST_MAIN(TestProjets)

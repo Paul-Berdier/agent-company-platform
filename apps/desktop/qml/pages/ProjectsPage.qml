@@ -696,16 +696,16 @@ Item {
                     Discret {
                         objectName: "projets-auto-explication"
                         visible: formulaire.f.auto === true
-                        text: qsTr("Auto : le greffon choisit l'exécutant, le modèle et l'effort par sa politique (surcharge, "
-                                   + "table de routage validée, profil) et enregistre la source de son choix, visible "
-                                   + "ensuite dans le panneau des agents.")
+                        text: qsTr("Auto : le greffon choisit l'exécutant, le modèle et l'effort de l'exploration par sa "
+                                   + "politique (surcharge active, sinon la table de routage validée) et enregistre la "
+                                   + "source de son choix, visible ensuite dans le panneau des agents.")
                     }
                     Alerte {
                         objectName: "projets-auto-table"
                         text: formulaire.f.auto === true && formulaire.f.tableAutoValidee !== true
                             ? qsTr("La table de routage de l'exploration n'est pas validée : sans surcharge active, le "
                                    + "greffon refusera ce lancement en Auto. Validez la suggestion dans Réglages, "
-                                   + "Modèles et budgets, ou choisissez un exécutant ci-dessus.")
+                                   + "Modèles et routage, ou choisissez un exécutant ci-dessus.")
                             : ""
                     }
                     Alerte {
@@ -725,7 +725,8 @@ Item {
                     Alerte {
                         objectName: "projets-aucune-voie-ouverte"
                         text: formulaire.f.aucuneVoieOuverte === true
-                            ? qsTr("Aucun exécutant ouvert pour ce dépôt. Le projet part sans exploration du dépôt.")
+                            ? qsTr("Aucun exécutant ouvert pour ce dépôt : le greffon refuserait ce lancement (l'exploration "
+                                   + "d'un dépôt est obligatoire). Choisissez « Sans dépôt » ou rouvrez un exécutant (page Poste).")
                             : ""
                     }
                     Discret { visible: formulaire.f.auto !== true; text: qsTr("Modèle"); color: Colors.textSecondary }
@@ -779,6 +780,7 @@ Item {
                     primary: true
                     label: Projets.gesteEnCours ? qsTr("Envoi…") : qsTr("Lancer la mission")
                     manualEnabled: formulaire.f.pret && formulaire.complet && !Projets.gesteEnCours
+                                   && formulaire.f.aucuneVoieOuverte !== true
                     onTriggered: Projets.lancer(titreChamp.text, objectifChamp.text, profilChoix.currentValue,
                                                 formulaire.reponses,
                                                 effortChoix.currentIndex > 0 ? formulaire.f.efforts[effortChoix.currentIndex - 1] : "")

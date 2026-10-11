@@ -936,10 +936,11 @@ def qmldir_contents() -> str:
 def render_all(tokens_dir: Path) -> dict[str, str]:
     documents = {stem: load_tokens(tokens_dir, stem) for stem in EXPECTED_SINGLETONS}
     meta = theme_metadata(documents["colors"])
-    measure_contrasts(documents["colors"], documents["semantic-status"])
     rendered: dict[str, str] = {}
     for stem, singleton in EXPECTED_SINGLETONS.items():
         rendered[f"{singleton}.qml"] = GENERATORS[stem](stem, documents[stem], meta)
+    # Après les générateurs : ils refusent en français une valeur absente ou mal formée, avant toute mesure.
+    measure_contrasts(documents["colors"], documents["semantic-status"])
     rendered["qmldir"] = qmldir_contents()
     return rendered
 

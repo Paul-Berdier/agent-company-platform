@@ -1084,7 +1084,24 @@ void TestPagesInteractions::themeBasculeAChaudSansRecreerLaCoquille()
     apparence->setConcentration(true);
     apparence->setDensity(QStringLiteral("aeree"));
     apparence->setTextScale(125);
-    QTest::qWait(100);
+    // La chaîne SettingsStore → SystemAppearance → ThemeBridge atteint bien les singletons de design.
+    auto *motion = m_moteur->singletonInstance<QObject *>("Acp.Design", "Motion");
+    auto *space = m_moteur->singletonInstance<QObject *>("Acp.Design", "Space");
+    auto *type = m_moteur->singletonInstance<QObject *>("Acp.Design", "Type");
+    QVERIFY(motion && space && type);
+    QTRY_COMPARE(motion->property("profile").toString(), QStringLiteral("reduit"));
+    QTRY_VERIFY(motion->property("concentration").toBool());
+    QTRY_COMPARE(space->property("density").toString(), QStringLiteral("aeree"));
+    QTRY_COMPARE(type->property("textScale").toInt(), 125);
+
+    // Ctrl+B et la palette passent par la même bascule que le bouton de la barre du haut.
+    auto *registre = m_application->findChild<CommandRegistry *>();
+    QVERIFY(registre);
+    QVERIFY(!racine->property("navigationCompact").toBool());
+    registre->execute(QStringLiteral("shell.toggleSidebar"));
+    QTRY_VERIFY(racine->property("navigationCompact").toBool());
+    registre->execute(QStringLiteral("shell.toggleSidebar"));
+    QTRY_VERIFY(!racine->property("navigationCompact").toBool());
 
     // Les mêmes objets : rien n'a été détruit ni recréé, la saisie a survécu.
     QVERIFY(barre && recherche && volet);

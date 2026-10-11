@@ -209,6 +209,21 @@ Rectangle {
             }
         }
 
+        // Liste déjà affichée mais dernière relecture en échec : les lignes restent, marquées périmées.
+        Text {
+            objectName: "navigation-perime"
+            Layout.fillWidth: true
+            Layout.leftMargin: Space.space5
+            Layout.rightMargin: Space.space4
+            visible: !navigation.collapsed && Espace.erreur.length > 0 && arbre.count > 0
+            text: qsTr("Périmé — dernière lecture impossible : %1 (%2)").arg(Espace.erreur).arg(Espace.lecture)
+            textFormat: Text.PlainText
+            wrapMode: Text.WordWrap
+            color: Status.statusDegradedForeground
+            font.family: Type.metadata.family
+            font.pixelSize: Type.metadata.pixelSize
+        }
+
         ListView {
             id: arbre
             objectName: "navigation-arbre"
@@ -251,7 +266,7 @@ Rectangle {
             Layout.fillWidth: true
             objectName: "navigation-settings"
             label: qsTr("Réglages"); iconName: "settings"
-            explanation: qsTr("Apparence, comptes, exécutants, modèles et budgets, sauvegarde, diagnostics")
+            explanation: qsTr("Apparence, comptes, exécutants, modèles et routage, quotas et budgets, sauvegarde, diagnostics")
             selected: ["settings", "station", "quotas", "routing", "backup", "diagnostics"].indexOf(Navigation.currentRoute) >= 0
             onActivated: Navigation.setCurrentRoute("settings")
         }

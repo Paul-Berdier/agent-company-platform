@@ -78,9 +78,12 @@ ApplicationWindow {
         opacity: 0
         visible: opacity > 0
         Accessible.ignored: true
-        OpacityAnimator {
+        // NumberAnimation et non OpacityAnimator : un animateur n'écrit `opacity` qu'à la fin, et le voile
+        // (visible: opacity > 0) ne serait jamais dessiné.
+        NumberAnimation {
             id: fondu
             target: voile
+            property: "opacity"
             from: 1
             to: 0
             duration: Motion.active.paletteTransition.duration

@@ -172,9 +172,12 @@ Application::Application(QObject *parent, const QString &nomCoffre)
         }
         m_flux->oublierResume();
         for (PageViewModel *page : std::initializer_list<PageViewModel *>{
-                 m_accueil, m_projets, m_espace, m_questions, m_poste, m_quotas, m_routage}) {
+                 m_accueil, m_projets, m_questions, m_poste, m_quotas, m_routage}) {
             page->oublier();
         }
+        // L'espace de travail oublie ce qu'il a lu du greffon ; les brouillons de la Discussion
+        // (passerelle, hors greffon) restent jusqu'à la fin de la session.
+        m_espace->oublierDonneesGreffon();
     });
     // Flux d'invalidation du greffon (étape P7) : ouvert seulement sur l'annonce de /v1/meta, relue à
     // chaque verdict (session perdue ou serveur changé : « inconnu », flux fermé).
@@ -578,7 +581,7 @@ void Application::registerBuiltinCommands()
         QStringLiteral("Disposition"), {QStringLiteral("projets"), QStringLiteral("barre"), QStringLiteral("panneau")},
         QStringLiteral("Ctrl+B"), alwaysAvailable,
         [this](const CommandContext &) {
-            m_shell->setSidebarCollapsed(!m_shell->isSidebarCollapsed());
+            emit m_shell->basculeNavigationDemandee();
             return CommandResult::accept();
         }});
 

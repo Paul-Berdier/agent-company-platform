@@ -50,6 +50,7 @@ class EspaceTravailViewModel : public PageViewModel
     Q_PROPERTY(QString agentSelectionne READ agentSelectionne WRITE setAgentSelectionne NOTIFY agentChange)
     Q_PROPERTY(QVariantMap agent READ agent NOTIFY agentChange)
     Q_PROPERTY(JsonListModel *essais READ essais CONSTANT)
+    Q_PROPERTY(bool essaisPartiels READ essaisPartiels NOTIFY missionChange)
     Q_PROPERTY(JsonListModel *sorties READ sorties CONSTANT)
 
 public:
@@ -72,6 +73,8 @@ public:
     void setAgentSelectionne(const QString &cle);
     [[nodiscard]] QVariantMap agent() const;
     [[nodiscard]] JsonListModel *essais() const { return m_essais; }
+    //! Vrai quand le journal servi atteint sa borne (100 lignes) : des vérifications plus anciennes manquent.
+    [[nodiscard]] bool essaisPartiels() const { return m_essaisPartiels; }
     [[nodiscard]] JsonListModel *sorties() const { return m_sorties; }
 
     /*! Déplie ou replie un groupe (« g:<dépôt> ») ou les missions archivées d'un groupe (« a:<dépôt> »). */
@@ -87,6 +90,10 @@ public:
     Q_INVOKABLE QString brouillon(const QString &contexte) const;
     Q_INVOKABLE void noterBrouillon(const QString &contexte, const QString &texte);
 
+    /*! Oubli des données du greffon (verdict de compatibilité bloquant) : comme oublier(), mais les
+        brouillons de la Discussion (« discussion:… »), qui ne passent pas par le greffon, sont gardés. */
+    void oublierDonneesGreffon();
+
     /*! Pictogramme décoratif d'une clé : {motif, teinte}, stable d'une exécution à l'autre. */
     Q_INVOKABLE static QVariantMap pictogramme(const QString &cle);
 
@@ -96,6 +103,8 @@ public:
                                                     const QString &selection);
     [[nodiscard]] static QJsonArray construireAgents(const QJsonObject &projet);
     [[nodiscard]] static QJsonArray construireEssais(const QJsonObject &projet);
+    //! Borne du journal servi par GET /v1/projets/{id} (noyau/projets.py, LIMIT 100).
+    static constexpr int kBorneJournal = 100;
     [[nodiscard]] static QJsonArray construireSorties(const QJsonObject &projet);
     [[nodiscard]] static QJsonObject etatAgent(const QString &statut);
     [[nodiscard]] static QString portraitDuRole(const QString &role);
@@ -137,6 +146,7 @@ private:
     QVariantMap m_mission;
     QString m_agentSelectionne;
     QHash<QString, QString> m_brouillons;
+    bool m_essaisPartiels = false;
 };
 
 } // namespace acp

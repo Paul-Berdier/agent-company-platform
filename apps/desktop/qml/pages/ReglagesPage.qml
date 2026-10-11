@@ -1,5 +1,5 @@
 // Réglages (D167) : les pages techniques quittent la barre latérale et se regroupent ici.
-// Les sections reliées à une route (Exécutants, Modèles et budgets, Quotas, Sauvegarde,
+// Les sections reliées à une route (Exécutants, Modèles et routage, Quotas et budgets, Sauvegarde,
 // Diagnostics) la suivent : raccourcis, palette et historique restent valables. Les autres
 // sections vivent sous la route « settings ».
 import QtQuick

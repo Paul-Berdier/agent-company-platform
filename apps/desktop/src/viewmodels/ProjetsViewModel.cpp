@@ -859,11 +859,13 @@ void ProjetsViewModel::majFormulaire()
                                         {QStringLiteral("libelle"), libelle.isEmpty() ? profil : libelle}});
     }
 
-    if (!depots || !depots->contains(m_depot)) {
+    // Un dépôt demandé avant la lecture de l'inventaire (« Nouvelle mission » depuis une mission ouverte)
+    // est gardé jusqu'à cette lecture, puis validé ou retiré ; d'ici là, `pret` est faux et rien ne part.
+    if (m_posteLu && (!depots || !depots->contains(m_depot))) {
         m_depot.clear();
     }
     // Auto par défaut (D168) : sans choix manuel, AUCUNE voie n'est envoyée et le greffon résout
-    // l'exploration par surcharge, table puis profil (routage.py). Un choix manuel est un verrou
+    // l'exploration par surcharge active, sinon par la table de routage (routage.py, resoudre). Un choix manuel est un verrou
     // explicite ; il n'est jamais remplacé en silence par une autre voie : fermé pour le dépôt
     // choisi, il cède la place à Auto, et le formulaire le dit.
     if (!m_voie.isEmpty() && !voies.contains(m_voie)) {
@@ -989,6 +991,13 @@ void ProjetsViewModel::lancer(const QString &titre, const QString &objectif, con
     }
     if (titre.trimmed().isEmpty() || objectif.trimmed().isEmpty()) {
         echouerGeste(QStringLiteral("Le titre et l'objectif sont obligatoires."));
+        return;
+    }
+    if (m_formulaire.value(QStringLiteral("aucuneVoieOuverte")).toBool()) {
+        // Avec un dépôt, le greffon résout toujours l'exploration (noyau/projets.py) : il refuserait.
+        echouerGeste(QStringLiteral("Aucun exécutant n'est ouvert pour ce dépôt : le greffon refuserait ce lancement "
+                                    "(l'exploration d'un dépôt est obligatoire). Choisissez « Sans dépôt » ou rouvrez "
+                                    "un exécutant (page Poste)."));
         return;
     }
     if (m_formulaire.value(QStringLiteral("modeleExige")).toBool()) {

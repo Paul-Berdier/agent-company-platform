@@ -76,10 +76,13 @@ Item {
             color: chip.meta.foreground
             anchors.verticalCenter: parent.verticalCenter
 
-            // Pulsation : seul mouvement en boucle autorisé, et uniquement en profil
-            // standard. En profil réduit, l'activité est signalée par le libellé.
+            // Pulsation d'une activité observée (Motion.active.activityPulse) : coupée en profil
+            // réduit, où le libellé suffit, et suspendue quand la pastille est cachée ou la fenêtre réduite.
             SequentialAnimation on opacity {
-                running: chip.meta.animated && !Motion.reduced
+                running: chip.meta.animated && Motion.active.activityPulse.loops !== 0 && chip.visible
+                         && dot.Window.visibility !== Window.Minimized && dot.Window.visibility !== Window.Hidden
+                // Arrêtée en cours de battement : la pastille reprend son opacité pleine.
+                onStopped: dot.opacity = 1
                 loops: Animation.Infinite
                 NumberAnimation {
                     to: Motion.opacityPulseMin
