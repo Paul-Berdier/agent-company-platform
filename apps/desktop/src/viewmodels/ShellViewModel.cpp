@@ -186,6 +186,53 @@ void ShellViewModel::setInspectorWidth(int width)
     emit panelWidthsChanged();
 }
 
+bool ShellViewModel::isAgentsPanelVisible() const { return m_settings->agentsPanelVisible(); }
+
+void ShellViewModel::setAgentsPanelVisible(bool visible)
+{
+    if (isAgentsPanelVisible() == visible) return;
+    m_settings->setAgentsPanelVisible(visible);
+    emit layoutChanged();
+}
+
+bool ShellViewModel::isBottomDrawerVisible() const { return m_settings->bottomDrawerVisible(); }
+
+void ShellViewModel::setBottomDrawerVisible(bool visible)
+{
+    if (isBottomDrawerVisible() == visible) return;
+    m_settings->setBottomDrawerVisible(visible);
+    emit layoutChanged();
+}
+
+int ShellViewModel::bottomDrawerHeight() const { return m_settings->bottomDrawerHeight(); }
+
+void ShellViewModel::setBottomDrawerHeight(int height)
+{
+    if (bottomDrawerHeight() == height) return;
+    m_settings->setBottomDrawerHeight(height);
+    emit layoutChanged();
+}
+
+QString ShellViewModel::bottomDrawerTab() const { return m_settings->bottomDrawerTab(); }
+
+void ShellViewModel::setBottomDrawerTab(const QString &tab)
+{
+    if (bottomDrawerTab() == tab) return;
+    m_settings->setBottomDrawerTab(tab);
+    emit layoutChanged();
+}
+
+QStringList ShellViewModel::bottomDrawerTabs() { return SettingsStore::bottomDrawerTabs(); }
+
+void ShellViewModel::resetLayout()
+{
+    m_settings->resetLayout();
+    emit sidebarCollapsedChanged();
+    emit panelWidthsChanged();
+    emit layoutChanged();
+    notify(QStringLiteral("Disposition par défaut rétablie."));
+}
+
 QString ShellViewModel::applyServerUrl(const QString &url, bool allowInsecureLoopback)
 {
     m_client->setAllowInsecureLoopback(allowInsecureLoopback);

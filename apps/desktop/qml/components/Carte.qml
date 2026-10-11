@@ -7,8 +7,9 @@
 import QtQuick
 import QtQuick.Layouts
 import Acp.Design
+import Acp.Pixel
 
-Rectangle {
+Item {
     id: carte
 
     property string titre: ""
@@ -22,10 +23,15 @@ Rectangle {
     default property alias contenu: corps.data
 
     implicitHeight: colonne.implicitHeight + Space.space6 * 2
-    color: Colors.surfacePanel
-    radius: Radius.radiusMd
-    border.width: Space.layoutBorderWidth
-    border.color: Colors.borderDefault
+
+    // Pixel Atelier : coins crantés ; Studio : coins arrondis (FondPixel suit la famille du thème).
+    FondPixel {
+        anchors.fill: parent
+        couleur: Colors.surfacePanel
+        bordure: Colors.borderDefault
+        epaisseur: Space.layoutBorderWidth
+        rayon: Radius.radiusMd
+    }
 
     Accessible.role: Accessible.Grouping
     Accessible.name: carte.titre

@@ -87,6 +87,8 @@ public:
 
     [[nodiscard]] const QString &projetOuvert() const { return m_projetOuvert; }
     [[nodiscard]] bool detailLu() const { return m_detailLu; }
+    //! Détail tel que servi (GET /v1/projets/{id}), pour l'espace de travail ; vide avant lecture.
+    [[nodiscard]] const QJsonObject &projetBrut() const { return m_dernierProjet; }
     [[nodiscard]] const QVariantMap &detail() const { return m_detail; }
     [[nodiscard]] JsonListModel *cartes() const { return m_cartes; }
     [[nodiscard]] JsonListModel *questionsDuProjet() const { return m_questionsDuProjet; }
@@ -152,6 +154,8 @@ public:
     [[nodiscard]] static QJsonObject voiesFermeesPourDepot(const QJsonObject &vuePoste, const QString &depot);
 
 signals:
+    //! Lancement accepté par le greffon (nouvelle mission ou rejeu idempotent) : les brouillons ont servi.
+    void missionLancee();
     void vueChange();
     void listeChange();
     void detailChange();

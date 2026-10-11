@@ -14,8 +14,11 @@ Item {
     property string value: ""
     property bool known: true
     property bool monospace: false
+    //! Vrai : une valeur longue passe à la ligne au lieu d'être coupée (panneaux étroits).
+    property bool aLaLigne: false
 
-    implicitHeight: Space.densityRowHeightRegular
+    implicitHeight: row.aLaLigne ? Math.max(Space.densityRowHeightRegular, valeurTexte.implicitHeight + Space.space3 * 2)
+                                 : Space.densityRowHeightRegular
 
     Rectangle {
         anchors.fill: parent
@@ -44,6 +47,7 @@ Item {
     }
 
     Text {
+        id: valeurTexte
         textFormat: Text.PlainText
         anchors.left: labelText.right
         anchors.leftMargin: Space.space5
@@ -51,7 +55,8 @@ Item {
         anchors.rightMargin: Space.space4
         anchors.verticalCenter: parent.verticalCenter
         text: row.value
-        elide: Text.ElideRight
+        elide: row.aLaLigne ? Text.ElideNone : Text.ElideRight
+        wrapMode: row.aLaLigne ? Text.Wrap : Text.NoWrap
         color: row.known ? Colors.textPrimary : Colors.textMuted
         // Chasse fixe obligatoire pour tout identifiant, chemin, durée, version : c'est
         // ce qui rend une valeur copiable et comparable du regard.
@@ -60,7 +65,7 @@ Item {
 
         ToolTip {
             id: plainTip
-            visible: hover.hovered && row.value.length > 60
+            visible: hover.hovered && !row.aLaLigne && row.value.length > 60
             text: row.value
             contentItem: Text { text: plainTip.text; textFormat: Text.PlainText; color: Colors.textPrimary; wrapMode: Text.Wrap }
             delay: 500

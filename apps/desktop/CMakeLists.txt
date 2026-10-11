@@ -205,6 +205,8 @@ set(ACP_CORE_SOURCES
     src/viewmodels/DiagnosticsViewModel.cpp
     src/viewmodels/DiscussionViewModel.cpp
     src/viewmodels/DiscussionViewModel.h
+    src/viewmodels/EspaceTravailViewModel.cpp
+    src/viewmodels/EspaceTravailViewModel.h
     src/viewmodels/DiagnosticsViewModel.h
     src/viewmodels/Libelles.cpp
     src/viewmodels/Libelles.h
@@ -289,6 +291,7 @@ target_link_libraries(acp_desktop PRIVATE
     Qt6::QuickControls2
     acp_designplugin
     acp_themeplugin
+    acp_pixelplugin
     acp_controlsplugin
     acp_componentsplugin
     acp_pagesplugin
@@ -300,6 +303,24 @@ set_target_properties(acp_desktop PROPERTIES
     OUTPUT_NAME "AgentCompanyPlatform"
     WIN32_EXECUTABLE TRUE
 )
+
+# Icône et informations de version de l'exécutable Windows (D165). L'icône est engendrée par
+# scripts/generer_assets_pixel.py (16 à 256 px) ; la version vient de VERSION, jamais recopiée.
+if(WIN32)
+    if(NOT ACP_DESKTOP_VERSION MATCHES "^([0-9]+)\\.([0-9]+)\\.([0-9]+)")
+        message(FATAL_ERROR "Version « ${ACP_DESKTOP_VERSION} » illisible pour la ressource Windows.")
+    endif()
+    set(ACP_RC_MAJOR "${CMAKE_MATCH_1}")
+    set(ACP_RC_MINOR "${CMAKE_MATCH_2}")
+    set(ACP_RC_PATCH "${CMAKE_MATCH_3}")
+    set(ACP_RC_ICONE "${CMAKE_CURRENT_SOURCE_DIR}/resources/windows/AgentCompanyPlatform.ico")
+    configure_file(
+        "${CMAKE_CURRENT_SOURCE_DIR}/resources/windows/AgentCompanyPlatform.rc.in"
+        "${CMAKE_CURRENT_BINARY_DIR}/generated/windows/AgentCompanyPlatform.rc"
+        @ONLY
+    )
+    target_sources(acp_desktop PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated/windows/AgentCompanyPlatform.rc")
+endif()
 
 install(TARGETS acp_desktop
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}

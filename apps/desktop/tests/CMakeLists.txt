@@ -38,13 +38,13 @@ acp_add_cpp_test(tst_sse_parser)
 acp_add_cpp_test(tst_updates)
 acp_add_cpp_test(tst_pages_bureau cpp/support/FauxHermes.cpp cpp/support/FauxHermes.h cpp/support/Fixtures.h)
 target_link_libraries(tst_pages_bureau PRIVATE Qt6::QuickControls2
-    acp_designplugin acp_themeplugin acp_controlsplugin acp_componentsplugin
+    acp_designplugin acp_themeplugin acp_pixelplugin acp_controlsplugin acp_componentsplugin
     acp_pagesplugin acp_stationplugin acp_desktop_qmlplugin)
 target_compile_definitions(tst_pages_bureau PRIVATE ACP_TEST_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures")
 # Gestes réels (souris, clavier) sur les contrôles des pages, contre le faux Hermes.
 acp_add_cpp_test(tst_pages_interactions cpp/support/FauxHermes.cpp cpp/support/FauxHermes.h cpp/support/Fixtures.h)
 target_link_libraries(tst_pages_interactions PRIVATE Qt6::QuickControls2
-    acp_designplugin acp_themeplugin acp_controlsplugin acp_componentsplugin
+    acp_designplugin acp_themeplugin acp_pixelplugin acp_controlsplugin acp_componentsplugin
     acp_pagesplugin acp_stationplugin acp_desktop_qmlplugin)
 target_compile_definitions(tst_pages_interactions PRIVATE ACP_TEST_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures")
 acp_add_cpp_test(tst_api_errors)
@@ -73,6 +73,9 @@ acp_add_cpp_test(tst_accueil cpp/support/FauxHermes.cpp cpp/support/FauxHermes.h
 target_compile_definitions(tst_accueil PRIVATE ACP_TEST_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures")
 acp_add_cpp_test(tst_projets cpp/support/FauxHermes.cpp cpp/support/FauxHermes.h cpp/support/Fixtures.h)
 target_compile_definitions(tst_projets PRIVATE ACP_TEST_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures")
+# Espace de travail (chantier « atelier ») : barre des missions, agents, volet du bas, brouillons.
+acp_add_cpp_test(tst_espace_travail cpp/support/FauxHermes.cpp cpp/support/FauxHermes.h cpp/support/Fixtures.h)
+target_compile_definitions(tst_espace_travail PRIVATE ACP_TEST_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures")
 acp_add_cpp_test(tst_discussion cpp/support/FauxHermes.cpp cpp/support/FauxHermes.h)
 acp_add_cpp_test(tst_questions cpp/support/FauxHermes.cpp cpp/support/FauxHermes.h cpp/support/Fixtures.h)
 target_compile_definitions(tst_questions PRIVATE ACP_TEST_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures")
@@ -108,7 +111,7 @@ target_compile_definitions(tst_oubli_local PRIVATE ACP_TEST_FIXTURE_DIR="${CMAKE
 qt_add_executable(acp_desktop_e2e e2e/acp_desktop_e2e.cpp)
 # Qt Test : clics et frappes sur les vrais contrôles des pages (réponse, discussion).
 target_link_libraries(acp_desktop_e2e PRIVATE acp_core Qt6::QuickControls2 Qt6::Test
-    acp_designplugin acp_themeplugin acp_controlsplugin acp_componentsplugin
+    acp_designplugin acp_themeplugin acp_pixelplugin acp_controlsplugin acp_componentsplugin
     acp_pagesplugin acp_stationplugin acp_desktop_qmlplugin)
 set_target_properties(acp_desktop_e2e PROPERTIES WIN32_EXECUTABLE FALSE)
 
@@ -128,6 +131,7 @@ target_link_libraries(tst_qml_shell PRIVATE
     Qt6::QuickTest
     acp_designplugin
     acp_themeplugin
+    acp_pixelplugin
     acp_controlsplugin
     acp_componentsplugin
     Qt6::QuickControls2

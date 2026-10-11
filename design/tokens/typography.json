@@ -1,7 +1,7 @@
 {
   "$schema": "acp.design-tokens/1",
   "$description": "Échelle typographique de la station de travail. Dense et hiérarchisée par le poids et la couleur avant de l'être par la taille : l'écart entre deux niveaux voisins est d'un ou deux pixels, jamais d'un saut décoratif. Les tailles sont en pixels et se branchent sur font.pixelSize en QML ; les hauteurs de ligne sont absolues et se branchent sur lineHeight avec lineHeightMode: Text.FixedHeight. Aucune police n'est téléchargée : les piles listées reposent sur ce qui est installé.",
-  "$version": "1.0.0",
+  "$version": "1.1.0",
   "$file": "typography",
   "$themed": false,
   "$qml": {
@@ -11,16 +11,8 @@
     "familyProperty": "Les piles sont fournies comme listes et se branchent sur font.families (Qt 6). Un générateur ciblant font.family prend le premier élément disponible."
   },
   "tokens": {
-    "family.interface": {
-      "$description": "Pile de l'interface. Inter en premier pour la continuité avec le client web, puis les polices système Windows, macOS et Linux. Aucune n'est embarquée à ce stade ; si Inter est absente, le rendu bascule sans réglage.",
-      "$type": "fontFamilyStack",
-      "$value": ["Inter", "Inter Variable", "Segoe UI Variable Text", "Segoe UI", "SF Pro Text", "Noto Sans", "DejaVu Sans"]
-    },
-    "family.mono": {
-      "$description": "Pile à chasse fixe pour les journaux, les identifiants, les diff, les durées et tout ce qui doit s'aligner en colonne.",
-      "$type": "fontFamilyStack",
-      "$value": ["Cascadia Code", "Cascadia Mono", "JetBrains Mono", "SF Mono", "SFMono-Regular", "Consolas", "DejaVu Sans Mono"]
-    },
+    "family.interface": { "$description": "Pile de l'interface. Inter en premier pour la continuité avec le client web, puis les polices système Windows, macOS et Linux. Aucune n'est embarquée à ce stade ; si Inter est absente, le rendu bascule sans réglage.", "$type": "fontFamilyStack", "$value": ["Inter", "Inter Variable", "Segoe UI Variable Text", "Segoe UI", "SF Pro Text", "Noto Sans", "DejaVu Sans"] },
+    "family.mono": { "$description": "Pile à chasse fixe pour les journaux, les identifiants, les diff, les durées et tout ce qui doit s'aligner en colonne.", "$type": "fontFamilyStack", "$value": ["Cascadia Code", "Cascadia Mono", "JetBrains Mono", "SF Mono", "SFMono-Regular", "Consolas", "DejaVu Sans Mono"] },
     "size.micro": { "$description": "Compteurs, unités, numéros de ligne. Jamais pour une phrase.", "$type": "dimension", "$value": 11 },
     "size.small": { "$description": "Métadonnées, horodatages, aide de champ.", "$type": "dimension", "$value": 12 },
     "size.body": { "$description": "Taille par défaut de l'interface : cellules, libellés, contenu de liste.", "$type": "dimension", "$value": 14 },
@@ -70,5 +62,10 @@
     "Tout identifiant, chemin, durée, hachage ou sortie de commande est en chasse fixe, sans exception : c'est ce qui rend une valeur copiable et comparable du regard.",
     "Aucune capitale intégrale en dehors du rôle columnHeader.",
     "Le texte rédigé ne dépasse pas measure.prose, même dans un panneau large."
-  ]
+  ],
+  "$textScales": {
+    "$description": "Tailles de texte proposées à l'opérateur (Réglages > Apparence) : facteur appliqué à font.pixelSize et à la hauteur de ligne de chaque rôle, à chaud. La police pixel n'en dépend pas : elle s'agrandit par multiples entiers.",
+    "$default": 100,
+    "valeurs": [100, 112, 125, 140]
+  }
 }

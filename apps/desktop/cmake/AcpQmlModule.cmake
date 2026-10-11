@@ -12,7 +12,7 @@
 function(acp_add_qml_module)
     set(options "")
     set(one_value_args TARGET URI)
-    set(multi_value_args QML_FILES IMPORTS DEPENDS)
+    set(multi_value_args QML_FILES IMPORTS DEPENDS RESOURCES)
     cmake_parse_arguments(ARG "${options}" "${one_value_args}" "${multi_value_args}" ${ARGN})
 
     if(NOT ARG_TARGET OR NOT ARG_URI)
@@ -34,10 +34,20 @@ function(acp_add_qml_module)
 
     qt_add_library(${ARG_TARGET} STATIC)
 
+    # Ressources (images engendrées d'Acp.Pixel) : même contrôle d'existence que les QML.
+    foreach(resource_file IN LISTS ARG_RESOURCES)
+        if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/${resource_file}")
+            message(FATAL_ERROR
+                "acp_add_qml_module(${ARG_TARGET}) : ressource déclarée mais absente — "
+                "${CMAKE_CURRENT_SOURCE_DIR}/${resource_file}")
+        endif()
+    endforeach()
+
     qt_add_qml_module(${ARG_TARGET}
         URI ${ARG_URI}
         VERSION 1.0
         QML_FILES ${ARG_QML_FILES}
+        RESOURCES ${ARG_RESOURCES}
         IMPORTS ${ARG_IMPORTS}
     )
 

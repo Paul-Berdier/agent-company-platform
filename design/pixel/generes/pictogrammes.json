@@ -1,0 +1,86 @@
+{
+  "$schema": "acp.pixel-planche/1",
+  "$source": "design/pixel/sources/pictogrammes.txt",
+  "$genere": "scripts/generer_assets_pixel.py — NE PAS MODIFIER À LA MAIN",
+  "id": "pictogrammes",
+  "case": [
+    12,
+    12
+  ],
+  "echelleSource": 1,
+  "colonnes": 7,
+  "sequences": [
+    {
+      "id": "lavande",
+      "rang": 0,
+      "etat": "",
+      "boucle": false,
+      "decoratif": false,
+      "images": "@motifs"
+    },
+    {
+      "id": "menthe",
+      "rang": 1,
+      "etat": "",
+      "boucle": false,
+      "decoratif": false,
+      "images": "@motifs"
+    },
+    {
+      "id": "ambre",
+      "rang": 2,
+      "etat": "",
+      "boucle": false,
+      "decoratif": false,
+      "images": "@motifs"
+    },
+    {
+      "id": "rose",
+      "rang": 3,
+      "etat": "",
+      "boucle": false,
+      "decoratif": false,
+      "images": "@motifs"
+    },
+    {
+      "id": "ciel",
+      "rang": 4,
+      "etat": "",
+      "boucle": false,
+      "decoratif": false,
+      "images": "@motifs"
+    }
+  ],
+  "listes": {
+    "motifs": [
+      {
+        "image": "fusee",
+        "duree": 0
+      },
+      {
+        "image": "cristal",
+        "duree": 0
+      },
+      {
+        "image": "feuille",
+        "duree": 0
+      },
+      {
+        "image": "livre",
+        "duree": 0
+      },
+      {
+        "image": "eclair",
+        "duree": 0
+      },
+      {
+        "image": "planete",
+        "duree": 0
+      },
+      {
+        "image": "engrenage",
+        "duree": 0
+      }
+    ]
+  }
+}

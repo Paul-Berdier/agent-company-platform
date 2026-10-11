@@ -16,10 +16,26 @@ constexpr char kServerUrl[] = "connection/serverUrl";
 constexpr char kAllowInsecureLoopback[] = "connection/allowInsecureLoopback";
 constexpr char kConnexionMemorisee[] = "connexion/memorisee";
 constexpr char kTheme[] = "appearance/theme";
+constexpr char kFamily[] = "appearance/family";
 constexpr char kMotion[] = "appearance/motion";
+constexpr char kConcentration[] = "appearance/concentration";
+constexpr char kDensity[] = "appearance/density";
+constexpr char kTextScale[] = "appearance/textScale";
 constexpr char kInspectorWidth[] = "layout/inspectorWidth";
 constexpr char kSidebarWidth[] = "layout/sidebarWidth";
 constexpr char kSidebarCollapsed[] = "layout/sidebarCollapsed";
+constexpr char kAgentsVisible[] = "layout/agentsPanelVisible";
+constexpr char kDrawerVisible[] = "layout/bottomDrawerVisible";
+constexpr char kDrawerHeight[] = "layout/bottomDrawerHeight";
+constexpr char kDrawerTab[] = "layout/bottomDrawerTab";
+
+// Bornes des panneaux (design/tokens/spacing.json : layout.*.min et .max).
+constexpr int kSidebarMin = 220;
+constexpr int kSidebarMax = 420;
+constexpr int kAgentsMin = 260;
+constexpr int kAgentsMax = 600;
+constexpr int kDrawerMin = 120;
+constexpr int kDrawerMax = 520;
 
 } // namespace
 
@@ -31,8 +47,43 @@ const QStringList &SettingsStore::allowedKeys()
         QLatin1String(kInspectorWidth), QLatin1String(kSidebarCollapsed),
         QLatin1String(kConnexionMemorisee),
         QLatin1String(kSidebarWidth),
+        QLatin1String(kFamily),         QLatin1String(kConcentration),
+        QLatin1String(kDensity),        QLatin1String(kTextScale),
+        QLatin1String(kAgentsVisible),  QLatin1String(kDrawerVisible),
+        QLatin1String(kDrawerHeight),   QLatin1String(kDrawerTab),
     };
     return keys;
+}
+
+const QStringList &SettingsStore::families()
+{
+    static const QStringList valeurs = {QStringLiteral("atelier"), QStringLiteral("studio")};
+    return valeurs;
+}
+
+const QStringList &SettingsStore::motionProfiles()
+{
+    static const QStringList valeurs = {QStringLiteral("complet"), QStringLiteral("discret"), QStringLiteral("reduit")};
+    return valeurs;
+}
+
+const QStringList &SettingsStore::densities()
+{
+    static const QStringList valeurs = {QStringLiteral("compacte"), QStringLiteral("standard"), QStringLiteral("aeree")};
+    return valeurs;
+}
+
+const QList<int> &SettingsStore::textScales()
+{
+    static const QList<int> valeurs = {100, 112, 125, 140};
+    return valeurs;
+}
+
+const QStringList &SettingsStore::bottomDrawerTabs()
+{
+    static const QStringList valeurs = {QStringLiteral("activite"), QStringLiteral("changements"), QStringLiteral("tests"),
+                                        QStringLiteral("sorties"), QStringLiteral("services")};
+    return valeurs;
 }
 
 SettingsStore::SettingsStore(QObject *parent)
@@ -100,20 +151,93 @@ void SettingsStore::setThemePreference(const QString &preference)
     emit themePreferenceChanged();
 }
 
+QString SettingsStore::familyPreference() const
+{
+    const QString famille = value(QLatin1String(kFamily), families().constFirst()).toString();
+    return families().contains(famille) ? famille : families().constFirst();
+}
+
+void SettingsStore::setFamilyPreference(const QString &family)
+{
+    if (!families().contains(family)) {
+        qCWarning(lcSettings) << "famille visuelle inconnue, ignorée";
+        return;
+    }
+    if (familyPreference() == family) return;
+    setValue(QLatin1String(kFamily), family);
+    emit familyPreferenceChanged();
+}
+
 QString SettingsStore::motionPreference() const
 {
-    return value(QLatin1String(kMotion), QStringLiteral("system")).toString();
+    const QString lu = value(QLatin1String(kMotion), motionProfiles().constFirst()).toString();
+    if (motionProfiles().contains(lu)) {
+        return lu;
+    }
+    // Valeurs des versions 1.0.x (design/tokens/motion.json, $legacyProfiles).
+    if (lu == QLatin1String("standard")) {
+        return QStringLiteral("discret");
+    }
+    if (lu == QLatin1String("reduced")) {
+        return QStringLiteral("reduit");
+    }
+    return motionProfiles().constFirst();
 }
 
 void SettingsStore::setMotionPreference(const QString &preference)
 {
-    if (preference != QLatin1String("system") && preference != QLatin1String("standard")
-        && preference != QLatin1String("reduced")) {
+    if (!motionProfiles().contains(preference)) {
         qCWarning(lcSettings) << "préférence de mouvement inconnue, ignorée";
         return;
     }
     setValue(QLatin1String(kMotion), preference);
     emit motionPreferenceChanged();
+}
+
+bool SettingsStore::concentration() const
+{
+    return value(QLatin1String(kConcentration), false).toBool();
+}
+
+void SettingsStore::setConcentration(bool active)
+{
+    if (concentration() == active) return;
+    setValue(QLatin1String(kConcentration), active);
+    emit concentrationChanged();
+}
+
+QString SettingsStore::density() const
+{
+    const QString lu = value(QLatin1String(kDensity), QStringLiteral("standard")).toString();
+    return densities().contains(lu) ? lu : QStringLiteral("standard");
+}
+
+void SettingsStore::setDensity(const QString &density)
+{
+    if (!densities().contains(density)) {
+        qCWarning(lcSettings) << "densité inconnue, ignorée";
+        return;
+    }
+    if (this->density() == density) return;
+    setValue(QLatin1String(kDensity), density);
+    emit densityChanged();
+}
+
+int SettingsStore::textScale() const
+{
+    const int lu = value(QLatin1String(kTextScale), 100).toInt();
+    return textScales().contains(lu) ? lu : 100;
+}
+
+void SettingsStore::setTextScale(int percent)
+{
+    if (!textScales().contains(percent)) {
+        qCWarning(lcSettings) << "taille de texte inconnue, ignorée";
+        return;
+    }
+    if (textScale() == percent) return;
+    setValue(QLatin1String(kTextScale), percent);
+    emit textScaleChanged();
 }
 
 bool SettingsStore::allowInsecureLoopback() const
@@ -141,23 +265,23 @@ void SettingsStore::setConnexionMemorisee(bool memoriser)
 int SettingsStore::inspectorWidth() const
 {
     const int width = value(QLatin1String(kInspectorWidth), 0).toInt();
-    return width == 0 ? 0 : qBound(320, width, 600);
+    return width == 0 ? 0 : qBound(kAgentsMin, width, kAgentsMax);
 }
 
 void SettingsStore::setInspectorWidth(int width)
 {
-    setValue(QLatin1String(kInspectorWidth), width == 0 ? 0 : qBound(320, width, 600));
+    setValue(QLatin1String(kInspectorWidth), width == 0 ? 0 : qBound(kAgentsMin, width, kAgentsMax));
 }
 
 int SettingsStore::sidebarWidth() const
 {
     const int width = value(QLatin1String(kSidebarWidth), 0).toInt();
-    return width == 0 ? 0 : qBound(200, width, 360);
+    return width == 0 ? 0 : qBound(kSidebarMin, width, kSidebarMax);
 }
 
 void SettingsStore::setSidebarWidth(int width)
 {
-    setValue(QLatin1String(kSidebarWidth), width == 0 ? 0 : qBound(200, width, 360));
+    setValue(QLatin1String(kSidebarWidth), width == 0 ? 0 : qBound(kSidebarMin, width, kSidebarMax));
 }
 
 bool SettingsStore::sidebarCollapsed() const
@@ -168,6 +292,60 @@ bool SettingsStore::sidebarCollapsed() const
 void SettingsStore::setSidebarCollapsed(bool collapsed)
 {
     setValue(QLatin1String(kSidebarCollapsed), collapsed);
+}
+
+bool SettingsStore::agentsPanelVisible() const
+{
+    return value(QLatin1String(kAgentsVisible), true).toBool();
+}
+
+void SettingsStore::setAgentsPanelVisible(bool visible)
+{
+    setValue(QLatin1String(kAgentsVisible), visible);
+}
+
+bool SettingsStore::bottomDrawerVisible() const
+{
+    return value(QLatin1String(kDrawerVisible), false).toBool();
+}
+
+void SettingsStore::setBottomDrawerVisible(bool visible)
+{
+    setValue(QLatin1String(kDrawerVisible), visible);
+}
+
+int SettingsStore::bottomDrawerHeight() const
+{
+    const int height = value(QLatin1String(kDrawerHeight), 0).toInt();
+    return height == 0 ? 0 : qBound(kDrawerMin, height, kDrawerMax);
+}
+
+void SettingsStore::setBottomDrawerHeight(int height)
+{
+    setValue(QLatin1String(kDrawerHeight), height == 0 ? 0 : qBound(kDrawerMin, height, kDrawerMax));
+}
+
+QString SettingsStore::bottomDrawerTab() const
+{
+    const QString lu = value(QLatin1String(kDrawerTab), bottomDrawerTabs().constFirst()).toString();
+    return bottomDrawerTabs().contains(lu) ? lu : bottomDrawerTabs().constFirst();
+}
+
+void SettingsStore::setBottomDrawerTab(const QString &tab)
+{
+    if (!bottomDrawerTabs().contains(tab)) {
+        qCWarning(lcSettings) << "onglet du volet bas inconnu, ignoré";
+        return;
+    }
+    setValue(QLatin1String(kDrawerTab), tab);
+}
+
+void SettingsStore::resetLayout()
+{
+    for (const char *cle : {kInspectorWidth, kSidebarWidth, kSidebarCollapsed, kAgentsVisible, kDrawerVisible,
+                            kDrawerHeight, kDrawerTab}) {
+        m_settings->remove(QLatin1String(cle));
+    }
 }
 
 void SettingsStore::flush()
@@ -181,7 +359,11 @@ void SettingsStore::clear()
     m_settings->sync();
     emit serverUrlChanged();
     emit themePreferenceChanged();
+    emit familyPreferenceChanged();
     emit motionPreferenceChanged();
+    emit concentrationChanged();
+    emit densityChanged();
+    emit textScaleChanged();
     emit connexionMemoriseeChanged();
 }
 

@@ -578,6 +578,10 @@ Item {
                     Layout.fillWidth: true
                     placeholder: qsTr("Titre (120 caractères au plus)")
                     accessibleName: qsTr("Titre")
+                    // Brouillon en mémoire (D167) : il survit à la navigation et au changement de thème,
+                    // jamais à la session (oubli local).
+                    Component.onCompleted: text = Espace.brouillon("nouvelle-mission:titre")
+                    onTextChanged: Espace.noterBrouillon("nouvelle-mission:titre", text)
                 }
 
                 Discret { text: qsTr("Objectif"); color: Colors.textSecondary }
@@ -599,6 +603,8 @@ Item {
                         border.color: objectifChamp.activeFocus ? Colors.borderFocus : Colors.borderInteractive
                     }
                     Accessible.name: qsTr("Objectif")
+                    Component.onCompleted: text = Espace.brouillon("nouvelle-mission:objectif")
+                    onTextChanged: Espace.noterBrouillon("nouvelle-mission:objectif", text)
                 }
 
                 Discret { text: qsTr("Type de projet"); color: Colors.textSecondary }
@@ -668,7 +674,9 @@ Item {
                         id: voieChoix
                         objectName: "projets-champ-voie"
                         Layout.fillWidth: true
-                        model: formulaire.f.voies
+                        // Auto en tête et par défaut (D168) : aucune voie n'est envoyée, le greffon résout.
+                        model: [{ "valeur": "", "libelle": qsTr("Auto : routage du greffon"), "fermee": false }]
+                            .concat(formulaire.f.voies)
                         textRole: "libelle"
                         valueRole: "valeur"
                         currentIndex: Math.max(0, indexOfValue(formulaire.f.voie))
@@ -678,12 +686,33 @@ Item {
                         delegate: ItemDelegate {
                             required property var modelData
                             required property int index
-                            objectName: "projets-voie-option-" + modelData.valeur
+                            objectName: "projets-voie-option-" + (modelData.valeur.length > 0 ? modelData.valeur : "auto")
                             width: voieChoix.width
                             text: modelData.libelle
                             enabled: !modelData.fermee
                             highlighted: voieChoix.highlightedIndex === index
                         }
+                    }
+                    Discret {
+                        objectName: "projets-auto-explication"
+                        visible: formulaire.f.auto === true
+                        text: qsTr("Auto : le greffon choisit l'exécutant, le modèle et l'effort par sa politique (surcharge, "
+                                   + "table de routage validée, profil) et enregistre la source de son choix, visible "
+                                   + "ensuite dans le panneau des agents.")
+                    }
+                    Alerte {
+                        objectName: "projets-auto-table"
+                        text: formulaire.f.auto === true && formulaire.f.tableAutoValidee !== true
+                            ? qsTr("La table de routage de l'exploration n'est pas validée : sans surcharge active, le "
+                                   + "greffon refusera ce lancement en Auto. Validez la suggestion dans Réglages, "
+                                   + "Modèles et budgets, ou choisissez un exécutant ci-dessus.")
+                            : ""
+                    }
+                    Alerte {
+                        objectName: "projets-choix-ferme"
+                        text: formulaire.f.choixManuelFerme === true
+                            ? qsTr("L'exécutant que vous aviez choisi est fermé pour ce dépôt : Auto s'applique.")
+                            : ""
                     }
                     Repeater {
                         model: formulaire.f.voiesFermees || []
@@ -699,26 +728,28 @@ Item {
                             ? qsTr("Aucun exécutant ouvert pour ce dépôt. Le projet part sans exploration du dépôt.")
                             : ""
                     }
-                    Discret { text: qsTr("Modèle"); color: Colors.textSecondary }
+                    Discret { visible: formulaire.f.auto !== true; text: qsTr("Modèle"); color: Colors.textSecondary }
                     ComboBox {
                         id: modeleChoix
                         objectName: "projets-champ-modele"
+                        visible: formulaire.f.auto !== true
                         Layout.fillWidth: true
                         model: [formulaire.f.libelleModeleVide].concat(formulaire.f.modeles)
                         currentIndex: formulaire.f.modele.length > 0 ? formulaire.f.modeles.indexOf(formulaire.f.modele) + 1 : 0
                         Accessible.name: qsTr("Modèle")
                         onActivated: function(index) { Projets.choisirModele(index === 0 ? "" : formulaire.f.modeles[index - 1]) }
                     }
-                    Discret { text: qsTr("Effort"); color: Colors.textSecondary }
+                    Discret { visible: formulaire.f.auto !== true; text: qsTr("Effort"); color: Colors.textSecondary }
                     ComboBox {
                         id: effortChoix
                         objectName: "projets-champ-effort"
+                        visible: formulaire.f.auto !== true
                         Layout.fillWidth: true
                         model: [qsTr("Par défaut")].concat(formulaire.f.efforts)
                         Accessible.name: qsTr("Effort")
                         onModelChanged: currentIndex = 0
                     }
-                    Discret { text: qsTr("Relevé du %1").arg(formulaire.f.releveDu) }
+                    Discret { visible: formulaire.f.auto !== true; text: qsTr("Relevé du %1").arg(formulaire.f.releveDu) }
                     Alerte { text: formulaire.f.relevePerime ? qsTr("Relevé périmé : le poste doit publier un nouvel inventaire.") : "" }
                     Alerte {
                         text: formulaire.f.modeleExige
@@ -731,6 +762,11 @@ Item {
                 // reportée dans les listes : elles montrent toujours ce qui sera envoyé.
                 Connections {
                     target: Projets
+                    // Mission lancée : les brouillons du formulaire ont servi, ils sont effacés.
+                    function onMissionLancee() {
+                        titreChamp.text = "";
+                        objectifChamp.text = "";
+                    }
                     function onFormulaireChange() {
                         depotChoix.currentIndex = formulaire.f.depot.length > 0 ? formulaire.f.depots.indexOf(formulaire.f.depot) + 1 : 0;
                         voieChoix.currentIndex = Math.max(0, voieChoix.indexOfValue(formulaire.f.voie));
@@ -741,7 +777,7 @@ Item {
                 AcpButton {
                     objectName: "projets-lancer"
                     primary: true
-                    label: Projets.gesteEnCours ? qsTr("Envoi…") : qsTr("Lancer le projet")
+                    label: Projets.gesteEnCours ? qsTr("Envoi…") : qsTr("Lancer la mission")
                     manualEnabled: formulaire.f.pret && formulaire.complet && !Projets.gesteEnCours
                     onTriggered: Projets.lancer(titreChamp.text, objectifChamp.text, profilChoix.currentValue,
                                                 formulaire.reponses,

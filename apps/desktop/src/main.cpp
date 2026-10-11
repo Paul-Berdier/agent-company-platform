@@ -9,6 +9,7 @@
 #include "diagnostics/Redaction.h"
 
 #include <QGuiApplication>
+#include <QIcon>
 #include <QQmlApplicationEngine>
 #include <QQuickStyle>
 #include <QTextStream>
@@ -94,6 +95,15 @@ int main(int argc, char *argv[])
     // par les jetons du produit. Les styles natifs imposent leurs propres couleurs et
     // rendraient les jetons partiellement inopérants.
     QQuickStyle::setStyle(QStringLiteral("Basic"));
+
+    // Icône de fenêtre et de barre des tâches (D165) : l'emblème, dessiné pour chaque taille
+    // (Acp.Pixel, ressources engendrées par scripts/generer_assets_pixel.py). L'exécutable
+    // porte la même icône par sa ressource Windows (AgentCompanyPlatform.rc).
+    QIcon embleme;
+    for (const int taille : {16, 20, 24, 32, 40, 48, 64, 128, 256}) {
+        embleme.addFile(QStringLiteral(":/qt/qml/Acp/Pixel/assets/embleme-%1.png").arg(taille), QSize(taille, taille));
+    }
+    QGuiApplication::setWindowIcon(embleme);
 
     acp::Application controller;
     controller.registerQmlTypes();

@@ -30,6 +30,7 @@ class HealthService;
 class NavigationModel;
 class PosteViewModel;
 class ProjetsViewModel;
+class EspaceTravailViewModel;
 class QuestionsViewModel;
 class QuotasViewModel;
 class RoutageViewModel;
@@ -96,6 +97,7 @@ private:
     DiagnosticsViewModel *m_diagnostics = nullptr;
     AccueilViewModel *m_accueil = nullptr;
     ProjetsViewModel *m_projets = nullptr;
+    EspaceTravailViewModel *m_espace = nullptr;
     QuestionsViewModel *m_questions = nullptr;
     PosteViewModel *m_poste = nullptr;
     QuotasViewModel *m_quotas = nullptr;

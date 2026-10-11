@@ -862,22 +862,30 @@ void ProjetsViewModel::majFormulaire()
     if (!depots || !depots->contains(m_depot)) {
         m_depot.clear();
     }
-    if (m_voie.isEmpty() || !voies.contains(m_voie)) {
-        m_voie = voies.value(0);
+    // Auto par défaut (D168) : sans choix manuel, AUCUNE voie n'est envoyée et le greffon résout
+    // l'exploration par surcharge, table puis profil (routage.py). Un choix manuel est un verrou
+    // explicite ; il n'est jamais remplacé en silence par une autre voie : fermé pour le dépôt
+    // choisi, il cède la place à Auto, et le formulaire le dit.
+    if (!m_voie.isEmpty() && !voies.contains(m_voie)) {
+        m_voie.clear();
     }
-    // Étape P7 : un exécutant fermé pour le dépôt choisi n'est jamais retenu ; le premier ouvert le remplace (le choix
-    // du propriétaire est gardé et revient avec un dépôt où il est ouvert).
     const QJsonObject fermees = voiesFermeesPourDepot(m_poste, m_depot);
     QString voieChoisie = m_voie;
-    if (voieChoisie.isEmpty() || fermees.contains(voieChoisie)) {
+    const bool choixFerme = !voieChoisie.isEmpty() && fermees.contains(voieChoisie);
+    if (choixFerme) {
         voieChoisie.clear();
-        for (const QString &voie : voies) {
-            if (!fermees.contains(voie)) {
-                voieChoisie = voie;
-                break;
-            }
-        }
     }
+    bool toutesFermees = !voies.isEmpty();
+    for (const QString &voie : voies) {
+        toutesFermees = toutesFermees && fermees.contains(voie);
+    }
+    // En Auto, sans surcharge active, le greffon résout l'exploration par sa table de routage ; une
+    // table non validée fait refuser le lancement (routage.py, « aucun_modele »). Le catalogue du
+    // poste dit si elle l'est : le formulaire le montre AVANT l'envoi, sans rien décider à sa place.
+    const bool tableExplorationValidee = !cataloguePoste.value(QStringLiteral("routage")).toObject()
+                                              .value(QStringLiteral("classes")).toObject()
+                                              .value(QStringLiteral("exploration")).toObject()
+                                              .value(QStringLiteral("entrees")).toArray().isEmpty();
     const QJsonObject releveVoie = cataloguePoste.value(QStringLiteral("voies")).toObject().value(voieChoisie).toObject();
     QStringList modeles;
     bool modeleParDefaut = false;
@@ -924,8 +932,11 @@ void ProjetsViewModel::majFormulaire()
         {QStringLiteral("avecExploration"), avecExploration},
         {QStringLiteral("voies"), listeVoies},
         {QStringLiteral("voie"), voieChoisie},
+        {QStringLiteral("auto"), voieChoisie.isEmpty()},
+        {QStringLiteral("tableAutoValidee"), tableExplorationValidee},
+        {QStringLiteral("choixManuelFerme"), choixFerme},
         {QStringLiteral("voiesFermees"), voiesFermees},
-        {QStringLiteral("aucuneVoieOuverte"), avecExploration && voieChoisie.isEmpty()},
+        {QStringLiteral("aucuneVoieOuverte"), avecExploration && toutesFermees},
         {QStringLiteral("modeles"), modeles},
         {QStringLiteral("modeleParDefaut"), modeleParDefaut},
         {QStringLiteral("libelleModeleVide"), modeleParDefaut
@@ -1014,8 +1025,9 @@ void ProjetsViewModel::lancer(const QString &titre, const QString &objectif, con
         const bool dejaLance = resultat.value(QStringLiteral("deja_lance")).toBool();
         // Lancement accepté : le prochain formulaire aura sa propre clé.
         m_cle = makeIdempotencyKey(QStringLiteral("projet"));
-        terminerGeste(dejaLance ? QStringLiteral("Ce projet était déjà lancé par ce formulaire : aucun doublon n'a été créé.")
-                                : QStringLiteral("Projet lancé : Hermes le planifie."));
+        emit missionLancee();
+        terminerGeste(dejaLance ? QStringLiteral("Cette mission était déjà lancée par ce formulaire : aucun doublon n'a été créé.")
+                                : QStringLiteral("Mission lancée : Hermes la planifie."));
         m_liste->lireMaintenant();
         if (ClientGreffonPoste::identifiantValide(identifiant)) {
             ouvrirProjet(identifiant);

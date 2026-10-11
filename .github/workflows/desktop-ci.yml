@@ -23,6 +23,8 @@ name: Desktop CI
     paths:
       - "apps/desktop/**"
       - "design/tokens/**"
+      - "design/pixel/**"
+      - "scripts/generer_assets_pixel.py"
       - "hermes/contrat/**"
       - "hermes/tests/outils/fixtures_*/**"
       - "packaging/windows/**"
@@ -40,6 +42,8 @@ name: Desktop CI
     paths:
       - "apps/desktop/**"
       - "design/tokens/**"
+      - "design/pixel/**"
+      - "scripts/generer_assets_pixel.py"
       - "hermes/contrat/**"
       - "hermes/tests/outils/fixtures_*/**"
       - "packaging/windows/**"

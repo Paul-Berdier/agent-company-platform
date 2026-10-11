@@ -46,7 +46,7 @@ SORTIE = RACINE / "hermes" / "theme" / "acp.yaml"
 GENERATEUR_DESKTOP = RACINE / "apps" / "desktop" / "cmake" / "generate_design_tokens.py"
 QML_GENERE = RACINE / "apps" / "desktop" / "qml" / "theme" / "generated"
 
-THEME = "dark"  # $defaultTheme des jetons ; le thème clair est reporté (décision D18).
+THEME = "studio-graphite"  # Studio sombre, palette historique du tableau de bord (D165) ; le clair est reporté (D18).
 PLAFOND_CSS_HERMES = 32 * 1024  # _THEME_CUSTOM_CSS_MAX (web_server_dashboard.py)
 BUDGET_CSS_ACP = 2 * 1024
 CONTRASTE_TEXTE = 4.5

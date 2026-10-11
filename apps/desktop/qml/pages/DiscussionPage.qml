@@ -277,6 +277,12 @@ Item {
                     wrapMode: TextEdit.Wrap
                     textFormat: TextEdit.PlainText
                     placeholderText: qsTr("Écrivez à Hermes (Ctrl+Entrée pour envoyer)")
+                    // Brouillon par session, en mémoire seulement (D167) : il survit à un changement d'écran
+                    // et disparaît avec la session de la station.
+                    readonly property string contexteBrouillon: "discussion:" + Discussion.sessionVivante
+                    Component.onCompleted: text = Espace.brouillon(contexteBrouillon)
+                    onContexteBrouillonChanged: text = Espace.brouillon(contexteBrouillon)
+                    onTextChanged: Espace.noterBrouillon(contexteBrouillon, text)
                     color: Colors.textPrimary
                     font.family: Type.prose.family
                     font.pixelSize: Type.prose.pixelSize

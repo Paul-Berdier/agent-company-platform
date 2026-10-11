@@ -1,0 +1,1477 @@
+{
+ "$schema": "acp.pixel-assets/1",
+ "$description": "Manifeste des assets pixel art d'ACP (direction Pixel Atelier). Les sources sont des grilles texte de design/pixel/sources ; scripts/generer_assets_pixel.py en tire les PNG, l'icône Windows, les planches et leurs métadonnées, et le singleton QML Acp.Pixel/PlanchesPixel. Créations originales du chantier « atelier » (11 octobre 2026), proposées au propriétaire, non validées par lui.",
+ "palettes": {
+  "$description": "Palettes nommées. Une clé d'un caractère par couleur ; « . » est réservé à la transparence. Une valeur « jeton:<thème>:<jeton> » lit la couleur dans design/tokens/colors.json (source unique).",
+  "embleme": {
+   "$description": "Emblème : encre, lavande, menthe, blanc chaud (direction Pixel Atelier).",
+   "K": "#0b0d14",
+   "B": "#151923",
+   "b": "#202738",
+   "L": "#a99aff",
+   "l": "#d6cfff",
+   "D": "#6b5bd8",
+   "M": "#7adbc3",
+   "m": "#3a9a84",
+   "W": "#fbf6ec"
+  },
+  "portrait-coordinateur": {
+   "o": "#0b0d14",
+   "e": "#151923",
+   "k": "#2a2f45",
+   "K": "#454c6b",
+   "w": "#fbf6ec",
+   "x": "#ff6b7a",
+   "q": "#f4b860",
+   "v": "#59d48b",
+   "p": "#8b93b8",
+   "h": "#3b3f6b",
+   "H": "#55598f",
+   "s": "#e8b796",
+   "S": "#c38c6c",
+   "c": "#a99aff",
+   "C": "#6b5bd8",
+   "a": "#7adbc3",
+   "A": "#3a9a84",
+   "g": "#7adbc3"
+  },
+  "portrait-developpeur": {
+   "o": "#0b0d14",
+   "e": "#151923",
+   "k": "#2a2f45",
+   "K": "#454c6b",
+   "w": "#fbf6ec",
+   "x": "#ff6b7a",
+   "q": "#f4b860",
+   "v": "#59d48b",
+   "p": "#8b93b8",
+   "h": "#7a4a2b",
+   "H": "#9c6640",
+   "s": "#c98e66",
+   "S": "#a26c4b",
+   "c": "#7adbc3",
+   "C": "#3a9a84",
+   "a": "#f4b860",
+   "A": "#c88a3a",
+   "g": "#a99aff"
+  },
+  "portrait-relecteur": {
+   "o": "#0b0d14",
+   "e": "#151923",
+   "k": "#2a2f45",
+   "K": "#454c6b",
+   "w": "#fbf6ec",
+   "x": "#ff6b7a",
+   "q": "#f4b860",
+   "v": "#59d48b",
+   "p": "#8b93b8",
+   "h": "#d8d2c4",
+   "H": "#f1ece2",
+   "s": "#8a5a3c",
+   "S": "#6c4329",
+   "c": "#f4b860",
+   "C": "#c88a3a",
+   "a": "#a99aff",
+   "A": "#6b5bd8",
+   "g": "#a99aff"
+  },
+  "portrait-explorateur": {
+   "o": "#0b0d14",
+   "e": "#151923",
+   "k": "#2a2f45",
+   "K": "#454c6b",
+   "w": "#fbf6ec",
+   "x": "#ff6b7a",
+   "q": "#f4b860",
+   "v": "#59d48b",
+   "p": "#8b93b8",
+   "h": "#2f6b62",
+   "H": "#3f8a7e",
+   "s": "#f0c9a8",
+   "S": "#cc9f7d",
+   "c": "#8fc1ff",
+   "C": "#4f7fc4",
+   "a": "#fbf6ec",
+   "A": "#b9c2d8",
+   "g": "#7adbc3"
+  },
+  "portrait-testeur": {
+   "o": "#0b0d14",
+   "e": "#151923",
+   "k": "#2a2f45",
+   "K": "#454c6b",
+   "w": "#fbf6ec",
+   "x": "#ff6b7a",
+   "q": "#f4b860",
+   "v": "#59d48b",
+   "p": "#8b93b8",
+   "h": "#1f1b2a",
+   "H": "#3a3350",
+   "s": "#b07a55",
+   "S": "#8c5c3c",
+   "c": "#ff9fb2",
+   "C": "#c9637a",
+   "a": "#7adbc3",
+   "A": "#3a9a84",
+   "g": "#a99aff"
+  },
+  "portrait-inconnu": {
+   "o": "#0b0d14",
+   "e": "#2a2f45",
+   "k": "#2a2f45",
+   "K": "#454c6b",
+   "w": "#d7dbe8",
+   "x": "#ff6b7a",
+   "q": "#f4b860",
+   "v": "#59d48b",
+   "p": "#8b93b8",
+   "h": "#4a5068",
+   "H": "#5c6380",
+   "s": "#7d849f",
+   "S": "#656c87",
+   "c": "#5c6380",
+   "C": "#454c6b",
+   "a": "#7d849f",
+   "A": "#5c6380",
+   "g": "#2a2f45"
+  },
+  "picto-lavande": {
+   "o": "#151923",
+   "a": "#a99aff",
+   "A": "#6b5bd8",
+   "w": "#e6e0ff",
+   "q": "#7adbc3"
+  },
+  "picto-menthe": {
+   "o": "#151923",
+   "a": "#7adbc3",
+   "A": "#3a9a84",
+   "w": "#d8f6ee",
+   "q": "#a99aff"
+  },
+  "picto-ambre": {
+   "o": "#151923",
+   "a": "#f4b860",
+   "A": "#c88a3a",
+   "w": "#fde9c9",
+   "q": "#7adbc3"
+  },
+  "picto-rose": {
+   "o": "#151923",
+   "a": "#ff9fb2",
+   "A": "#c9637a",
+   "w": "#ffe0e7",
+   "q": "#a99aff"
+  },
+  "picto-ciel": {
+   "o": "#151923",
+   "a": "#8fc1ff",
+   "A": "#4f7fc4",
+   "w": "#dcebff",
+   "q": "#f4b860"
+  },
+  "police-atelier-nuit-texte": {
+   "X": "jeton:atelier-nuit:text.primary"
+  },
+  "police-atelier-nuit-attenue": {
+   "X": "jeton:atelier-nuit:text.secondary"
+  },
+  "police-atelier-nuit-accent": {
+   "X": "jeton:atelier-nuit:accent.primary"
+  },
+  "police-atelier-jour-texte": {
+   "X": "jeton:atelier-jour:text.primary"
+  },
+  "police-atelier-jour-attenue": {
+   "X": "jeton:atelier-jour:text.secondary"
+  },
+  "police-atelier-jour-accent": {
+   "X": "jeton:atelier-jour:accent.primary"
+  },
+  "police-studio-graphite-texte": {
+   "X": "jeton:studio-graphite:text.primary"
+  },
+  "police-studio-graphite-attenue": {
+   "X": "jeton:studio-graphite:text.secondary"
+  },
+  "police-studio-graphite-accent": {
+   "X": "jeton:studio-graphite:accent.primary"
+  },
+  "police-studio-papier-texte": {
+   "X": "jeton:studio-papier:text.primary"
+  },
+  "police-studio-papier-attenue": {
+   "X": "jeton:studio-papier:text.secondary"
+  },
+  "police-studio-papier-accent": {
+   "X": "jeton:studio-papier:accent.primary"
+  }
+ },
+ "listes": {
+  "$description": "Listes d'images partagées par plusieurs séquences (référencées par « @nom »).",
+  "glyphes": [
+   {
+    "car": "A",
+    "image": "A"
+   },
+   {
+    "car": "B",
+    "image": "B"
+   },
+   {
+    "car": "C",
+    "image": "C"
+   },
+   {
+    "car": "D",
+    "image": "D"
+   },
+   {
+    "car": "E",
+    "image": "E"
+   },
+   {
+    "car": "F",
+    "image": "F"
+   },
+   {
+    "car": "G",
+    "image": "G"
+   },
+   {
+    "car": "H",
+    "image": "H"
+   },
+   {
+    "car": "I",
+    "image": "I"
+   },
+   {
+    "car": "J",
+    "image": "J"
+   },
+   {
+    "car": "K",
+    "image": "K"
+   },
+   {
+    "car": "L",
+    "image": "L"
+   },
+   {
+    "car": "M",
+    "image": "M"
+   },
+   {
+    "car": "N",
+    "image": "N"
+   },
+   {
+    "car": "O",
+    "image": "O"
+   },
+   {
+    "car": "P",
+    "image": "P"
+   },
+   {
+    "car": "Q",
+    "image": "Q"
+   },
+   {
+    "car": "R",
+    "image": "R"
+   },
+   {
+    "car": "S",
+    "image": "S"
+   },
+   {
+    "car": "T",
+    "image": "T"
+   },
+   {
+    "car": "U",
+    "image": "U"
+   },
+   {
+    "car": "V",
+    "image": "V"
+   },
+   {
+    "car": "W",
+    "image": "W"
+   },
+   {
+    "car": "X",
+    "image": "X"
+   },
+   {
+    "car": "Y",
+    "image": "Y"
+   },
+   {
+    "car": "Z",
+    "image": "Z"
+   },
+   {
+    "car": "0",
+    "image": "0"
+   },
+   {
+    "car": "1",
+    "image": "1"
+   },
+   {
+    "car": "2",
+    "image": "2"
+   },
+   {
+    "car": "3",
+    "image": "3"
+   },
+   {
+    "car": "4",
+    "image": "4"
+   },
+   {
+    "car": "5",
+    "image": "5"
+   },
+   {
+    "car": "6",
+    "image": "6"
+   },
+   {
+    "car": "7",
+    "image": "7"
+   },
+   {
+    "car": "8",
+    "image": "8"
+   },
+   {
+    "car": "9",
+    "image": "9"
+   },
+   {
+    "car": " ",
+    "image": "espace"
+   },
+   {
+    "car": ".",
+    "image": "point"
+   },
+   {
+    "car": ",",
+    "image": "virgule"
+   },
+   {
+    "car": ":",
+    "image": "deux-points"
+   },
+   {
+    "car": "-",
+    "image": "tiret"
+   },
+   {
+    "car": "/",
+    "image": "barre"
+   },
+   {
+    "car": "!",
+    "image": "exclamation"
+   },
+   {
+    "car": "?",
+    "image": "interrogation"
+   },
+   {
+    "car": "'",
+    "image": "apostrophe"
+   },
+   {
+    "car": "(",
+    "image": "parenthese-g"
+   },
+   {
+    "car": ")",
+    "image": "parenthese-d"
+   },
+   {
+    "car": "+",
+    "image": "plus"
+   },
+   {
+    "car": "#",
+    "image": "diese"
+   },
+   {
+    "car": "%",
+    "image": "pourcent"
+   },
+   {
+    "car": "_",
+    "image": "souligne"
+   },
+   {
+    "car": "<",
+    "image": "inferieur"
+   },
+   {
+    "car": ">",
+    "image": "superieur"
+   },
+   {
+    "car": "É",
+    "image": [
+     "E",
+     "aigu"
+    ]
+   },
+   {
+    "car": "È",
+    "image": [
+     "E",
+     "grave"
+    ]
+   },
+   {
+    "car": "Ê",
+    "image": [
+     "E",
+     "circonflexe"
+    ]
+   },
+   {
+    "car": "Ë",
+    "image": [
+     "E",
+     "trema"
+    ]
+   },
+   {
+    "car": "À",
+    "image": [
+     "A",
+     "grave"
+    ]
+   },
+   {
+    "car": "Â",
+    "image": [
+     "A",
+     "circonflexe"
+    ]
+   },
+   {
+    "car": "Î",
+    "image": [
+     "I",
+     "circonflexe"
+    ]
+   },
+   {
+    "car": "Ï",
+    "image": [
+     "I",
+     "trema"
+    ]
+   },
+   {
+    "car": "Ô",
+    "image": [
+     "O",
+     "circonflexe"
+    ]
+   },
+   {
+    "car": "Ù",
+    "image": [
+     "U",
+     "grave"
+    ]
+   },
+   {
+    "car": "Û",
+    "image": [
+     "U",
+     "circonflexe"
+    ]
+   },
+   {
+    "car": "Ü",
+    "image": [
+     "U",
+     "trema"
+    ]
+   },
+   {
+    "car": "Ç",
+    "image": [
+     "C",
+     "cedille"
+    ]
+   }
+  ],
+  "motifs": [
+   {
+    "image": "fusee"
+   },
+   {
+    "image": "cristal"
+   },
+   {
+    "image": "feuille"
+   },
+   {
+    "image": "livre"
+   },
+   {
+    "image": "eclair"
+   },
+   {
+    "image": "planete"
+   },
+   {
+    "image": "engrenage"
+   }
+  ]
+ },
+ "embleme": {
+  "exports": [
+   {
+    "fichier": "apps/desktop/qml/pixel/assets/embleme-16.png",
+    "source": "sources/embleme.txt",
+    "image": "embleme-16",
+    "palette": "embleme",
+    "echelle": 1,
+    "taille": 16
+   },
+   {
+    "fichier": "apps/desktop/qml/pixel/assets/embleme-20.png",
+    "source": "sources/embleme.txt",
+    "image": "embleme-20",
+    "palette": "embleme",
+    "echelle": 1,
+    "taille": 20
+   },
+   {
+    "fichier": "apps/desktop/qml/pixel/assets/embleme-24.png",
+    "source": "sources/embleme.txt",
+    "image": "embleme-24",
+    "palette": "embleme",
+    "echelle": 1,
+    "taille": 24
+   },
+   {
+    "fichier": "apps/desktop/qml/pixel/assets/embleme-32.png",
+    "source": "sources/embleme.txt",
+    "image": "embleme-32",
+    "palette": "embleme",
+    "echelle": 1,
+    "taille": 32
+   },
+   {
+    "fichier": "apps/desktop/qml/pixel/assets/embleme-40.png",
+    "source": "sources/embleme.txt",
+    "image": "embleme-20",
+    "palette": "embleme",
+    "echelle": 2,
+    "taille": 40
+   },
+   {
+    "fichier": "apps/desktop/qml/pixel/assets/embleme-48.png",
+    "source": "sources/embleme.txt",
+    "image": "embleme-24",
+    "palette": "embleme",
+    "echelle": 2,
+    "taille": 48
+   },
+   {
+    "fichier": "apps/desktop/qml/pixel/assets/embleme-64.png",
+    "source": "sources/embleme.txt",
+    "image": "embleme-32",
+    "palette": "embleme",
+    "echelle": 2,
+    "taille": 64
+   },
+   {
+    "fichier": "apps/desktop/qml/pixel/assets/embleme-128.png",
+    "source": "sources/embleme.txt",
+    "image": "embleme-32",
+    "palette": "embleme",
+    "echelle": 4,
+    "taille": 128
+   },
+   {
+    "fichier": "apps/desktop/qml/pixel/assets/embleme-256.png",
+    "source": "sources/embleme.txt",
+    "image": "embleme-32",
+    "palette": "embleme",
+    "echelle": 8,
+    "taille": 256
+   }
+  ]
+ },
+ "icone": {
+  "fichier": "apps/desktop/resources/windows/AgentCompanyPlatform.ico",
+  "entrees": [
+   {
+    "source": "sources/embleme.txt",
+    "image": "embleme-16",
+    "palette": "embleme",
+    "echelle": 1
+   },
+   {
+    "source": "sources/embleme.txt",
+    "image": "embleme-20",
+    "palette": "embleme",
+    "echelle": 1
+   },
+   {
+    "source": "sources/embleme.txt",
+    "image": "embleme-24",
+    "palette": "embleme",
+    "echelle": 1
+   },
+   {
+    "source": "sources/embleme.txt",
+    "image": "embleme-32",
+    "palette": "embleme",
+    "echelle": 1
+   },
+   {
+    "source": "sources/embleme.txt",
+    "image": "embleme-20",
+    "palette": "embleme",
+    "echelle": 2
+   },
+   {
+    "source": "sources/embleme.txt",
+    "image": "embleme-24",
+    "palette": "embleme",
+    "echelle": 2
+   },
+   {
+    "source": "sources/embleme.txt",
+    "image": "embleme-32",
+    "palette": "embleme",
+    "echelle": 2
+   },
+   {
+    "source": "sources/embleme.txt",
+    "image": "embleme-32",
+    "palette": "embleme",
+    "echelle": 4
+   },
+   {
+    "source": "sources/embleme.txt",
+    "image": "embleme-32",
+    "palette": "embleme",
+    "echelle": 8
+   }
+  ]
+ },
+ "planches": [
+  {
+   "id": "portraits",
+   "source": "sources/portraits.txt",
+   "palette": "portrait-inconnu",
+   "case": [
+    16,
+    16
+   ],
+   "fichier": "apps/desktop/qml/pixel/assets/portraits.png",
+   "metadonnees": "design/pixel/generes/portraits.json",
+   "sequences": [
+    {
+     "id": "coordinateur.repos",
+     "palette": "portrait-coordinateur",
+     "etat": "repos",
+     "boucle": true,
+     "decoratif": true,
+     "images": [
+      {
+       "image": [
+        "base",
+        "casque"
+       ],
+       "duree": 2600
+      },
+      {
+       "image": [
+        "base",
+        "casque",
+        "cligne"
+       ],
+       "duree": 160
+      }
+     ]
+    },
+    {
+     "id": "coordinateur.travail",
+     "palette": "portrait-coordinateur",
+     "etat": "execute",
+     "boucle": true,
+     "decoratif": false,
+     "images": [
+      {
+       "image": [
+        "base",
+        "casque",
+        "travail-1"
+       ],
+       "duree": 240
+      },
+      {
+       "image": [
+        "base",
+        "casque",
+        "travail-2"
+       ],
+       "duree": 240
+      }
+     ]
+    },
+    {
+     "id": "coordinateur.attente",
+     "palette": "portrait-coordinateur",
+     "etat": "attend",
+     "boucle": false,
+     "decoratif": false,
+     "images": [
+      {
+       "image": [
+        "base",
+        "casque",
+        "attente"
+       ]
+      }
+     ]
+    },
+    {
+     "id": "coordinateur.echec",
+     "palette": "portrait-coordinateur",
+     "etat": "echec",
+     "boucle": false,
+     "decoratif": false,
+     "images": [
+      {
+       "image": [
+        "base",
+        "casque",
+        "echec"
+       ]
+      }
+     ]
+    },
+    {
+     "id": "coordinateur.termine",
+     "palette": "portrait-coordinateur",
+     "etat": "termine",
+     "boucle": false,
+     "decoratif": false,
+     "images": [
+      {
+       "image": [
+        "base",
+        "casque",
+        "termine"
+       ]
+      }
+     ]
+    },
+    {
+     "id": "coordinateur.arrete",
+     "palette": "portrait-coordinateur",
+     "etat": "arrete",
+     "boucle": false,
+     "decoratif": false,
+     "images": [
+      {
+       "image": [
+        "base",
+        "casque",
+        "arrete"
+       ]
+      }
+     ]
+    },
+    {
+     "id": "developpeur.repos",
+     "palette": "portrait-developpeur",
+     "etat": "repos",
+     "boucle": true,
+     "decoratif": true,
+     "images": [
+      {
+       "image": [
+        "base",
+        "bandeau"
+       ],
+       "duree": 2600
+      },
+      {
+       "image": [
+        "base",
+        "bandeau",
+        "cligne"
+       ],
+       "duree": 160
+      }
+     ]
+    },
+    {
+     "id": "developpeur.travail",
+     "palette": "portrait-developpeur",
+     "etat": "execute",
+     "boucle": true,
+     "decoratif": false,
+     "images": [
+      {
+       "image": [
+        "base",
+        "bandeau",
+        "travail-1"
+       ],
+       "duree": 240
+      },
+      {
+       "image": [
+        "base",
+        "bandeau",
+        "travail-2"
+       ],
+       "duree": 240
+      }
+     ]
+    },
+    {
+     "id": "developpeur.attente",
+     "palette": "portrait-developpeur",
+     "etat": "attend",
+     "boucle": false,
+     "decoratif": false,
+     "images": [
+      {
+       "image": [
+        "base",
+        "bandeau",
+        "attente"
+       ]
+      }
+     ]
+    },
+    {
+     "id": "developpeur.echec",
+     "palette": "portrait-developpeur",
+     "etat": "echec",
+     "boucle": false,
+     "decoratif": false,
+     "images": [
+      {
+       "image": [
+        "base",
+        "bandeau",
+        "echec"
+       ]
+      }
+     ]
+    },
+    {
+     "id": "developpeur.termine",
+     "palette": "portrait-developpeur",
+     "etat": "termine",
+     "boucle": false,
+     "decoratif": false,
+     "images": [
+      {
+       "image": [
+        "base",
+        "bandeau",
+        "termine"
+       ]
+      }
+     ]
+    },
+    {
+     "id": "developpeur.arrete",
+     "palette": "portrait-developpeur",
+     "etat": "arrete",
+     "boucle": false,
+     "decoratif": false,
+     "images": [
+      {
+       "image": [
+        "base",
+        "bandeau",
+        "arrete"
+       ]
+      }
+     ]
+    },
+    {
+     "id": "relecteur.repos",
+     "palette": "portrait-relecteur",
+     "etat": "repos",
+     "boucle": true,
+     "decoratif": true,
+     "images": [
+      {
+       "image": [
+        "base",
+        "lunettes"
+       ],
+       "duree": 2600
+      },
+      {
+       "image": [
+        "base",
+        "lunettes",
+        "cligne"
+       ],
+       "duree": 160
+      }
+     ]
+    },
+    {
+     "id": "relecteur.travail",
+     "palette": "portrait-relecteur",
+     "etat": "execute",
+     "boucle": true,
+     "decoratif": false,
+     "images": [
+      {
+       "image": [
+        "base",
+        "lunettes",
+        "travail-1"
+       ],
+       "duree": 240
+      },
+      {
+       "image": [
+        "base",
+        "lunettes",
+        "travail-2"
+       ],
+       "duree": 240
+      }
+     ]
+    },
+    {
+     "id": "relecteur.attente",
+     "palette": "portrait-relecteur",
+     "etat": "attend",
+     "boucle": false,
+     "decoratif": false,
+     "images": [
+      {
+       "image": [
+        "base",
+        "lunettes",
+        "attente"
+       ]
+      }
+     ]
+    },
+    {
+     "id": "relecteur.echec",
+     "palette": "portrait-relecteur",
+     "etat": "echec",
+     "boucle": false,
+     "decoratif": false,
+     "images": [
+      {
+       "image": [
+        "base",
+        "lunettes",
+        "echec"
+       ]
+      }
+     ]
+    },
+    {
+     "id": "relecteur.termine",
+     "palette": "portrait-relecteur",
+     "etat": "termine",
+     "boucle": false,
+     "decoratif": false,
+     "images": [
+      {
+       "image": [
+        "base",
+        "lunettes",
+        "termine"
+       ]
+      }
+     ]
+    },
+    {
+     "id": "relecteur.arrete",
+     "palette": "portrait-relecteur",
+     "etat": "arrete",
+     "boucle": false,
+     "decoratif": false,
+     "images": [
+      {
+       "image": [
+        "base",
+        "lunettes",
+        "arrete"
+       ]
+      }
+     ]
+    },
+    {
+     "id": "explorateur.repos",
+     "palette": "portrait-explorateur",
+     "etat": "repos",
+     "boucle": true,
+     "decoratif": true,
+     "images": [
+      {
+       "image": [
+        "base",
+        "loupe"
+       ],
+       "duree": 2600
+      },
+      {
+       "image": [
+        "base",
+        "loupe",
+        "cligne"
+       ],
+       "duree": 160
+      }
+     ]
+    },
+    {
+     "id": "explorateur.travail",
+     "palette": "portrait-explorateur",
+     "etat": "execute",
+     "boucle": true,
+     "decoratif": false,
+     "images": [
+      {
+       "image": [
+        "base",
+        "loupe",
+        "travail-1"
+       ],
+       "duree": 240
+      },
+      {
+       "image": [
+        "base",
+        "loupe",
+        "travail-2"
+       ],
+       "duree": 240
+      }
+     ]
+    },
+    {
+     "id": "explorateur.attente",
+     "palette": "portrait-explorateur",
+     "etat": "attend",
+     "boucle": false,
+     "decoratif": false,
+     "images": [
+      {
+       "image": [
+        "base",
+        "loupe",
+        "attente"
+       ]
+      }
+     ]
+    },
+    {
+     "id": "explorateur.echec",
+     "palette": "portrait-explorateur",
+     "etat": "echec",
+     "boucle": false,
+     "decoratif": false,
+     "images": [
+      {
+       "image": [
+        "base",
+        "loupe",
+        "echec"
+       ]
+      }
+     ]
+    },
+    {
+     "id": "explorateur.termine",
+     "palette": "portrait-explorateur",
+     "etat": "termine",
+     "boucle": false,
+     "decoratif": false,
+     "images": [
+      {
+       "image": [
+        "base",
+        "loupe",
+        "termine"
+       ]
+      }
+     ]
+    },
+    {
+     "id": "explorateur.arrete",
+     "palette": "portrait-explorateur",
+     "etat": "arrete",
+     "boucle": false,
+     "decoratif": false,
+     "images": [
+      {
+       "image": [
+        "base",
+        "loupe",
+        "arrete"
+       ]
+      }
+     ]
+    },
+    {
+     "id": "testeur.repos",
+     "palette": "portrait-testeur",
+     "etat": "repos",
+     "boucle": true,
+     "decoratif": true,
+     "images": [
+      {
+       "image": [
+        "base",
+        "insigne"
+       ],
+       "duree": 2600
+      },
+      {
+       "image": [
+        "base",
+        "insigne",
+        "cligne"
+       ],
+       "duree": 160
+      }
+     ]
+    },
+    {
+     "id": "testeur.travail",
+     "palette": "portrait-testeur",
+     "etat": "execute",
+     "boucle": true,
+     "decoratif": false,
+     "images": [
+      {
+       "image": [
+        "base",
+        "insigne",
+        "travail-1"
+       ],
+       "duree": 240
+      },
+      {
+       "image": [
+        "base",
+        "insigne",
+        "travail-2"
+       ],
+       "duree": 240
+      }
+     ]
+    },
+    {
+     "id": "testeur.attente",
+     "palette": "portrait-testeur",
+     "etat": "attend",
+     "boucle": false,
+     "decoratif": false,
+     "images": [
+      {
+       "image": [
+        "base",
+        "insigne",
+        "attente"
+       ]
+      }
+     ]
+    },
+    {
+     "id": "testeur.echec",
+     "palette": "portrait-testeur",
+     "etat": "echec",
+     "boucle": false,
+     "decoratif": false,
+     "images": [
+      {
+       "image": [
+        "base",
+        "insigne",
+        "echec"
+       ]
+      }
+     ]
+    },
+    {
+     "id": "testeur.termine",
+     "palette": "portrait-testeur",
+     "etat": "termine",
+     "boucle": false,
+     "decoratif": false,
+     "images": [
+      {
+       "image": [
+        "base",
+        "insigne",
+        "termine"
+       ]
+      }
+     ]
+    },
+    {
+     "id": "testeur.arrete",
+     "palette": "portrait-testeur",
+     "etat": "arrete",
+     "boucle": false,
+     "decoratif": false,
+     "images": [
+      {
+       "image": [
+        "base",
+        "insigne",
+        "arrete"
+       ]
+      }
+     ]
+    },
+    {
+     "id": "inconnu.repos",
+     "palette": "portrait-inconnu",
+     "etat": "repos",
+     "boucle": true,
+     "decoratif": true,
+     "images": [
+      {
+       "image": [
+        "base"
+       ],
+       "duree": 2600
+      },
+      {
+       "image": [
+        "base",
+        "cligne"
+       ],
+       "duree": 160
+      }
+     ]
+    },
+    {
+     "id": "inconnu.travail",
+     "palette": "portrait-inconnu",
+     "etat": "execute",
+     "boucle": true,
+     "decoratif": false,
+     "images": [
+      {
+       "image": [
+        "base",
+        "travail-1"
+       ],
+       "duree": 240
+      },
+      {
+       "image": [
+        "base",
+        "travail-2"
+       ],
+       "duree": 240
+      }
+     ]
+    },
+    {
+     "id": "inconnu.attente",
+     "palette": "portrait-inconnu",
+     "etat": "attend",
+     "boucle": false,
+     "decoratif": false,
+     "images": [
+      {
+       "image": [
+        "base",
+        "attente"
+       ]
+      }
+     ]
+    },
+    {
+     "id": "inconnu.echec",
+     "palette": "portrait-inconnu",
+     "etat": "echec",
+     "boucle": false,
+     "decoratif": false,
+     "images": [
+      {
+       "image": [
+        "base",
+        "echec"
+       ]
+      }
+     ]
+    },
+    {
+     "id": "inconnu.termine",
+     "palette": "portrait-inconnu",
+     "etat": "termine",
+     "boucle": false,
+     "decoratif": false,
+     "images": [
+      {
+       "image": [
+        "base",
+        "termine"
+       ]
+      }
+     ]
+    },
+    {
+     "id": "inconnu.arrete",
+     "palette": "portrait-inconnu",
+     "etat": "arrete",
+     "boucle": false,
+     "decoratif": false,
+     "images": [
+      {
+       "image": [
+        "base",
+        "arrete"
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "police",
+   "source": "sources/police.txt",
+   "palette": "police-atelier-nuit-texte",
+   "case": [
+    5,
+    10
+   ],
+   "fichier": "apps/desktop/qml/pixel/assets/police.png",
+   "metadonnees": "design/pixel/generes/police.json",
+   "sequences": [
+    {
+     "id": "atelier-nuit.texte",
+     "palette": "police-atelier-nuit-texte",
+     "images": "@glyphes"
+    },
+    {
+     "id": "atelier-nuit.attenue",
+     "palette": "police-atelier-nuit-attenue",
+     "images": "@glyphes"
+    },
+    {
+     "id": "atelier-nuit.accent",
+     "palette": "police-atelier-nuit-accent",
+     "images": "@glyphes"
+    },
+    {
+     "id": "atelier-jour.texte",
+     "palette": "police-atelier-jour-texte",
+     "images": "@glyphes"
+    },
+    {
+     "id": "atelier-jour.attenue",
+     "palette": "police-atelier-jour-attenue",
+     "images": "@glyphes"
+    },
+    {
+     "id": "atelier-jour.accent",
+     "palette": "police-atelier-jour-accent",
+     "images": "@glyphes"
+    },
+    {
+     "id": "studio-graphite.texte",
+     "palette": "police-studio-graphite-texte",
+     "images": "@glyphes"
+    },
+    {
+     "id": "studio-graphite.attenue",
+     "palette": "police-studio-graphite-attenue",
+     "images": "@glyphes"
+    },
+    {
+     "id": "studio-graphite.accent",
+     "palette": "police-studio-graphite-accent",
+     "images": "@glyphes"
+    },
+    {
+     "id": "studio-papier.texte",
+     "palette": "police-studio-papier-texte",
+     "images": "@glyphes"
+    },
+    {
+     "id": "studio-papier.attenue",
+     "palette": "police-studio-papier-attenue",
+     "images": "@glyphes"
+    },
+    {
+     "id": "studio-papier.accent",
+     "palette": "police-studio-papier-accent",
+     "images": "@glyphes"
+    }
+   ]
+  },
+  {
+   "id": "pictogrammes",
+   "source": "sources/pictogrammes.txt",
+   "palette": "picto-lavande",
+   "case": [
+    12,
+    12
+   ],
+   "fichier": "apps/desktop/qml/pixel/assets/pictogrammes.png",
+   "metadonnees": "design/pixel/generes/pictogrammes.json",
+   "sequences": [
+    {
+     "id": "lavande",
+     "palette": "picto-lavande",
+     "images": "@motifs"
+    },
+    {
+     "id": "menthe",
+     "palette": "picto-menthe",
+     "images": "@motifs"
+    },
+    {
+     "id": "ambre",
+     "palette": "picto-ambre",
+     "images": "@motifs"
+    },
+    {
+     "id": "rose",
+     "palette": "picto-rose",
+     "images": "@motifs"
+    },
+    {
+     "id": "ciel",
+     "palette": "picto-ciel",
+     "images": "@motifs"
+    }
+   ]
+  }
+ ],
+ "qml": {
+  "fichier": "apps/desktop/qml/pixel/PlanchesPixel.qml",
+  "singleton": "PlanchesPixel",
+  "module": "Acp.Pixel"
+ }
+}

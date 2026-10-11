@@ -57,6 +57,38 @@ ApplicationWindow {
         visible: Shell.commandPaletteOpen
     }
 
+    // Transition de palette (D165) : au changement de thème, l'ancienne couleur du canevas couvre
+    // brièvement la fenêtre puis s'efface. Aucun écran n'est recréé ; aucun éclair clair au
+    // démarrage, le thème étant posé avant la première image. Profil réduit : instantané.
+    property color fondMemorise: "transparent"
+    Component.onCompleted: root.fondMemorise = Colors.surfaceCanvas
+    Connections {
+        target: Colors
+        function onThemeChanged() {
+            if (Motion.active.paletteTransition.duration > 0) {
+                voile.color = root.fondMemorise;
+                fondu.restart();
+            }
+            root.fondMemorise = Colors.surfaceCanvas;
+        }
+    }
+    Rectangle {
+        id: voile
+        anchors.fill: parent
+        opacity: 0
+        visible: opacity > 0
+        Accessible.ignored: true
+        OpacityAnimator {
+            id: fondu
+            target: voile
+            from: 1
+            to: 0
+            duration: Motion.active.paletteTransition.duration
+            easing.type: Easing.Bezier
+            easing.bezierCurve: Motion.easingStandard
+        }
+    }
+
     // Raccourcis globaux. Ils exécutent des COMMANDES du registre, jamais une action
     // câblée directement : la disponibilité est ainsi calculée au même endroit que pour
     // un bouton ou pour la palette. Un Shortcut par raccourci DÉCLARÉ au registre : tout

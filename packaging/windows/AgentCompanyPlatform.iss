@@ -1,12 +1,14 @@
 ﻿; Installeur Windows d'Agent Company Platform (Inno Setup 6.4 ou plus récent).
 ;
 ; Ce script n'est jamais compilé à la main : scripts/package-desktop.ps1 l'appelle
-; en lui passant les quatre définitions ci-dessous. Compilé sans elles, ISCC refuse.
+; en lui passant les cinq définitions ci-dessous. Compilé sans elles, ISCC refuse.
 ;
 ;   AcpVersion             version du produit, lue dans le fichier VERSION
 ;   AcpSourceDir           répertoire déjà déployé par windeployqt (contenu de l'installation)
 ;   AcpOutputDir           répertoire où écrire le programme d'installation
 ;   AcpOutputBaseFilename  nom de l'artefact, sans l'extension .exe
+;   AcpIconFile            chemin absolu de l'icône (apps/desktop/resources/windows/AgentCompanyPlatform.ico,
+;                          générée par scripts/generer_assets_pixel.py)
 ;
 ; Installation par utilisateur : PrivilegesRequired=lowest, donc aucune élévation
 ; demandée et aucune invite de contrôle de compte d'utilisateur au lancement.
@@ -28,6 +30,9 @@
 #ifndef AcpOutputBaseFilename
   #error AcpOutputBaseFilename n'est pas defini. Utilisez scripts/package-desktop.ps1.
 #endif
+#ifndef AcpIconFile
+  #error AcpIconFile n'est pas defini. Utilisez scripts/package-desktop.ps1.
+#endif
 
 #define AcpName "Agent Company Platform"
 #define AcpPublisher "Agent Company Platform"
@@ -48,6 +53,8 @@ DefaultGroupName={#AcpName}
 DisableProgramGroupPage=yes
 UninstallDisplayName={#AcpName}
 UninstallDisplayIcon={app}\{#AcpExeName}
+; Icône du programme d'installation : l'emblème pixel (chantier « atelier », D165).
+SetupIconFile={#AcpIconFile}
 OutputDir={#AcpOutputDir}
 OutputBaseFilename={#AcpOutputBaseFilename}
 SourceDir={#AcpSourceDir}

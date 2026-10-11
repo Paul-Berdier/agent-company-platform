@@ -455,7 +455,15 @@ void TestProjets::lancementCorpsExactEtCleDIdempotence()
     banc.projets.choisirDepot(QStringLiteral("jetable"));
     QVariantMap f = banc.projets.formulaire();
     QCOMPARE(f.value(QStringLiteral("avecExploration")).toBool(), true);
+    // Auto par défaut (D168) : aucune voie n'est retenue tant que le propriétaire n'en choisit pas une.
+    QCOMPARE(f.value(QStringLiteral("voie")).toString(), QString());
+    QCOMPARE(f.value(QStringLiteral("auto")).toBool(), true);
+    QCOMPARE(f.value(QStringLiteral("modeleExige")).toBool(), false);
+    // Choix manuel : un verrou explicite, envoyé tel quel au greffon (`choix_explicite`).
+    banc.projets.choisirVoie(QStringLiteral("poste-claude"));
+    f = banc.projets.formulaire();
     QCOMPARE(f.value(QStringLiteral("voie")).toString(), QStringLiteral("poste-claude"));
+    QCOMPARE(f.value(QStringLiteral("auto")).toBool(), false);
     QCOMPARE(f.value(QStringLiteral("modeleParDefaut")).toBool(), true);
     QCOMPARE(f.value(QStringLiteral("modeleExige")).toBool(), false);
     QCOMPARE(f.value(QStringLiteral("releveDu")).toString(), QStringLiteral("26/09/2026 13:43"));
@@ -465,7 +473,7 @@ void TestProjets::lancementCorpsExactEtCleDIdempotence()
                         QStringLiteral("proprietaire"), QStringLiteral("high"));
     QTRY_VERIFY(!banc.projets.gesteEnCours());
     QCOMPARE(banc.projets.erreurGeste(), QString());
-    QCOMPARE(banc.projets.messageGeste(), QStringLiteral("Projet lancé : Hermes le planifie."));
+    QCOMPARE(banc.projets.messageGeste(), QStringLiteral("Mission lancée : Hermes la planifie."));
     const auto envois = banc.serveur.filtrer("POST", kP + QStringLiteral("/projets"));
     QCOMPARE(envois.size(), 1);
     QCOMPARE(envois.first().json(),
@@ -482,6 +490,19 @@ void TestProjets::lancementCorpsExactEtCleDIdempotence()
     QCOMPARE(banc.projets.vue(), QStringLiteral("detail"));
     QCOMPARE(banc.projets.projetOuvert(), QStringLiteral("p_a35a8b99fb0e"));
 
+    // Auto : avec un dépôt mais sans choix manuel, aucune exploration n'est imposée au greffon.
+    banc.projets.afficherNouveau();
+    banc.attendreFormulaire();
+    banc.projets.choisirDepot(QStringLiteral("jetable"));
+    QCOMPARE(banc.projets.formulaire().value(QStringLiteral("auto")).toBool(), true);
+    banc.projets.lancer(QStringLiteral("Outil auto"), QStringLiteral("Écrire outil.py."), QStringLiteral("base"),
+                        QStringLiteral("proprietaire"), QStringLiteral("high"));
+    QTRY_VERIFY(!banc.projets.gesteEnCours());
+    const auto envoisAuto = banc.serveur.filtrer("POST", kP + QStringLiteral("/projets"));
+    QCOMPARE(envoisAuto.size(), 2);
+    QCOMPARE(envoisAuto.last().json().value(QStringLiteral("depot")).toString(), QStringLiteral("jetable"));
+    QVERIFY(!envoisAuto.last().json().contains(QStringLiteral("exploration")));
+
     // Nouveau formulaire : nouvelle clé ; sans dépôt, aucune exploration et `depot` nul.
     banc.projets.afficherNouveau();
     banc.attendreFormulaire();
@@ -493,7 +514,7 @@ void TestProjets::lancementCorpsExactEtCleDIdempotence()
     QTRY_VERIFY(!banc.projets.gesteEnCours());
     QVERIFY(banc.projets.messageGeste().contains(QStringLiteral("déjà lancé")));
     const auto seconds = banc.serveur.filtrer("POST", kP + QStringLiteral("/projets"));
-    QCOMPARE(seconds.size(), 2);
+    QCOMPARE(seconds.size(), 3);
     QVERIFY(seconds.last().entete("idempotency-key") != premiereCle);
     QCOMPARE(seconds.last().json().value(QStringLiteral("depot")), QJsonValue(QJsonValue::Null));
     QVERIFY(!seconds.last().json().contains(QStringLiteral("exploration")));
@@ -547,6 +568,10 @@ void TestProjets::modeleExigeRefuseSansEnvoi()
     banc.projets.afficherNouveau();
     banc.attendreFormulaire();
     banc.projets.choisirDepot(QStringLiteral("jetable"));
+    // En Auto, aucun modèle n'est exigé : le greffon choisit (D168).
+    QCOMPARE(banc.projets.formulaire().value(QStringLiteral("modeleExige")).toBool(), false);
+    // Claude choisi à la main : son relevé ne désigne aucun modèle par défaut, le choix devient obligatoire.
+    banc.projets.choisirVoie(QStringLiteral("poste-claude"));
     QCOMPARE(banc.projets.formulaire().value(QStringLiteral("modeleExige")).toBool(), true);
     QCOMPARE(banc.projets.formulaire().value(QStringLiteral("libelleModeleVide")).toString(),
              QStringLiteral("Choisissez un modèle (le relevé n'en désigne aucun par défaut)"));
@@ -771,10 +796,13 @@ void TestProjets::executantFermePourLeDepotJamaisRetenu()
     QCOMPARE(banc.projets.formulaire().value(QStringLiteral("voie")).toString(), QStringLiteral("poste-codex"));
     QVERIFY(banc.projets.formulaire().value(QStringLiteral("voiesFermees")).toStringList().isEmpty());
 
-    // Dépôt non prouvé privé : Codex grisé avec la raison du greffon, le premier ouvert le remplace.
+    // Dépôt non prouvé privé : Codex grisé avec la raison du greffon ; le choix manuel fermé cède la place à Auto
+    // (jamais remplacé en silence par une autre voie), et le formulaire le dit.
     banc.projets.choisirDepot(QStringLiteral("demo"));
     QVariantMap f = banc.projets.formulaire();
-    QCOMPARE(f.value(QStringLiteral("voie")).toString(), QStringLiteral("poste-claude"));
+    QCOMPARE(f.value(QStringLiteral("voie")).toString(), QString());
+    QCOMPARE(f.value(QStringLiteral("auto")).toBool(), true);
+    QCOMPARE(f.value(QStringLiteral("choixManuelFerme")).toBool(), true);
     QCOMPARE(f.value(QStringLiteral("aucuneVoieOuverte")).toBool(), false);
     const QVariantList liste = f.value(QStringLiteral("voies")).toList();
     QCOMPARE(liste.size(), 2);
@@ -789,9 +817,11 @@ void TestProjets::executantFermePourLeDepotJamaisRetenu()
     // Le choisir quand même (clavier) : refusé en français, rien ne change, rien n'est émis.
     banc.projets.choisirVoie(QStringLiteral("poste-codex"));
     QCOMPARE(banc.projets.erreurGeste(), QStringLiteral("Cet exécutant est fermé pour ce dépôt : %1").arg(raison));
-    QCOMPARE(banc.projets.formulaire().value(QStringLiteral("voie")).toString(), QStringLiteral("poste-claude"));
+    QCOMPARE(banc.projets.formulaire().value(QStringLiteral("voie")).toString(), QString());
 
-    // Le lancement n'envoie jamais l'exécutant fermé.
+    // Une voie ouverte choisie à la main est envoyée ; l'exécutant fermé ne l'est jamais.
+    banc.projets.choisirVoie(QStringLiteral("poste-claude"));
+    QCOMPARE(banc.projets.formulaire().value(QStringLiteral("voie")).toString(), QStringLiteral("poste-claude"));
     banc.projets.lancer(QStringLiteral("Démo"), QStringLiteral("Lire le dépôt."), QStringLiteral("base"),
                         QStringLiteral("proprietaire"), QString());
     QTRY_VERIFY(!banc.projets.gesteEnCours());
@@ -801,13 +831,13 @@ void TestProjets::executantFermePourLeDepotJamaisRetenu()
     QCOMPARE(envois.first().json().value(QStringLiteral("exploration")).toObject(),
              (QJsonObject{{QStringLiteral("voie"), QStringLiteral("poste-claude")}}));
 
-    // Retour sur le dépôt privé : le choix du propriétaire revient.
+    // Retour sur le dépôt privé : le choix manuel du propriétaire revient ; ailleurs, Auto le remplace sans l'effacer.
     banc.projets.afficherNouveau();
     banc.attendreFormulaire();
     banc.projets.choisirDepot(QStringLiteral("jetable"));
     banc.projets.choisirVoie(QStringLiteral("poste-codex"));
     banc.projets.choisirDepot(QStringLiteral("demo"));
-    QCOMPARE(banc.projets.formulaire().value(QStringLiteral("voie")).toString(), QStringLiteral("poste-claude"));
+    QCOMPARE(banc.projets.formulaire().value(QStringLiteral("voie")).toString(), QString());
     banc.projets.choisirDepot(QStringLiteral("jetable"));
     QCOMPARE(banc.projets.formulaire().value(QStringLiteral("voie")).toString(), QStringLiteral("poste-codex"));
 

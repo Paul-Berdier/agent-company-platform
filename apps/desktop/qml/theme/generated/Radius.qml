@@ -8,6 +8,7 @@ pragma Singleton
 import QtQuick
 
 QtObject {
+    id: root
     readonly property real radiusNone: 0
     readonly property real radiusXs: 3
     readonly property real radiusSm: 5

@@ -14,17 +14,21 @@
 #include "gateway/DemandesAgent.h"
 #include "gateway/GatewayClient.h"
 #include "models/JsonListModel.h"
+#include "navigation/NavigationModel.h"
 #include "services/CompatibiliteHermes.h"
+#include "system/SystemAppearance.h"
 #include "support/FauxHermes.h"
 #include "support/Fixtures.h"
 #include "viewmodels/AccueilViewModel.h"
 #include "viewmodels/DiscussionViewModel.h"
+#include "viewmodels/EspaceTravailViewModel.h"
 #include "viewmodels/PosteViewModel.h"
 #include "viewmodels/ProjetsViewModel.h"
 #include "viewmodels/QuestionsViewModel.h"
 #include "viewmodels/QuotasViewModel.h"
 #include "viewmodels/RoutageViewModel.h"
 #include "viewmodels/SauvegardeViewModel.h"
+#include "viewmodels/ShellViewModel.h"
 
 #include <QDateTime>
 #include <QJsonArray>
@@ -38,7 +42,9 @@
 #include <QTemporaryDir>
 #include <QTest>
 
+#include <functional>
 #include <memory>
+#include <tuple>
 
 using namespace acp;
 using namespace acp::test;
@@ -353,6 +359,115 @@ void TestPagesBureau::pagesAlimenteesPuisRacine()
     }
     QTRY_VERIFY(!pageProjets->actif());
 
+    // --- Espace de travail (chantier « atelier ») : coquille complète, mission ouverte, quatre thèmes ---
+    // La coquille de App.qml (passerelle de thème comprise), alimentée par le faux Hermes : barre des
+    // missions regroupées par dépôt, mission au centre, agents à droite, volet du bas. Chaque thème et
+    // la grande taille passent le même contrôle (aucun mot anglais, aucun bouton sans nom).
+    {
+        projets = fixture(QStringLiteral("projets.json"));
+        auto *apparence = application.findChild<SystemAppearance *>();
+        auto *espace = application.findChild<EspaceTravailViewModel *>();
+        auto *coquilleVm = application.findChild<ShellViewModel *>();
+        auto *navigation = application.findChild<NavigationModel *>();
+        QVERIFY(apparence && espace && coquilleVm && navigation);
+        warnings.clear();
+        QQmlComponent composant(&engine);
+        composant.setData(QByteArrayLiteral("import QtQuick\nimport Acp.Design\nimport Acp.Theme\nimport Acp.Station\n"
+                                            "Rectangle { color: Colors.surfaceCanvas; palette: NativePalette {}\n"
+                                            "  ThemeBridge {}\n  ShellRoot { anchors.fill: parent }\n}\n"),
+                          QUrl(QStringLiteral("qrc:/acp-tests/EspaceDeTravail.qml")));
+        QVERIFY(QTest::qWaitFor([&composant] { return composant.status() != QQmlComponent::Loading; }, 5000));
+        QVERIFY2(composant.isReady(), qPrintable(composant.errorString()));
+        std::unique_ptr<QObject> espaceQml(composant.create());
+        auto *racineEspace = qobject_cast<QQuickItem *>(espaceQml.get());
+        QVERIFY(racineEspace);
+        racineEspace->setParentItem(window.contentItem());
+        racineEspace->setSize(QSizeF(1280, 850));
+        coquilleVm->setAgentsPanelVisible(true);
+        coquilleVm->setBottomDrawerVisible(true);
+        coquilleVm->setBottomDrawerTab(QStringLiteral("activite"));
+        QTRY_VERIFY_WITH_TIMEOUT(espace->listeLue(), 5000);
+        espace->selectionnerMission(kId);
+        QTRY_VERIFY_WITH_TIMEOUT(pageProjets->detailLu(), 5000);
+        QTRY_COMPARE_WITH_TIMEOUT(espace->agents()->count(), 3, 5000);
+        espace->setAgentSelectionne(QStringLiteral("t_7aa28f61"));
+        QTest::qWait(150);
+        QVERIFY(contientTexte(racineEspace, QStringLiteral("Outil")));
+        QVERIFY(contientTexte(racineEspace, QStringLiteral("Sans dépôt")));
+        QVERIFY(contientTexte(racineEspace, QStringLiteral("Coordination de la mission")));
+        // Rien n'est inventé sur les sessions des CLI : le panneau le dit.
+        QVERIFY(contientTexte(racineEspace, QStringLiteral("non observés")));
+        const QList<std::tuple<QString, QString, QString>> themes = {
+            {QStringLiteral("atelier"), QStringLiteral("dark"), QStringLiteral("atelier-nuit")},
+            {QStringLiteral("atelier"), QStringLiteral("light"), QStringLiteral("atelier-jour")},
+            {QStringLiteral("studio"), QStringLiteral("dark"), QStringLiteral("studio-graphite")},
+            {QStringLiteral("studio"), QStringLiteral("light"), QStringLiteral("studio-papier")},
+        };
+        for (const auto &[famille, luminosite, theme] : themes) {
+            apparence->setFamilyPreference(famille);
+            apparence->setThemePreference(luminosite);
+            QCOMPARE(apparence->activeTheme(), theme);
+            VERIFIER(espaceQml.get(), QStringLiteral("Espace, mission ouverte, ") + theme);
+        }
+        // Grande taille, volet sur les tests, puis sur les sorties.
+        apparence->setFamilyPreference(QStringLiteral("atelier"));
+        apparence->setThemePreference(QStringLiteral("dark"));
+        window.resize(1920, 1080);
+        racineEspace->setSize(QSizeF(1920, 1080));
+        coquilleVm->setBottomDrawerTab(QStringLiteral("tests"));
+        VERIFIER(espaceQml.get(), QStringLiteral("Espace 1920x1080, volet Tests, atelier-nuit"));
+        coquilleVm->setBottomDrawerTab(QStringLiteral("sorties"));
+        VERIFIER(espaceQml.get(), QStringLiteral("Espace 1920x1080, volet Sorties, atelier-nuit"));
+        QVERIFY(contientTexte(racineEspace, QStringLiteral("Question ouverte (ACP) : q_b627a3c245ec")));
+        // Réglages : Apparence puis Comptes et assistants, dans la coquille.
+        navigation->setCurrentRoute(QStringLiteral("settings"));
+        VERIFIER(espaceQml.get(), QStringLiteral("Reglages, apparence, atelier-nuit"));
+        QVERIFY(contientTexte(racineEspace, QStringLiteral("Famille visuelle")));
+        QList<QQuickItem *> elements;
+        const std::function<void(QQuickItem *)> parcourir = [&](QQuickItem *element) {
+            elements.append(element);
+            for (QQuickItem *enfant : element->childItems()) parcourir(enfant);
+        };
+        parcourir(racineEspace);
+        QQuickItem *hub = nullptr;
+        for (QQuickItem *element : std::as_const(elements)) {
+            if (element->property("sectionLocale").isValid()) hub = element;
+        }
+        QVERIFY(hub);
+        hub->setProperty("sectionLocale", QStringLiteral("comptes"));
+        QTRY_VERIFY_WITH_TIMEOUT(pagePoste->lue(), 5000);
+        VERIFIER(espaceQml.get(), QStringLiteral("Reglages, comptes, atelier-nuit"));
+        QVERIFY(contientTexte(racineEspace, QStringLiteral("Assistants de code de l'exécutant")));
+        QVERIFY(contientTexte(racineEspace, QStringLiteral("acp-poste connexion claude")));
+        // Inventaire publié par l'exécutant : connexions observées, jamais déclarées par la station.
+        poste = fixture(QStringLiteral("poste-en-ligne.json"));
+        pagePoste->actualiser();
+        QTRY_VERIFY_WITH_TIMEOUT(pagePoste->inventaire().value(QStringLiteral("present")).toBool(), 5000);
+        VERIFIER(espaceQml.get(), QStringLiteral("Reglages, comptes avec inventaire, atelier-nuit"));
+        QVERIFY(contientTexte(racineEspace, QStringLiteral("Offre observée")));
+        poste = fixture(QStringLiteral("poste-releve.json"));
+        hub->setProperty("sectionLocale", QStringLiteral("apparence"));
+        apparence->setFamilyPreference(QStringLiteral("studio"));
+        apparence->setThemePreference(QStringLiteral("light"));
+        VERIFIER(espaceQml.get(), QStringLiteral("Reglages, apparence, studio-papier"));
+        // L'Accueil dans la nouvelle coquille : ses sept blocs (D99) gardés, à côté de la barre des missions.
+        apparence->setFamilyPreference(QStringLiteral("atelier"));
+        apparence->setThemePreference(QStringLiteral("dark"));
+        window.resize(1280, 850);
+        racineEspace->setSize(QSizeF(1280, 850));
+        navigation->setCurrentRoute(QStringLiteral("home"));
+        QTRY_VERIFY_WITH_TIMEOUT(accueil->lue(), 5000);
+        VERIFIER(espaceQml.get(), QStringLiteral("Espace, accueil, atelier-nuit"));
+        QVERIFY(contientTexte(racineEspace, QStringLiteral("À traiter par vous")));
+        // Retour à l'état de départ : thème du système, taille d'origine, route d'accueil.
+        apparence->setFamilyPreference(QStringLiteral("atelier"));
+        apparence->setThemePreference(QStringLiteral("system"));
+        navigation->setCurrentRoute(QStringLiteral("home"));
+        window.resize(1280, 850);
+        espaceQml.reset();
+    }
+    QTRY_VERIFY(!pageProjets->actif());
+
     // --- Questions : questions, triage, bloquées ; puis tout vide -----------------------------------
     {
         auto page = charger(QStringLiteral("Acp.Pages"), QStringLiteral("QuestionsPage"));
@@ -473,6 +588,7 @@ void TestPagesBureau::pagesAlimenteesPuisRacine()
         QTemporaryDir dossier;
         pageSauvegarde->setIntervalleSuivi(std::chrono::milliseconds(20));
         pageSauvegarde->exporter(dossier.filePath(QStringLiteral("essai.acpb")));
+#ifdef Q_OS_WIN
         QTRY_VERIFY_WITH_TIMEOUT(pageSauvegarde->phase() == SauvegardeViewModel::Phase::Termine
                                      || pageSauvegarde->phase() == SauvegardeViewModel::Phase::Echec,
                                  10000);
@@ -480,6 +596,13 @@ void TestPagesBureau::pagesAlimenteesPuisRacine()
         VERIFIER(page.get(), QStringLiteral("Sauvegarde exportée, archive restante"));
         QVERIFY(contientTexte(item, QStringLiteral("Export terminé")));
         QVERIFY(contientTexte(item, archiveDistante));
+#else
+        // Préréglage Linux (secondaire) : DPAPI n'existe pas, l'export est refusé avant tout appel et le dit.
+        // La suite du parcours (discussion, questions, coquille) reste vérifiée sur ce système.
+        QCOMPARE(pageSauvegarde->erreurGeste(),
+                 QStringLiteral("Le chiffrement DPAPI n'est disponible que sous Windows : aucun export n'est lancé."));
+        Q_UNUSED(archiveDistante);
+#endif
     }
 
     // --- Discussion : sessions, transcription, puis une demande d'autorisation de l'agent --------

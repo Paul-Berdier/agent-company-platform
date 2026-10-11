@@ -7,6 +7,7 @@
 # — les modules QML se résolvent à l'exécution — mais cela rend le graphe lisible.
 
 add_subdirectory(theme)
+add_subdirectory(pixel)
 add_subdirectory(controls)
 add_subdirectory(components)
 add_subdirectory(pages)

@@ -297,11 +297,18 @@ try {
         $script:CodeCourant = $codes.EmpaquetageEchoue
         Write-AcpEtape "Programme d'installation (Inno Setup)"
         $scriptIss = Join-Path $racine ($toolchain.innoSetup.script -replace '/', '\')
+        # Icône du programme d'installation : l'emblème pixel versionné (scripts/generer_assets_pixel.py).
+        $icone = Join-Path $racine 'apps\desktop\resources\windows\AgentCompanyPlatform.ico'
+        if (-not (Test-Path -LiteralPath $icone)) {
+            Write-AcpRefus -Message "L'icône $icone est absente : régénérez-la avec python scripts/generer_assets_pixel.py."
+            exit $script:CodeCourant
+        }
         Invoke-AcpProcess -FilePath $iscc -Arguments @(
             "/DAcpVersion=$Version",
             "/DAcpSourceDir=$($scene.TrimEnd('\'))",
             "/DAcpOutputDir=$OutputDir",
             "/DAcpOutputBaseFilename=$nomInstalleurBase",
+            "/DAcpIconFile=$icone",
             $scriptIss
         ) -Message "La compilation du programme d'installation a échoué"
 

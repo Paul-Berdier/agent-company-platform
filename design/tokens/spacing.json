@@ -1,7 +1,7 @@
 {
   "$schema": "acp.design-tokens/1",
   "$description": "Échelle d'espacement et mesures de densité. Base de 4 px ; conversations aérées, navigation confortable et tableaux techniques compacts. Les valeurs sont des pixels logiques ; Qt applique lui-même le facteur d'échelle de l'écran, elles ne doivent donc pas être multipliées à la main.",
-  "$version": "1.1.0",
+  "$version": "1.2.0",
   "$file": "spacing",
   "$themed": false,
   "$qml": {
@@ -44,7 +44,19 @@
     "layout.paneGap": { "$description": "Gouttière entre deux volets redimensionnables.", "$type": "dimension", "$value": 1 },
     "layout.focusRingWidth": { "$description": "Épaisseur de l'anneau de focus clavier.", "$type": "dimension", "$value": 2 },
     "layout.focusRingOffset": { "$type": "dimension", "$value": 2 },
-    "layout.borderWidth": { "$description": "Épaisseur de trait par défaut. Un seul pixel partout : la séparation vient du trait, pas de l'ombre.", "$type": "dimension", "$value": 1 }
+    "layout.borderWidth": { "$description": "Épaisseur de trait par défaut. Un seul pixel partout : la séparation vient du trait, pas de l'ombre.", "$type": "dimension", "$value": 1 },
+    "layout.sidebarWidth.min": { "$description": "Largeur minimale de la barre des projets dépliée.", "$type": "dimension", "$value": 220 },
+    "layout.sidebarWidth.max": { "$description": "Largeur maximale de la barre des projets.", "$type": "dimension", "$value": 420 },
+    "layout.agentsPanelWidth.min": { "$description": "Largeur minimale du panneau des agents (droite).", "$type": "dimension", "$value": 260 },
+    "layout.agentsPanelWidth.default": { "$description": "Largeur par défaut du panneau des agents.", "$type": "dimension", "$value": 320 },
+    "layout.agentsPanelWidth.max": { "$description": "Largeur maximale du panneau des agents.", "$type": "dimension", "$value": 560 },
+    "layout.bottomDrawerHeight.min": { "$description": "Hauteur minimale du volet bas (Activité, Changements, Tests, Sorties, Services).", "$type": "dimension", "$value": 120 },
+    "layout.bottomDrawerHeight.default": { "$description": "Hauteur par défaut du volet bas.", "$type": "dimension", "$value": 220 },
+    "layout.bottomDrawerHeight.max": { "$description": "Hauteur maximale du volet bas.", "$type": "dimension", "$value": 520 },
+    "layout.composerHeight.min": { "$description": "Hauteur minimale de la zone de saisie persistante.", "$type": "dimension", "$value": 96 },
+    "layout.composerHeight.max": { "$description": "Hauteur maximale de la zone de saisie ; au-delà, elle défile.", "$type": "dimension", "$value": 320 },
+    "layout.centerMinWidth": { "$description": "Largeur sous laquelle la zone centrale ne descend jamais : les panneaux latéraux se replient avant.", "$type": "dimension", "$value": 420 },
+    "layout.pixelUnit": { "$description": "Taille d'un « pixel » d'ornement (coins crantés, séparateurs) en pixels logiques ; les sprites sont agrandis par multiples entiers.", "$type": "dimension", "$value": 2 }
   },
   "$breakpoints": {
     "$description": "Seuils de largeur de fenêtre. Ce ne sont pas des tailles d'appareil : une station de travail est redimensionnée librement, souvent en demi-écran.",
@@ -56,5 +68,12 @@
     "Une valeur d'espacement absente de l'échelle est un défaut, pas une exception locale.",
     "Le vide sépare, le trait délimite, l'ombre est réservée aux couches flottantes.",
     "Une liste ne gagne pas en lisibilité en s'aérant : elle gagne en alignement de colonnes et en chasse fixe."
-  ]
+  ],
+  "$densities": {
+    "$description": "Densités de l'interface, choisies par l'opérateur (Réglages > Apparence). Chaque densité nomme les jetons de hauteur de ligne et de contrôle à appliquer ; la cible minimale reste density.hitTarget.minimum.",
+    "$default": "standard",
+    "compacte": { "label": "Compacte", "rowHeight": "density.rowHeight.compact", "controlHeight": "density.controlHeight.regular" },
+    "standard": { "label": "Standard", "rowHeight": "density.rowHeight.regular", "controlHeight": "density.controlHeight.regular" },
+    "aeree": { "label": "Aérée", "rowHeight": "density.rowHeight.comfortable", "controlHeight": "density.controlHeight.large" }
+  }
 }

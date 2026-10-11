@@ -13,31 +13,74 @@ TestCase {
     name: "DesignTokens"
 
     function init() {
-        Colors.theme = "dark";
-        Status.theme = "dark";
-        Elevation.theme = "dark";
-        Motion.profile = "standard";
+        Colors.theme = "atelier-nuit";
+        Status.theme = "atelier-nuit";
+        Elevation.theme = "atelier-nuit";
+        Motion.profile = "complet";
+        Motion.concentration = false;
+        Space.density = "standard";
+        Type.textScale = 100;
     }
 
-    function test_palette_exposes_both_themes() {
-        verify(Colors.dark !== null);
-        verify(Colors.light !== null);
-        verify(Colors.dark.surfaceCanvas !== Colors.light.surfaceCanvas);
+    function test_palette_exposes_the_four_themes() {
+        compare(Colors.themes, ["atelier-nuit", "atelier-jour", "studio-graphite", "studio-papier"]);
+        verify(Colors.atelierNuit !== null);
+        verify(Colors.atelierJour !== null);
+        verify(Colors.studioGraphite !== null);
+        verify(Colors.studioPapier !== null);
+        verify(Colors.atelierNuit.surfaceCanvas !== Colors.atelierJour.surfaceCanvas);
+        verify(Colors.studioGraphite.surfaceCanvas !== Colors.atelierNuit.surfaceCanvas);
     }
 
-    function test_flat_accessor_follows_active_theme() {
-        Colors.theme = "dark";
-        compare(String(Colors.surfaceCanvas), String(Colors.dark.surfaceCanvas));
-        Colors.theme = "light";
-        compare(String(Colors.surfaceCanvas), String(Colors.light.surfaceCanvas));
+    function test_flat_accessor_follows_active_theme_data() {
+        return [
+            { tag: "atelier-nuit", theme: "atelier-nuit", objet: "atelierNuit", sombre: true, famille: "atelier" },
+            { tag: "atelier-jour", theme: "atelier-jour", objet: "atelierJour", sombre: false, famille: "atelier" },
+            { tag: "studio-graphite", theme: "studio-graphite", objet: "studioGraphite", sombre: true, famille: "studio" },
+            { tag: "studio-papier", theme: "studio-papier", objet: "studioPapier", sombre: false, famille: "studio" }
+        ];
     }
 
-    function test_default_theme_is_dark() {
-        // Les fichiers de jetons déclarent "$defaultTheme": "dark".
-        Colors.theme = "dark";
+    function test_flat_accessor_follows_active_theme(data) {
+        Colors.theme = data.theme;
+        Status.theme = data.theme;
+        Elevation.theme = data.theme;
+        verify(Colors.known);
+        compare(String(Colors.surfaceCanvas), String(Colors[data.objet].surfaceCanvas));
+        compare(String(Colors.accentPrimary), String(Colors[data.objet].accentPrimary));
+        compare(String(Status.statusFailedForeground), String(Status[data.objet].statusFailedForeground));
+        compare(Elevation.elevationOverlay, Elevation[data.objet].elevationOverlay);
+        compare(Colors.isDark, data.sombre);
+        compare(Colors.family, data.famille);
+    }
+
+    function test_default_theme_is_atelier_nuit() {
+        // Les fichiers de jetons déclarent "$defaultTheme": "atelier-nuit" (D165).
+        Colors.theme = "atelier-nuit";
         verify(Colors.isDark);
-        Colors.theme = "light";
-        verify(!Colors.isDark);
+        compare(Colors.family, "atelier");
+    }
+
+    function test_unknown_theme_falls_back_and_says_so() {
+        // Échec fermé : la couche C++ ne pose jamais un thème inconnu ; s'il arrivait quand même,
+        // le thème par défaut s'applique et `known` le dit au lieu de deviner « sombre ».
+        Colors.theme = "theme-inconnu";
+        verify(!Colors.known);
+        compare(String(Colors.surfaceCanvas), String(Colors.atelierNuit.surfaceCanvas));
+    }
+
+    function test_families_name_one_dark_and_one_light_theme() {
+        const familles = Colors.families;
+        compare(Object.keys(familles).sort(), ["atelier", "studio"]);
+        for (const nom in familles) {
+            verify(Colors.themes.indexOf(familles[nom].sombre) >= 0);
+            verify(Colors.themes.indexOf(familles[nom].clair) >= 0);
+            Colors.theme = familles[nom].sombre;
+            verify(Colors.isDark);
+            Colors.theme = familles[nom].clair;
+            verify(!Colors.isDark);
+            verify(Colors.themeLabels[familles[nom].sombre].length > 0);
+        }
     }
 
     function test_status_resolves_backend_states_data() {
@@ -153,14 +196,65 @@ TestCase {
     }
 
     function test_reduced_profile_removes_movement() {
-        Motion.profile = "reduced";
+        Motion.profile = "reduit";
         verify(Motion.reduced);
         compare(Motion.active.overlayEnter.distance, 0);
         compare(Motion.active.panelResize.duration, Motion.durationInstant);
+        compare(Motion.active.panelToggle.duration, Motion.durationInstant);
         compare(Motion.active.activityPulse.duration, Motion.durationInstant);
-        Motion.profile = "standard";
+        compare(Motion.active.paletteTransition.duration, Motion.durationInstant);
+        verify(!Motion.ambianceActive);
+        verify(!Motion.spriteActivityActive);
+        Motion.profile = "complet";
         verify(!Motion.reduced);
         verify(Motion.active.overlayEnter.distance > 0);
+    }
+
+    function test_three_profiles_and_ambiance_data() {
+        return [
+            { tag: "complet", profil: "complet", ambiance: true, sprite: true },
+            { tag: "discret", profil: "discret", ambiance: false, sprite: true },
+            { tag: "reduit", profil: "reduit", ambiance: false, sprite: false }
+        ];
+    }
+
+    function test_three_profiles_and_ambiance(data) {
+        Motion.profile = data.profil;
+        verify(Motion.knownProfile);
+        compare(Motion.ambianceActive, data.ambiance);
+        compare(Motion.spriteActivityActive, data.sprite);
+        verify(Motion.profileLabels[data.profil].length > 0);
+        // Les transitions fonctionnelles restent bornées à 240 ms dans chaque profil.
+        const entrees = ["hover", "press", "focusRing", "statusChange", "overlayEnter", "overlayExit",
+                         "panelResize", "panelToggle", "listInsert", "attention", "completion", "paletteTransition"];
+        for (let i = 0; i < entrees.length; ++i)
+            verify(Motion.active[entrees[i]].duration <= 240, entrees[i] + " dépasse 240 ms en " + data.profil);
+    }
+
+    function test_concentration_cuts_ambiance_only() {
+        Motion.profile = "complet";
+        verify(Motion.ambianceActive);
+        Motion.concentration = true;
+        verify(!Motion.ambianceActive);
+        verify(Motion.spriteActivityActive, "une activité observée reste visible en Concentration");
+        Motion.concentration = false;
+    }
+
+    function test_density_and_text_scale_apply_live() {
+        Space.density = "compacte";
+        compare(Space.rowHeight, Space.densityRowHeightCompact);
+        Space.density = "aeree";
+        compare(Space.rowHeight, Space.densityRowHeightComfortable);
+        verify(Space.controlHeight >= Space.densityControlHeightRegular);
+        Space.density = "standard";
+        compare(Space.rowHeight, Space.densityRowHeightRegular);
+        const base = Type.tableCell.pixelSize;
+        Type.textScale = 125;
+        compare(Type.tableCell.pixelSize, Math.round(Type.sizeBody * 1.25));
+        verify(Type.tableCell.pixelSize > base);
+        Type.textScale = 100;
+        compare(Type.tableCell.pixelSize, base);
+        compare(Type.textScales, [100, 112, 125, 140]);
     }
 
     function test_easing_curves_are_ready_for_bezier_curve() {

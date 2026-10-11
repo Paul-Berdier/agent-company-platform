@@ -1,4 +1,5 @@
-// Le titre décrit le contexte visible, jamais un ancien projet sélectionné.
+// Barre supérieure : navigation, contexte (projet › mission), palette et volets. Le titre
+// décrit ce qui est visible, jamais un ancien projet sélectionné.
 import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Layouts
@@ -8,11 +9,20 @@ import Acp.Controls
 
 Rectangle {
     id: bar
-    property bool inspectorAvailable: false
     property bool navigationCompact: false
+    property bool missionOuverte: false
     signal toggleNavigation()
     color: Colors.surfaceCanvas
-    readonly property string contextLabel: ""
+    readonly property string contextLabel: bar.missionOuverte && (Espace.mission.depot || "").length > 0
+        ? Espace.mission.depot : ""
+    readonly property string contextTitle: bar.missionOuverte && (Espace.mission.titre || "").length > 0
+        ? Espace.mission.titre : Navigation.currentTitle
+
+    Rectangle {
+        anchors.left: parent.left; anchors.right: parent.right; anchors.bottom: parent.bottom
+        height: Space.layoutBorderWidth
+        color: Colors.borderSubtle
+    }
     RowLayout {
         anchors.fill: parent
         anchors.leftMargin: Space.space4
@@ -20,8 +30,8 @@ Rectangle {
         spacing: Space.space3
         AcpButton {
             objectName: "shell-toggle-navigation"
-            label: ""; iconName: bar.navigationCompact ? "chevronRight" : "chevronLeft"
-            Accessible.name: bar.navigationCompact ? qsTr("Déplier la navigation") : qsTr("Replier la navigation")
+            label: ""; iconName: "sidebar"
+            Accessible.name: bar.navigationCompact ? qsTr("Déplier la barre des projets · Ctrl+B") : qsTr("Replier la barre des projets · Ctrl+B")
             onTriggered: bar.toggleNavigation()
         }
         AcpButton {
@@ -40,23 +50,24 @@ Rectangle {
         }
         Text {
             objectName: "shell-context-label"
-            Layout.maximumWidth: bar.width * 0.28
+            Layout.maximumWidth: bar.width * 0.24
             visible: bar.contextLabel.length > 0
             text: bar.contextLabel
             textFormat: Text.PlainText
             color: Colors.textMuted
             elide: Text.ElideRight
-            font.family: Type.metadata.family
-            font.pixelSize: Type.metadata.pixelSize
+            font.family: Type.identifier.family
+            font.pixelSize: Type.identifier.pixelSize
         }
         Text {
             visible: bar.contextLabel.length > 0
-            text: "/"; textFormat: Text.PlainText; color: Colors.borderInteractive
+            text: "›"; textFormat: Text.PlainText; color: Colors.borderInteractive
+            Accessible.ignored: true
         }
         Text {
             objectName: "shell-context-title"
             Layout.fillWidth: true
-            text: Navigation.currentTitle
+            text: bar.contextTitle
             textFormat: Text.PlainText
             color: Colors.textPrimary
             elide: Text.ElideRight
@@ -73,11 +84,22 @@ Rectangle {
             Accessible.name: qsTr("Rechercher une commande · Ctrl+K")
         }
         AcpButton {
-            objectName: "shell-inspect"
-            visible: bar.inspectorAvailable
-            label: qsTr("Détails")
-            iconName: "more"
-            onTriggered: Shell.inspectorVisible = !Shell.inspectorVisible
+            objectName: "shell-toggle-volet"
+            visible: bar.missionOuverte
+            label: ""
+            iconName: "activity"
+            primary: Shell.bottomDrawerVisible
+            commandId: "shell.toggleDrawer"
+            Accessible.name: Shell.bottomDrawerVisible ? qsTr("Masquer le volet Activité · Ctrl+J") : qsTr("Afficher le volet Activité · Ctrl+J")
+        }
+        AcpButton {
+            objectName: "shell-toggle-agents"
+            visible: bar.missionOuverte
+            label: bar.width > 1050 ? qsTr("Agents") : ""
+            iconName: "grid"
+            primary: Shell.agentsPanelVisible
+            commandId: "shell.toggleAgents"
+            Accessible.name: Shell.agentsPanelVisible ? qsTr("Masquer le panneau des agents · Ctrl+Alt+B") : qsTr("Afficher le panneau des agents · Ctrl+Alt+B")
         }
     }
 }

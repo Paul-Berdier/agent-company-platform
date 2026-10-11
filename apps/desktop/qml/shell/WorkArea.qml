@@ -1,8 +1,12 @@
-// Zone de travail : elle affiche l'écran de la route courante.
+// Zone de travail : l'écran de la route courante.
 //
 // Une route « prévue » ne peut pas devenir courante — NavigationModel le refuse — donc
 // cette zone n'a jamais à afficher une coquille vide. Le cas par défaut reste néanmoins
 // traité : une route inconnue produit un état d'erreur explicite, pas un écran blanc.
+//
+// Espace de travail (D167) : « projects » montre la mission ouverte (ou la liste et le
+// formulaire de nouvelle mission) ; les pages techniques partagent UN écran Réglages, gardé
+// en vie d'une section à l'autre (même composant pour toutes leurs routes).
 
 import QtQuick
 import QtQuick.Controls.Basic
@@ -21,30 +25,25 @@ Rectangle {
         sourceComponent: {
             switch (Navigation.currentRoute) {
             case "home": return homeComponent;
-            case "projects": return projectsComponent;
+            case "projects": return missionComponent;
             case "questions": return questionsComponent;
             case "chat": return discussionComponent;
-            case "station": return posteComponent;
-            case "quotas": return quotasComponent;
-            case "routing": return routageComponent;
-            case "backup": return sauvegardeComponent;
-            case "diagnostics": return diagnosticsComponent;
-            case "settings": return settingsComponent;
+            case "settings":
+            case "station":
+            case "quotas":
+            case "routing":
+            case "backup":
+            case "diagnostics": return reglagesComponent;
             default: return unknownComponent;
             }
         }
     }
 
     Component { id: homeComponent; HomePage {} }
-    Component { id: projectsComponent; ProjectsPage {} }
+    Component { id: missionComponent; MissionPage {} }
     Component { id: questionsComponent; QuestionsPage {} }
     Component { id: discussionComponent; DiscussionPage {} }
-    Component { id: posteComponent; PostePage {} }
-    Component { id: quotasComponent; QuotasPage {} }
-    Component { id: routageComponent; RoutagePage {} }
-    Component { id: sauvegardeComponent; SauvegardePage {} }
-    Component { id: diagnosticsComponent; DiagnosticsPage {} }
-    Component { id: settingsComponent; SettingsPage {} }
+    Component { id: reglagesComponent; ReglagesPage {} }
 
     Component {
         id: unknownComponent

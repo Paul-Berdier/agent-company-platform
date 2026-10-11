@@ -11,6 +11,7 @@
 
 #include <QObject>
 #include <QString>
+#include <QStringList>
 
 namespace acp {
 
@@ -40,6 +41,12 @@ class ShellViewModel : public QObject
                    sidebarCollapsedChanged)
     Q_PROPERTY(int sidebarWidth READ sidebarWidth WRITE setSidebarWidth NOTIFY panelWidthsChanged)
     Q_PROPERTY(int inspectorWidth READ inspectorWidth WRITE setInspectorWidth NOTIFY panelWidthsChanged)
+    // Espace de travail (D167) : panneau des agents et volet bas, mémorisés sans secret.
+    Q_PROPERTY(bool agentsPanelVisible READ isAgentsPanelVisible WRITE setAgentsPanelVisible NOTIFY layoutChanged)
+    Q_PROPERTY(bool bottomDrawerVisible READ isBottomDrawerVisible WRITE setBottomDrawerVisible NOTIFY layoutChanged)
+    Q_PROPERTY(int bottomDrawerHeight READ bottomDrawerHeight WRITE setBottomDrawerHeight NOTIFY layoutChanged)
+    Q_PROPERTY(QString bottomDrawerTab READ bottomDrawerTab WRITE setBottomDrawerTab NOTIFY layoutChanged)
+    Q_PROPERTY(QStringList bottomDrawerTabs READ bottomDrawerTabs CONSTANT)
 
 public:
     ShellViewModel(ApiClient *client, SessionHermes *session, HealthService *health,
@@ -82,6 +89,19 @@ public:
     [[nodiscard]] int inspectorWidth() const;
     void setInspectorWidth(int width);
 
+    [[nodiscard]] bool isAgentsPanelVisible() const;
+    void setAgentsPanelVisible(bool visible);
+    [[nodiscard]] bool isBottomDrawerVisible() const;
+    void setBottomDrawerVisible(bool visible);
+    [[nodiscard]] int bottomDrawerHeight() const;
+    void setBottomDrawerHeight(int height);
+    [[nodiscard]] QString bottomDrawerTab() const;
+    void setBottomDrawerTab(const QString &tab);
+    [[nodiscard]] static QStringList bottomDrawerTabs();
+
+    /*! Rétablit la disposition par défaut (largeurs, visibilités, onglet du volet bas). */
+    Q_INVOKABLE void resetLayout();
+
     /*!
         Applique une adresse de serveur saisie par l'opérateur.
 
@@ -101,6 +121,7 @@ signals:
     void inspectorVisibleChanged();
     void sidebarCollapsedChanged();
     void panelWidthsChanged();
+    void layoutChanged();
 
 private:
     void refreshCommandContext();

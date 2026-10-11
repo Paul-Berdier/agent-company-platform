@@ -8,6 +8,7 @@ import QtQuick
 import QtQuick.Controls.Basic
 import Acp.Design
 import Acp.Runtime
+import Acp.Pixel
 
 Item {
     id: control
@@ -39,32 +40,41 @@ Item {
     implicitHeight: Space.densityControlHeightRegular
     activeFocusOnTab: true
 
+    // Fond : coins crantés en Pixel Atelier (ombre d'un pixel sous l'action principale), arrondis
+    // en Studio. La couleur suit l'état réel du contrôle.
+    property color couleurFond: {
+        if (!control.effectiveEnabled)
+            return Colors.stateDisabled;
+        if (control.primary)
+            return tap.pressed ? Colors.accentPressed
+                : (hover.hovered ? Colors.accentHover : Colors.accentPrimary);
+        return tap.pressed ? Colors.statePressed
+            : (hover.hovered ? Colors.stateHover : "transparent");
+    }
+    Behavior on couleurFond {
+        enabled: Motion.active.press.duration > 0
+        ColorAnimation {
+            duration: Motion.active.press.duration
+            easing.type: Easing.Bezier
+            easing.bezierCurve: Motion.easingStandard
+        }
+    }
     Rectangle {
+        // Ombre pixel : un trait plus sombre sous le bouton principal, qui disparaît à l'appui.
+        visible: Colors.family === "atelier" && control.primary && control.effectiveEnabled && !tap.pressed
+        x: Space.layoutPixelUnit
+        y: Space.layoutPixelUnit
+        width: parent.width - Space.layoutPixelUnit
+        height: parent.height
+        color: Colors.decorOutline
+    }
+    FondPixel {
         id: background
         anchors.fill: parent
-        radius: Radius.radiusSm
-        color: {
-            if (!control.effectiveEnabled)
-                return Colors.stateDisabled;
-            if (control.primary)
-                return tap.pressed ? Colors.accentPressed
-                    : (hover.hovered ? Colors.accentHover : Colors.accentPrimary);
-            return tap.pressed ? Colors.statePressed
-                : (hover.hovered ? Colors.stateHover : "transparent");
-        }
-        border.width: control.primary ? 0 : Space.layoutBorderWidth
-        border.color: control.effectiveEnabled
-            ? Colors.borderInteractive
-            : Colors.borderSubtle
-
-        Behavior on color {
-            enabled: Motion.active.press.duration > 0
-            ColorAnimation {
-                duration: Motion.active.press.duration
-                easing.type: Easing.Bezier
-                easing.bezierCurve: Motion.easingStandard
-            }
-        }
+        couleur: control.couleurFond
+        rayon: Radius.radiusSm
+        epaisseur: control.primary ? 0 : Space.layoutBorderWidth
+        bordure: control.effectiveEnabled ? Colors.borderInteractive : Colors.borderSubtle
     }
 
     Row {
@@ -126,14 +136,13 @@ Item {
         }
     }
 
-    Rectangle {
+    FondPixel {
         visible: control.activeFocus
         anchors.fill: parent
         anchors.margins: -Space.layoutFocusRingOffset
-        color: "transparent"
-        radius: Radius.radiusSm
-        border.width: Space.layoutFocusRingWidth
-        border.color: Colors.borderFocus
+        rayon: Radius.radiusSm
+        epaisseur: Space.layoutFocusRingWidth
+        bordure: Colors.borderFocus
     }
 
     // Rôle, nom et action exposés aux technologies d'assistance (UI Automation sous

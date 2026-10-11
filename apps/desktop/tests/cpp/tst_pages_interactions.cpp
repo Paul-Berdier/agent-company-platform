@@ -14,11 +14,13 @@
 #include "models/JsonListModel.h"
 #include "navigation/NavigationModel.h"
 #include "services/CompatibiliteHermes.h"
+#include "system/SystemAppearance.h"
 #include "support/FauxHermes.h"
 #include "support/Fixtures.h"
 #include "gateway/DiscussionsEnAttente.h"
 #include "viewmodels/AccueilViewModel.h"
 #include "viewmodels/DiscussionViewModel.h"
+#include "viewmodels/EspaceTravailViewModel.h"
 #include "viewmodels/PosteViewModel.h"
 #include "viewmodels/ProjetsViewModel.h"
 #include "viewmodels/QuestionsViewModel.h"
@@ -99,6 +101,8 @@ private slots:
     void discussionEnAttenteOuverteParLeBouton();
     void discussionEnAttenteMarqueeDansLaListe();
     void pastilleDesQuestionsDitCeQuElleCompte();
+    // Avant le test qui change le verdict de compatibilité (oubli des pages).
+    void themeBasculeAChaudSansRecreerLaCoquille();
     void greffonSansEtapeP7NiAccueilNiGestes();
     // En dernier : charge la fenêtre racine (App.qml).
     void chaqueRaccourciDeLaPaletteAgit();
@@ -514,7 +518,9 @@ void TestPagesInteractions::executantFermeGriseDansLeFormulaire()
 
     QQuickItem *voie = parNom(racine, QStringLiteral("projets-champ-voie"));
     QTRY_VERIFY(voie && voie->isVisible());
-    QCOMPARE(voie->property("currentValue").toString(), QStringLiteral("poste-claude"));
+    // Auto par défaut (D168) : aucune voie n'est retenue tant que le propriétaire n'en choisit pas une.
+    QCOMPARE(voie->property("currentValue").toString(), QString());
+    QVERIFY(parNom(racine, QStringLiteral("projets-auto-explication"))->isVisible());
     QQuickItem *raison = parNom(racine, QStringLiteral("projets-voie-fermee"));
     QVERIFY(raison && raison->isVisible());
     QVERIFY(raison->property("text").toString().contains(QStringLiteral("dépôt « demo » non prouvé privé")));
@@ -527,16 +533,21 @@ void TestPagesInteractions::executantFermeGriseDansLeFormulaire()
     QCOMPARE(codex->property("text").toString(), QStringLiteral("Poste (Codex) — fermé pour ce dépôt"));
     QQuickItem *claude = parNom(m_fenetre->contentItem(), QStringLiteral("projets-voie-option-poste-claude"));
     QVERIFY(claude && claude->isEnabled());
+    QQuickItem *automatique = parNom(m_fenetre->contentItem(), QStringLiteral("projets-voie-option-auto"));
+    QVERIFY(automatique && automatique->isEnabled());
     QTest::mouseClick(m_fenetre.get(), Qt::LeftButton, Qt::NoModifier,
                       codex->mapToScene(QPointF(codex->width() / 2, codex->height() / 2)).toPoint());
     QTest::qWait(100);
-    QCOMPARE(m_projets->formulaire().value(QStringLiteral("voie")).toString(), QStringLiteral("poste-claude"));
+    QCOMPARE(m_projets->formulaire().value(QStringLiteral("voie")).toString(), QString());
     QTest::keyClick(m_fenetre.get(), Qt::Key_Escape);
     QTRY_VERIFY(!codex || !codex->isVisible());
 
-    // Au clavier, la flèche passe sur Codex : refusé en français, la liste revient sur l'exécutant ouvert.
+    // Au clavier : la flèche choisit d'abord Claude (verrou manuel), puis passe sur Codex : refusé en français, la
+    // liste revient sur l'exécutant ouvert.
     voie->forceActiveFocus();
     QTRY_VERIFY(voie->hasActiveFocus());
+    QTest::keyClick(m_fenetre.get(), Qt::Key_Down);
+    QTRY_COMPARE(m_projets->formulaire().value(QStringLiteral("voie")).toString(), QStringLiteral("poste-claude"));
     QTest::keyClick(m_fenetre.get(), Qt::Key_Down);
     QTRY_VERIFY(m_projets->erreurGeste().startsWith(QStringLiteral("Cet exécutant est fermé pour ce dépôt : dépôt « demo »")));
     QTRY_COMPARE(voie->property("currentValue").toString(), QStringLiteral("poste-claude"));
@@ -663,10 +674,10 @@ void TestPagesInteractions::pastilleDesQuestionsDitCeQuElleCompte()
     QVERIFY(entree);
     const auto nom = [entree] { return QQmlProperty(entree, QStringLiteral("Accessible.name"), qmlContext(entree)).read().toString(); };
     // Discussions lues : le total les compte, le nom ne dit plus le contraire.
-    QTRY_COMPARE(nom(), QStringLiteral("Questions (%1 demandes à traiter par vous)").arg(m_flux->aTraiter()));
+    QTRY_COMPARE(nom(), QStringLiteral("À traiter (%1 demandes à traiter par vous)").arg(m_flux->aTraiter()));
     // Discussions inconnues (passerelle indisponible, refus) : le nom le dit.
     m_flux->discussions()->oublier();
-    QTRY_COMPARE(nom(), QStringLiteral("Questions (%1 demandes à traiter par vous (discussions non comptées))")
+    QTRY_COMPARE(nom(), QStringLiteral("À traiter (%1 demandes à traiter par vous (discussions non comptées))")
                             .arg(m_flux->aTraiter()));
     QVERIFY2(m_avertissements.isEmpty(), qPrintable(m_avertissements.join(QLatin1Char('\n'))));
 }
@@ -1018,6 +1029,85 @@ void TestPagesInteractions::chaqueRaccourciDeLaPaletteAgit()
     }
     QVERIFY2(m_avertissements.isEmpty(), qPrintable(m_avertissements.join(QLatin1Char('\n'))));
     racine->close();
+}
+
+// Chantier « atelier » (D165) : changer de famille, de luminosité, de mouvement, de densité ou de
+// taille du texte s'applique à chaud. Aucun écran n'est recréé : la coquille, la barre latérale et
+// la page affichée restent les mêmes objets, et ce qui est saisi (recherche, brouillon) survit.
+void TestPagesInteractions::themeBasculeAChaudSansRecreerLaCoquille()
+{
+    auto *apparence = m_application->findChild<SystemAppearance *>();
+    auto *espace = m_application->findChild<EspaceTravailViewModel *>();
+    auto *navigation = m_application->findChild<NavigationModel *>();
+    QVERIFY(apparence && espace && navigation);
+    // Les réglages ne lisent rien : aucun verdict de compatibilité relu (et aucun oubli des pages)
+    // ne vient brouiller ce que le test regarde.
+    navigation->setCurrentRoute(QStringLiteral("settings"));
+    // La passerelle de thème de App.qml, puis la coquille elle-même (sans session, App.qml
+    // afficherait l'écran de connexion à sa place).
+    auto passerelle = charger(QStringLiteral("ThemeBridge"), QStringLiteral("Acp.Theme"));
+    QVERIFY(passerelle);
+    auto coquille = charger(QStringLiteral("ShellRoot"), QStringLiteral("Acp.Station"));
+    QVERIFY(coquille);
+    auto *racine = qobject_cast<QQuickItem *>(coquille.get());
+    QVERIFY(racine);
+
+    QPointer<QQuickItem> barre = parNom(racine, QStringLiteral("shell-sidebar"));
+    QPointer<QQuickItem> recherche = parNom(racine, QStringLiteral("navigation-recherche"));
+    QPointer<QQuickItem> volet = parNom(racine, QStringLiteral("shell-volet"));
+    QVERIFY(barre && recherche && volet);
+
+    // Une recherche tapée au clavier, et un brouillon de nouvelle mission.
+    // La disposition (SplitView) pose la barre après la création : attendre qu'elle soit en place.
+    QTRY_VERIFY(recherche->isVisible() && recherche->width() > 0 && barre->width() > 0);
+    m_fenetre->requestActivate();
+    QVERIFY(QTest::qWaitForWindowActive(m_fenetre.get()));
+    QVERIFY(taper(recherche, QStringLiteral("veille")));
+    QTRY_COMPARE(espace->recherche(), QStringLiteral("veille"));
+    espace->noterBrouillon(QStringLiteral("nouvelle-mission:objectif"), QStringLiteral("Objectif en cours de saisie"));
+
+    apparence->setFamilyPreference(QStringLiteral("atelier"));
+    apparence->setThemePreference(QStringLiteral("dark"));
+    QCOMPARE(apparence->activeTheme(), QStringLiteral("atelier-nuit"));
+    QTRY_COMPARE(QQmlProperty::read(barre, QStringLiteral("color")).value<QColor>(), QColor(QStringLiteral("#10131b")));
+
+    // Studio Papier : couleurs relues sur place.
+    apparence->setFamilyPreference(QStringLiteral("studio"));
+    apparence->setThemePreference(QStringLiteral("light"));
+    QCOMPARE(apparence->activeTheme(), QStringLiteral("studio-papier"));
+    QTRY_VERIFY(QQmlProperty::read(barre, QStringLiteral("color")).value<QColor>() != QColor(QStringLiteral("#10131b")));
+    // Atelier Jour, mouvement réduit, Concentration, densité aérée et texte agrandi.
+    apparence->setFamilyPreference(QStringLiteral("atelier"));
+    QCOMPARE(apparence->activeTheme(), QStringLiteral("atelier-jour"));
+    QTRY_COMPARE(QQmlProperty::read(barre, QStringLiteral("color")).value<QColor>(), QColor(QStringLiteral("#eee9f4")));
+    apparence->setMotionPreference(QStringLiteral("reduit"));
+    apparence->setConcentration(true);
+    apparence->setDensity(QStringLiteral("aeree"));
+    apparence->setTextScale(125);
+    QTest::qWait(100);
+
+    // Les mêmes objets : rien n'a été détruit ni recréé, la saisie a survécu.
+    QVERIFY(barre && recherche && volet);
+    QCOMPARE(parNom(racine, QStringLiteral("shell-sidebar")), barre.data());
+    QCOMPARE(parNom(racine, QStringLiteral("navigation-recherche")), recherche.data());
+    QCOMPARE(QQmlProperty::read(recherche, QStringLiteral("text")).toString(), QStringLiteral("veille"));
+    QCOMPARE(espace->recherche(), QStringLiteral("veille"));
+    QCOMPARE(espace->brouillon(QStringLiteral("nouvelle-mission:objectif")), QStringLiteral("Objectif en cours de saisie"));
+    QCOMPARE(navigation->currentRoute(), QStringLiteral("settings"));
+
+    // Oubli de la session : le champ suit le modèle, il ne garde pas une recherche oubliée.
+    espace->oublier();
+    QTRY_COMPARE(QQmlProperty::read(recherche, QStringLiteral("text")).toString(), QString());
+
+    // Retour aux préférences par défaut (réglages jetables du test).
+    apparence->setThemePreference(QStringLiteral("system"));
+    apparence->setMotionPreference(QStringLiteral("complet"));
+    apparence->setConcentration(false);
+    apparence->setDensity(QStringLiteral("standard"));
+    apparence->setTextScale(100);
+    espace->setRecherche(QString());
+    espace->noterBrouillon(QStringLiteral("nouvelle-mission:objectif"), QString());
+    QVERIFY2(m_avertissements.isEmpty(), qPrintable(m_avertissements.join(QLatin1Char('\n'))));
 }
 
 QTEST_MAIN(TestPagesInteractions)

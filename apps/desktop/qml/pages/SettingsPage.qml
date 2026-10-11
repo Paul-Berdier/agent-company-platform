@@ -13,7 +13,7 @@ ScrollView {
         x: Space.space6
         y: Space.space6
         spacing: Space.space5
-        Label { textFormat: Text.PlainText; text: qsTr("Réglages"); color: Colors.textPrimary; font.pixelSize: Type.pageTitle.pixelSize }
+        Label { textFormat: Text.PlainText; text: qsTr("Connexion et mises à jour"); color: Colors.textPrimary; font.pixelSize: Type.pageTitle.pixelSize }
         Label { textFormat: Text.PlainText; text: qsTr("Serveur"); color: Colors.textPrimary; font.bold: true }
         AcpTextField { id: server; Layout.fillWidth: true; text: Shell.serverUrl; placeholder: qsTr("Adresse HTTPS de Hermes") }
         CheckBox { id: loopback; text: qsTr("Autoriser HTTP uniquement sur cette machine (développement)"); checked: Shell.allowsInsecureLoopback }
@@ -50,19 +50,23 @@ ScrollView {
             AcpButton { objectName: "reglages-se-deconnecter"; label: qsTr("Se déconnecter"); commandId: "session.logout" }
             AcpButton { label: qsTr("Retenter le renouvellement"); commandId: "session.retry" }
         }
-        Label { textFormat: Text.PlainText; text: qsTr("Apparence"); color: Colors.textPrimary; font.bold: true }
+        Label { textFormat: Text.PlainText; text: qsTr("Apparence rapide"); color: Colors.textPrimary; font.bold: true }
+        Label {
+            textFormat: Text.PlainText; Layout.fillWidth: true; wrapMode: Text.WordWrap; color: Colors.textSecondary
+            text: qsTr("Famille visuelle, densité, taille du texte et mode Concentration : section Apparence des réglages, avec aperçu.")
+        }
         RowLayout {
-            Label { textFormat: Text.PlainText; text: qsTr("Thème"); color: Colors.textSecondary }
+            Label { textFormat: Text.PlainText; text: qsTr("Luminosité"); color: Colors.textSecondary }
             ComboBox {
                 model: [qsTr("Suivre Windows"), qsTr("Clair"), qsTr("Sombre")]
                 currentIndex: ["system", "light", "dark"].indexOf(Appearance.themePreference)
-                Accessible.name: qsTr("Thème")
+                Accessible.name: qsTr("Luminosité")
                 onActivated: Appearance.themePreference = ["system", "light", "dark"][currentIndex]
             }
             CheckBox {
                 text: qsTr("Réduire les animations")
-                checked: Appearance.motionPreference === "reduced"
-                onToggled: Appearance.motionPreference = checked ? "reduced" : "standard"
+                checked: Appearance.motionPreference === "reduit"
+                onToggled: Appearance.motionPreference = checked ? "reduit" : "complet"
             }
         }
         Label { textFormat: Text.PlainText; text: qsTr("Mises à jour · version %1").arg(Updates.currentVersion); color: Colors.textPrimary; font.bold: true }

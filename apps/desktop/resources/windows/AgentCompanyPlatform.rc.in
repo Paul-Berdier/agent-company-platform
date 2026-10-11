@@ -1,0 +1,38 @@
+// Ressource Windows de la station : icône de l'exécutable et informations de version.
+//
+// Modèle configuré par CMake (apps/desktop/CMakeLists.txt) : la version vient de VERSION et
+// l'icône de scripts/generer_assets_pixel.py. Le fichier configuré n'est pas versionné.
+
+#pragma code_page(65001)
+
+#include <windows.h>
+
+IDI_ICON1 ICON "@ACP_RC_ICONE@"
+
+VS_VERSION_INFO VERSIONINFO
+ FILEVERSION @ACP_RC_MAJOR@,@ACP_RC_MINOR@,@ACP_RC_PATCH@,0
+ PRODUCTVERSION @ACP_RC_MAJOR@,@ACP_RC_MINOR@,@ACP_RC_PATCH@,0
+ FILEFLAGSMASK 0x3fL
+ FILEFLAGS 0x0L
+ FILEOS VOS_NT_WINDOWS32
+ FILETYPE VFT_APP
+ FILESUBTYPE VFT2_UNKNOWN
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040C04B0"
+        BEGIN
+            VALUE "CompanyName", "Agent Company Platform"
+            VALUE "FileDescription", "Station de travail — Agent Company Platform"
+            VALUE "FileVersion", "@ACP_DESKTOP_VERSION@"
+            VALUE "InternalName", "AgentCompanyPlatform"
+            VALUE "OriginalFilename", "AgentCompanyPlatform.exe"
+            VALUE "ProductName", "Agent Company Platform"
+            VALUE "ProductVersion", "@ACP_DESKTOP_VERSION@"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x040C, 1200
+    END
+END

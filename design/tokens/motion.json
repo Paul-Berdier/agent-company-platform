@@ -1,7 +1,7 @@
 {
   "$schema": "acp.design-tokens/1",
-  "$description": "Mouvement. Bref, fonctionnel, jamais décoratif : une animation sert à montrer d'où vient une chose ou qu'un travail est vivant, sinon elle est retirée. Aucune transition ne dépasse 240 ms, les durées se branchent sur NumberAnimation.duration en QML et les courbes sur easing.bezierCurve. Le profil « mouvement réduit » est une variante complète, pas un simple interrupteur : il annule les déplacements et garde les fondus courts qui évitent un changement brutal.",
-  "$version": "1.0.0",
+  "$description": "Mouvement. Deux natures, jamais confondues. Le mouvement FONCTIONNEL (survol, appui, focus, panneau, apparition d'une tâche, changement d'état, attention brève sur une décision, confirmation de fin, transition de palette) montre d'où vient une chose ; il ne dépasse pas 240 ms et ne retarde jamais l'affichage. Le mouvement d'AMBIANCE (sprites et scènes décoratifs) n'existe que dans le profil « complet », hors mode Concentration, et se suspend hors écran ou fenêtre réduite ; il ne demande aucun appel réseau ni LLM. Une animation n'est jamais une preuve d'activité : un sprite « au travail » ne s'anime que sur un état observé, et une télémétrie absente se dit. Le profil « réduit » est une variante complète : aucun déplacement, aucune boucle, des fondus courts, l'information portée par le texte et le symbole. Décision D165 (11 octobre 2026), qui remplace l'interdiction générale du décor animé.",
+  "$version": "2.0.0",
   "$file": "motion",
   "$themed": false,
   "$qml": {
@@ -9,7 +9,19 @@
     "module": "Acp.Design",
     "namingRule": "duration.fast -> durationFast, easing.standard -> easingStandard.",
     "easingFormat": "Points de contrôle d'une courbe de Bézier cubique, dans l'ordre x1, y1, x2, y2. En QML : easing.type: Easing.Bezier ; easing.bezierCurve: [x1, y1, x2, y2, 1, 1].",
-    "reducedMotion": "Le générateur produit les deux profils. Le choix à l'exécution vient de la préférence système, exposée par la couche C++, avec une préférence applicative capable de forcer le profil réduit."
+    "reducedMotion": "Le générateur produit les trois profils (complet, discret, réduit). Le choix à l'exécution vient de la préférence de l'opérateur, lue par la couche C++ (Qt n'expose aucune préférence système de mouvement réduit portable) ; le mode Concentration, préférence distincte, coupe l'ambiance quel que soit le profil."
+  },
+  "$defaultProfile": "complet",
+  "$reducedProfile": "reduit",
+  "$profileLabels": {
+    "complet": "Complet",
+    "discret": "Discret",
+    "reduit": "Réduit"
+  },
+  "$legacyProfiles": {
+    "$description": "Valeurs enregistrées par les versions 1.0.x de la station, relues sans perte : « standard » était le profil fonctionnel sans décor (désormais « discret »).",
+    "standard": "discret",
+    "reduced": "reduit"
   },
   "tokens": {
     "duration.instant": { "$description": "Aucune animation. Survol d'une ligne dans une liste dense, changement de sélection au clavier : la réponse doit être immédiate.", "$type": "duration", "$value": 0 },
@@ -25,11 +37,13 @@
     "distance.enter": { "$description": "Déplacement d'entrée d'une couche flottante, en pixels. Volontairement minuscule : on suggère l'origine, on ne fait pas voyager l'élément.", "$type": "dimension", "$value": 4 },
     "distance.panelSlide": { "$description": "Déplacement d'un panneau latéral qui s'ouvre. Au-delà, le panneau est simplement affiché sans glissement.", "$type": "dimension", "$value": 12 },
     "opacity.enterFrom": { "$type": "number", "$value": 0 },
-    "opacity.pulseMin": { "$description": "Opacité basse de l'indicateur d'activité continue. Il ne disparaît jamais complètement : un point qui clignote à zéro se confond avec une absence de donnée.", "$type": "number", "$value": 0.45 }
+    "opacity.pulseMin": { "$description": "Opacité basse de l'indicateur d'activité continue. Il ne disparaît jamais complètement : un point qui clignote à zéro se confond avec une absence de donnée.", "$type": "number", "$value": 0.45 },
+    "duration.spriteFrame": { "$description": "Durée d'une image d'un sprite d'activité (portrait « au travail »). Ce n'est pas une transition : c'est la cadence d'une boucle qui ne tourne que sur un état observé.", "$type": "duration", "$value": 240 },
+    "duration.ambiance": { "$description": "Période nominale d'une boucle d'ambiance (clignement d'un portrait au repos, scène d'accueil). Profil complet seulement.", "$type": "duration", "$value": 2600 }
   },
   "$profiles": {
-    "standard": {
-      "$description": "Profil par défaut.",
+    "complet": {
+      "$description": "Profil par défaut : mouvement fonctionnel et ambiance pixel (sprites, scène d'accueil), suspendue hors écran et en mode Concentration.",
       "hover": { "duration": "duration.instant" },
       "press": { "duration": "duration.micro", "easing": "easing.standard" },
       "focusRing": { "duration": "duration.micro", "easing": "easing.standard" },
@@ -38,10 +52,34 @@
       "overlayExit": { "duration": "duration.fast", "easing": "easing.exit", "properties": ["opacity"] },
       "panelResize": { "duration": "duration.instant", "note": "Un volet suit le pointeur sans retard ; toute interpolation donne l'impression d'une application lente." },
       "listInsert": { "duration": "duration.fast", "easing": "easing.standard", "properties": ["opacity"], "note": "Un événement qui arrive dans un flux apparaît en fondu, sans glissement : les lignes voisines ne doivent pas bouger sous le curseur." },
-      "activityPulse": { "duration": "duration.pulse", "easing": "easing.linear", "properties": ["opacity"], "loops": "infini" }
+      "activityPulse": { "duration": "duration.pulse", "easing": "easing.linear", "properties": ["opacity"], "loops": "infini" },
+      "panelToggle": { "duration": "duration.base", "easing": "easing.standard", "properties": ["opacity", "width", "height"], "note": "Ouverture ou fermeture d'un panneau par un geste (bouton, raccourci). Le redimensionnement au pointeur reste instantané (panelResize)." },
+      "attention": { "duration": "duration.slow", "easing": "easing.standard", "properties": ["opacity", "scale"], "loops": 2, "note": "Attention brève sur une décision qui arrive : deux battements, puis plus rien." },
+      "completion": { "duration": "duration.base", "easing": "easing.enter", "properties": ["opacity", "scale"], "note": "Confirmation d'une fin réellement observée, jamais avant l'accusé de réception." },
+      "paletteTransition": { "duration": "duration.base", "easing": "easing.standard", "properties": ["color"], "note": "Changement de thème à chaud : les couleurs glissent, aucun élément n'est recréé." },
+      "spriteActivity": { "duration": "duration.spriteFrame", "loops": "infini", "note": "Sprite d'un agent dont l'état observé est « exécute » ou « outil en cours »." },
+      "ambiance": { "duration": "duration.ambiance", "loops": "infini", "note": "Boucles décoratives. Suspendues hors écran, fenêtre réduite ou mode Concentration." }
     },
-    "reduced": {
-      "$description": "Profil « mouvement réduit », activé par la préférence système ou par l'application. Aucun déplacement, aucune boucle infinie, aucun changement de taille. Les fondus survivants sont ramenés à la durée micro pour éviter un changement brutal de couleur d'état.",
+    "discret": {
+      "$description": "Mouvement fonctionnel seulement, sans ambiance : c'était le profil « standard » des versions 1.0.x.",
+      "hover": { "duration": "duration.instant" },
+      "press": { "duration": "duration.micro", "easing": "easing.standard" },
+      "focusRing": { "duration": "duration.micro", "easing": "easing.standard" },
+      "statusChange": { "duration": "duration.fast", "easing": "easing.standard", "properties": ["color", "opacity"] },
+      "overlayEnter": { "duration": "duration.base", "easing": "easing.enter", "properties": ["opacity", "y"], "distance": "distance.enter" },
+      "overlayExit": { "duration": "duration.fast", "easing": "easing.exit", "properties": ["opacity"] },
+      "panelResize": { "duration": "duration.instant", "note": "Un volet suit le pointeur sans retard ; toute interpolation donne l'impression d'une application lente." },
+      "listInsert": { "duration": "duration.fast", "easing": "easing.standard", "properties": ["opacity"], "note": "Un événement qui arrive dans un flux apparaît en fondu, sans glissement : les lignes voisines ne doivent pas bouger sous le curseur." },
+      "activityPulse": { "duration": "duration.pulse", "easing": "easing.linear", "properties": ["opacity"], "loops": "infini" },
+      "panelToggle": { "duration": "duration.base", "easing": "easing.standard", "properties": ["opacity", "width", "height"], "note": "Ouverture ou fermeture d'un panneau par un geste (bouton, raccourci). Le redimensionnement au pointeur reste instantané (panelResize)." },
+      "attention": { "duration": "duration.slow", "easing": "easing.standard", "properties": ["opacity", "scale"], "loops": 2, "note": "Attention brève sur une décision qui arrive : deux battements, puis plus rien." },
+      "completion": { "duration": "duration.base", "easing": "easing.enter", "properties": ["opacity", "scale"], "note": "Confirmation d'une fin réellement observée, jamais avant l'accusé de réception." },
+      "paletteTransition": { "duration": "duration.base", "easing": "easing.standard", "properties": ["color"], "note": "Changement de thème à chaud : les couleurs glissent, aucun élément n'est recréé." },
+      "spriteActivity": { "duration": "duration.spriteFrame", "loops": "infini", "note": "Sprite d'un agent dont l'état observé est « exécute » ou « outil en cours »." },
+      "ambiance": { "duration": "duration.instant", "loops": 0, "note": "Aucune boucle décorative : portraits fixes au repos, scène d'accueil fixe." }
+    },
+    "reduit": {
+      "$description": "Profil « mouvement réduit », activé par la préférence système ou par l'application. Aucun déplacement, aucune boucle infinie, aucun changement de taille. Les fondus survivants sont ramenés à la durée micro pour éviter un changement brutal de couleur d'état. Les sprites restent fixes (image de l'état), les panneaux s'ouvrent sans glissement.",
       "hover": { "duration": "duration.instant" },
       "press": { "duration": "duration.instant" },
       "focusRing": { "duration": "duration.instant" },
@@ -50,13 +88,22 @@
       "overlayExit": { "duration": "duration.instant" },
       "panelResize": { "duration": "duration.instant" },
       "listInsert": { "duration": "duration.instant" },
-      "activityPulse": { "duration": "duration.instant", "loops": 0, "fallback": "L'activité est alors signalée par le libellé « En cours » et par un glyphe fixe, jamais par un clignotement." }
+      "activityPulse": { "duration": "duration.instant", "loops": 0, "fallback": "L'activité est alors signalée par le libellé « En cours » et par un glyphe fixe, jamais par un clignotement." },
+      "panelToggle": { "duration": "duration.instant" },
+      "attention": { "duration": "duration.micro", "easing": "easing.linear", "properties": ["opacity"], "loops": 1, "fallback": "L'attention passe par le libellé et la pastille « Votre décision est attendue », sans battement." },
+      "completion": { "duration": "duration.micro", "easing": "easing.linear", "properties": ["opacity"] },
+      "paletteTransition": { "duration": "duration.instant" },
+      "spriteActivity": { "duration": "duration.instant", "loops": 0, "fallback": "Image fixe de l'état, et le libellé « En cours »." },
+      "ambiance": { "duration": "duration.instant", "loops": 0 }
     }
   },
   "$rules": [
     "Rien ne bouge pendant qu'une donnée arrive : un flux d'événements s'allonge, il ne défile pas tout seul sous les yeux de l'opérateur.",
     "Aucune animation ne retarde l'affichage d'une information. Le contenu est peint d'abord, l'animation habille au plus.",
     "Aucune animation de chargement qui simule une progression inconnue : un indicateur indéterminé se dit indéterminé.",
+    "Une animation n'est jamais une preuve d'activité : un sprite au travail suit un état observé ; sans télémétrie, « activité détaillée indisponible ».",
+    "L'ambiance est décorative : profil complet seulement, suspendue hors écran, fenêtre réduite ou mode Concentration, sans appel réseau ni LLM.",
+    "Le redimensionnement suit le pointeur sans interpolation ; aucun défilement imposé sous le curseur.",
     "Le profil réduit doit rester utilisable et complet ; il ne dégrade aucune information."
   ]
 }

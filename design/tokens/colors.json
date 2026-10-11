@@ -1,170 +1,262 @@
 {
   "$schema": "acp.design-tokens/1",
-  "$description": "Identité ACP : graphite végétal, papier ivoire et sarcelle mesurée. Palette native du poste conversations/projets, distincte des surfaces web historiques. Les états métier restent dans semantic-status.json.",
-  "$version": "1.1.0",
+  "$description": "Identité ACP : quatre thèmes en deux familles. Pixel Atelier (par défaut) : bleu encre, ardoise, blanc chaud, lavande et menthe, en Nuit et en Jour. Studio (alternative sobre) : graphite végétal et papier ivoire, la palette historique de la station. Les états métier restent dans semantic-status.json.",
+  "$version": "2.0.0",
   "$file": "colors",
   "$themed": true,
-  "$themes": [
-    "dark",
-    "light"
-  ],
-  "$defaultTheme": "dark",
+  "$themes": ["atelier-nuit", "atelier-jour", "studio-graphite", "studio-papier"],
+  "$defaultTheme": "atelier-nuit",
   "$qml": {
     "singleton": "Colors",
     "module": "Acp.Design",
     "propertyType": "color",
     "namingRule": "Le nom de jeton pointé devient une propriété camelCase : surface.panelRaised -> surfacePanelRaised.",
-    "themeSelection": "Le générateur produit un objet par thème ; la sélection de thème est faite à l'exécution par la couche QML, pas par le générateur."
+    "themeSelection": "Le générateur produit un objet par thème ; la sélection est faite à l'exécution par la couche QML (ThemeBridge), d'après la préférence lue par la couche C++. Un nom de thème inconnu n'est jamais accepté par la couche C++ ; en QML, il retombe sur $defaultTheme et Colors.known vaut faux."
   },
   "$contrast": {
-    "$description": "Contrastes calculés le 23 septembre 2026 : textes sur les six surfaces opaques de base, contours interactifs et encre sur les trois états d’accent. La validation des captures reste distincte.",
-    "textMinimumDark": 5.63,
-    "textMinimumLight": 5.11,
-    "target": "AA (4.5:1 pour le texte, 3:1 pour la bordure d'un élément interactif et pour le focus)",
-    "unverified": [
-      "surface.scrimless",
-      "state.hover",
-      "state.pressed"
-    ]
+    "$description": "Seuils VÉRIFIÉS par apps/desktop/cmake/generate_design_tokens.py à chaque génération, pour les quatre thèmes : la génération est refusée sous un seuil. Les minima mesurés sont relevés dans docs/refonte/atelier-da.md. Inspirés de WCAG 2.2 (1.4.3 et 1.4.11) ; ce n'est pas une déclaration de conformité du logiciel.",
+    "texte": 4.5,
+    "bordureInteractive": 3.0,
+    "focus": 3.0,
+    "accent": 3.0,
+    "encreSurAccent": 4.5,
+    "unverified": ["surface.scrimless", "state.pressed", "decor.grid", "decor.outline"]
   },
   "tokens": {
     "surface.canvas": {
       "$description": "Canevas principal : graphite chaud en sombre, papier ivoire en clair.",
       "$type": "color",
-      "dark": "#191c1a",
-      "light": "#f7f6f0"
+      "atelier-nuit": "#151923",
+      "atelier-jour": "#f6f2ea",
+      "studio-graphite": "#191c1a",
+      "studio-papier": "#f7f6f0"
     },
     "surface.sidebar": {
       "$description": "Colonne de navigation persistante, légèrement distincte du canevas sans bordure lumineuse.",
       "$type": "color",
-      "dark": "#131714",
-      "light": "#eeefe7"
+      "atelier-nuit": "#10131b",
+      "atelier-jour": "#eee9f4",
+      "studio-graphite": "#131714",
+      "studio-papier": "#eeefe7"
     },
     "surface.panel": {
       "$description": "Surface de travail principale : listes, tableaux, formulaires, panneaux d'inspection.",
       "$type": "color",
-      "dark": "#1e2420",
-      "light": "#ffffff"
+      "atelier-nuit": "#1a1f2d",
+      "atelier-jour": "#fffdf8",
+      "studio-graphite": "#1e2420",
+      "studio-papier": "#ffffff"
     },
     "surface.panelRaised": {
       "$description": "Surface d'un élément posé sur un panneau : en-tête collant, ligne sélectionnée, contrôle de formulaire.",
       "$type": "color",
-      "dark": "#272e29",
-      "light": "#f2f3eb"
+      "atelier-nuit": "#222839",
+      "atelier-jour": "#f3eef8",
+      "studio-graphite": "#272e29",
+      "studio-papier": "#f2f3eb"
     },
     "surface.sunken": {
       "$description": "Surface creusée pour les zones de sortie brute : journaux, flux SSE, diff, terminal, JSON. Plus sombre que le panneau en thème sombre, plus grise en thème clair.",
       "$type": "color",
-      "dark": "#111612",
-      "light": "#e8ebe2"
+      "atelier-nuit": "#0e1119",
+      "atelier-jour": "#ebe6f0",
+      "studio-graphite": "#111612",
+      "studio-papier": "#e8ebe2"
     },
     "surface.overlay": {
       "$description": "Fond des couches flottantes : palette de commandes, menu, infobulle riche, boîte de dialogue.",
       "$type": "color",
-      "dark": "#282f2a",
-      "light": "#fffef8"
+      "atelier-nuit": "#252b3e",
+      "atelier-jour": "#fffefb",
+      "studio-graphite": "#282f2a",
+      "studio-papier": "#fffef8"
     },
     "surface.scrimless": {
       "$description": "Fond de remplacement pour un environnement sans composition alpha fiable, utilisé si l'assombrissement défini dans elevation.json ne peut pas être appliqué.",
       "$type": "color",
-      "dark": "#090d0a",
-      "light": "#c9cfc3"
+      "atelier-nuit": "#07090e",
+      "atelier-jour": "#cfc8da",
+      "studio-graphite": "#090d0a",
+      "studio-papier": "#c9cfc3"
     },
     "text.primary": {
       "$description": "Encre principale des titres, contrôles et messages.",
       "$type": "color",
-      "dark": "#eef2e9",
-      "light": "#1f2b23"
+      "atelier-nuit": "#f2ede4",
+      "atelier-jour": "#1d1a2e",
+      "studio-graphite": "#eef2e9",
+      "studio-papier": "#1f2b23"
     },
     "text.secondary": {
       "$description": "Texte secondaire : métadonnées, horodatages, aide de champ. Reste au niveau AA, ce n'est pas un gris décoratif.",
       "$type": "color",
-      "dark": "#b1bcb2",
-      "light": "#506154"
+      "atelier-nuit": "#c3bfd3",
+      "atelier-jour": "#4a4563",
+      "studio-graphite": "#b1bcb2",
+      "studio-papier": "#506154"
     },
     "text.muted": {
       "$description": "Métadonnées et aides, toujours lisibles au niveau AA sur les surfaces de base.",
       "$type": "color",
-      "dark": "#9aaa9d",
-      "light": "#536657"
+      "atelier-nuit": "#a6a2bd",
+      "atelier-jour": "#5a5676",
+      "studio-graphite": "#a3b2a5",
+      "studio-papier": "#536657"
     },
     "text.onAccent": {
       "$description": "Encre de l’action principale et de ses états de survol/appui.",
       "$type": "color",
-      "dark": "#07271c",
-      "light": "#ffffff"
+      "atelier-nuit": "#16122c",
+      "atelier-jour": "#ffffff",
+      "studio-graphite": "#07271c",
+      "studio-papier": "#ffffff"
     },
     "accent.primary": {
       "$description": "Sarcelle ACP réservée à l’action principale et à la sélection ; aucun dégradé.",
       "$type": "color",
-      "dark": "#65c6ae",
-      "light": "#0a6d60"
+      "atelier-nuit": "#a99aff",
+      "atelier-jour": "#5b47d6",
+      "studio-graphite": "#65c6ae",
+      "studio-papier": "#0a6d60"
     },
     "accent.hover": {
       "$description": "Variante de survol de l'accent.",
       "$type": "color",
-      "dark": "#86dcc5",
-      "light": "#085748"
+      "atelier-nuit": "#c0b4ff",
+      "atelier-jour": "#4a36c2",
+      "studio-graphite": "#86dcc5",
+      "studio-papier": "#085748"
     },
     "accent.pressed": {
       "$description": "Variante d'appui de l'accent ; le texte utilise text.onAccent, inclus dans la mesure de contraste.",
       "$type": "color",
-      "dark": "#4eb298",
-      "light": "#064637"
+      "atelier-nuit": "#9584f5",
+      "atelier-jour": "#3d2aa6",
+      "studio-graphite": "#4eb298",
+      "studio-papier": "#064637"
     },
     "accent.muted": {
       "$description": "Sélection discrète de navigation et contexte actif.",
       "$type": "color",
-      "dark": "#233e32",
-      "light": "#e0ede4"
+      "atelier-nuit": "#2c2a4c",
+      "atelier-jour": "#e7e2fc",
+      "studio-graphite": "#233e32",
+      "studio-papier": "#e0ede4"
     },
     "border.subtle": {
       "$description": "Séparateur interne d'une même surface : lignes de tableau, découpe de section. Volontairement sous 3:1, purement décoratif, jamais seul porteur d'information.",
       "$type": "color",
-      "dark": "#2b332d",
-      "light": "#dfe3d7"
+      "atelier-nuit": "#252b3c",
+      "atelier-jour": "#e4deeb",
+      "studio-graphite": "#2b332d",
+      "studio-papier": "#dfe3d7"
     },
     "border.default": {
       "$description": "Trait de séparation structurel, sans ombre décorative.",
       "$type": "color",
-      "dark": "#3a453c",
-      "light": "#cdd5c7"
+      "atelier-nuit": "#333a52",
+      "atelier-jour": "#d2cade",
+      "studio-graphite": "#3a453c",
+      "studio-papier": "#cdd5c7"
     },
     "border.interactive": {
       "$description": "Contour visible des champs et contrôles, mesuré contre toutes les surfaces de base.",
       "$type": "color",
-      "dark": "#7e8e80",
-      "light": "#748771"
+      "atelier-nuit": "#7f82a8",
+      "atelier-jour": "#7b7499",
+      "studio-graphite": "#7e8e80",
+      "studio-papier": "#748771"
     },
     "border.focus": {
       "$description": "Anneau clavier toujours visible, distinct de la sélection.",
       "$type": "color",
-      "dark": "#95e4c9",
-      "light": "#0a6654"
+      "atelier-nuit": "#7adbc3",
+      "atelier-jour": "#0d7660",
+      "studio-graphite": "#95e4c9",
+      "studio-papier": "#0a6654"
     },
     "state.hover": {
       "$description": "Fond de survol d'une ligne ou d'un bouton discret, posé sur surface.panel.",
       "$type": "color",
-      "dark": "#2b332d",
-      "light": "#e6ebdf"
+      "atelier-nuit": "#222839",
+      "atelier-jour": "#eee9f4",
+      "studio-graphite": "#2b332d",
+      "studio-papier": "#e6ebdf"
     },
     "state.pressed": {
       "$description": "Fond d'appui d'une ligne ou d'un bouton discret.",
       "$type": "color",
-      "dark": "#343f36",
-      "light": "#dce4d4"
+      "atelier-nuit": "#2b3249",
+      "atelier-jour": "#e4ddef",
+      "studio-graphite": "#343f36",
+      "studio-papier": "#dce4d4"
     },
     "state.selected": {
       "$description": "Fond de ligne sélectionnée, accompagné d’un trait et d’un libellé.",
       "$type": "color",
-      "dark": "#2b4435",
-      "light": "#dceadb"
+      "atelier-nuit": "#302d58",
+      "atelier-jour": "#e6e0fc",
+      "studio-graphite": "#2b4435",
+      "studio-papier": "#dceadb"
     },
     "state.disabled": {
       "$description": "Fond d'un contrôle désactivé. Le texte d'un contrôle désactivé utilise text.muted, jamais une valeur plus pâle : une capacité indisponible doit rester lisible.",
       "$type": "color",
-      "dark": "#202722",
-      "light": "#e5e9df"
+      "atelier-nuit": "#1a1e2a",
+      "atelier-jour": "#ece9f0",
+      "studio-graphite": "#202722",
+      "studio-papier": "#e5e9df"
+    },
+    "accent.secondary": {
+      "$description": "Deuxième teinte : menthe en Pixel Atelier, bleu-gris en Studio. Réservée à l'activité observée, aux ornements et au reflet des sprites ; jamais seule porteuse d'un état.",
+      "$type": "color",
+      "atelier-nuit": "#7adbc3",
+      "atelier-jour": "#0d7660",
+      "studio-graphite": "#a9b9c6",
+      "studio-papier": "#3c5a70"
+    },
+    "accent.secondaryMuted": {
+      "$description": "Fond teinté de la deuxième teinte : pastille d'activité, sélection secondaire.",
+      "$type": "color",
+      "atelier-nuit": "#1c3a3a",
+      "atelier-jour": "#dcf1ea",
+      "studio-graphite": "#26302f",
+      "studio-papier": "#e3e9ec"
+    },
+    "decor.grid": {
+      "$description": "Motif de fond très discret (trame de pixels, séparateurs ornés). Contraste volontairement faible : purement décoratif, jamais porteur d'information.",
+      "$type": "color",
+      "atelier-nuit": "#1a1f2b",
+      "atelier-jour": "#ece6dc",
+      "studio-graphite": "#1c201d",
+      "studio-papier": "#efeee6"
+    },
+    "decor.outline": {
+      "$description": "Contour des ornements pixel (coins crantés, cadres d'illustration).",
+      "$type": "color",
+      "atelier-nuit": "#07090e",
+      "atelier-jour": "#2a2540",
+      "studio-graphite": "#090d0a",
+      "studio-papier": "#1f2b23"
     }
+  },
+  "$themeFamilies": {
+    "$description": "Familles visuelles : chacune a une variante sombre et une claire. La préférence de l'opérateur choisit la famille et la luminosité (système, clair, sombre) ; la station en déduit le thème. Studio reprend la palette historique de la station (graphite végétal, papier ivoire), sobre ; Pixel Atelier est la direction par défaut depuis le chantier « atelier » (décision D165).",
+    "atelier": {
+      "label": "Pixel Atelier",
+      "sombre": "atelier-nuit",
+      "clair": "atelier-jour"
+    },
+    "studio": {
+      "label": "Studio",
+      "sombre": "studio-graphite",
+      "clair": "studio-papier"
+    }
+  },
+  "$themeLabels": {
+    "atelier-nuit": "Pixel Atelier — Nuit",
+    "atelier-jour": "Pixel Atelier — Jour",
+    "studio-graphite": "Studio — Graphite",
+    "studio-papier": "Studio — Papier"
   }
 }

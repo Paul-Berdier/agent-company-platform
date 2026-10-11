@@ -24,6 +24,7 @@
 #include "viewmodels/AccueilViewModel.h"
 #include "viewmodels/DiagnosticsViewModel.h"
 #include "viewmodels/DiscussionViewModel.h"
+#include "viewmodels/EspaceTravailViewModel.h"
 #include "viewmodels/PosteViewModel.h"
 #include "viewmodels/ProjetsViewModel.h"
 #include "viewmodels/QuestionsViewModel.h"
@@ -111,6 +112,9 @@ Application::Application(QObject *parent, const QString &nomCoffre)
     // La carte « Hermes » de l'accueil relit /v1/meta avec la page (version, verdict, alertes).
     m_accueil->setCompatibilite(m_compatibilite);
     m_projets = new ProjetsViewModel(m_client, m_greffon.get(), m_flux, this);
+    // Espace de travail (D166, D167) : barre des projets et missions, agents, volet bas ; il lit
+    // la liste par son propre sondage et le détail par ProjetsViewModel.
+    m_espace = new EspaceTravailViewModel(m_greffon.get(), m_flux, m_projets, m_navigation, this);
     m_questions = new QuestionsViewModel(m_client, m_greffon.get(), m_flux, this);
     m_poste = new PosteViewModel(m_greffon.get(), m_compatibilite, m_flux, this);
     m_quotas = new QuotasViewModel(m_greffon.get(), m_flux, this);
@@ -141,7 +145,8 @@ Application::Application(QObject *parent, const QString &nomCoffre)
     // lecture ne repart avant l'oubli.
     const auto oublierLesPages = [this] {
         for (PageViewModel *page : std::initializer_list<PageViewModel *>{
-                 m_accueil, m_projets, m_questions, m_poste, m_quotas, m_routage, m_sauvegarde, m_discussion}) {
+                 m_accueil, m_projets, m_espace, m_questions, m_poste, m_quotas, m_routage, m_sauvegarde,
+                 m_discussion}) {
             page->oublier();
         }
     };
@@ -167,7 +172,7 @@ Application::Application(QObject *parent, const QString &nomCoffre)
         }
         m_flux->oublierResume();
         for (PageViewModel *page : std::initializer_list<PageViewModel *>{
-                 m_accueil, m_projets, m_questions, m_poste, m_quotas, m_routage}) {
+                 m_accueil, m_projets, m_espace, m_questions, m_poste, m_quotas, m_routage}) {
             page->oublier();
         }
     });
@@ -244,6 +249,7 @@ void Application::registerQmlTypes()
     qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Streams", m_flux);
     qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Accueil", m_accueil);
     qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Projets", m_projets);
+    qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Espace", m_espace);
     qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Questions", m_questions);
     qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Poste", m_poste);
     qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Quotas", m_quotas);
@@ -323,7 +329,8 @@ void Application::registerBuiltinCommands()
 
     m_commands->registerCommand(Command{
         QStringLiteral("navigation.settings"), QStringLiteral("Réglages et mises à jour"),
-        QStringLiteral("Navigation"), {}, QString(), alwaysAvailable,
+        QStringLiteral("Navigation"), {QStringLiteral("apparence"), QStringLiteral("comptes"), QStringLiteral("préférences")},
+        QStringLiteral("Ctrl+,"), alwaysAvailable,
         [this](const CommandContext &) {
             m_navigation->setCurrentRoute(QStringLiteral("settings"));
             return CommandResult::accept();
@@ -426,8 +433,10 @@ void Application::registerBuiltinCommands()
         }});
 
     m_commands->registerCommand(Command{
-        QStringLiteral("projects.new"), QStringLiteral("Lancer un nouveau projet"),
-        QStringLiteral("Projets"), {QStringLiteral("nouveau"), QStringLiteral("lancer")}, QString(),
+        QStringLiteral("projects.new"), QStringLiteral("Nouvelle mission"),
+        QStringLiteral("Projets"), {QStringLiteral("nouveau"), QStringLiteral("lancer"), QStringLiteral("projet"),
+                                    QStringLiteral("mission")},
+        QStringLiteral("Ctrl+N"),
         [](const CommandContext &context) {
             return context.sessionConnected ? CommandAvailability::Available : CommandAvailability::NeedsSession;
         },
@@ -518,14 +527,25 @@ void Application::registerBuiltinCommands()
         }});
 
     m_commands->registerCommand(Command{
-        QStringLiteral("appearance.toggleTheme"), QStringLiteral("Basculer le thème"),
-        QStringLiteral("Apparence"), {QStringLiteral("sombre"), QStringLiteral("clair")},
+        QStringLiteral("appearance.toggleTheme"), QStringLiteral("Basculer entre clair et sombre"),
+        QStringLiteral("Apparence"), {QStringLiteral("sombre"), QStringLiteral("clair"), QStringLiteral("nuit"),
+                                      QStringLiteral("jour")},
         QString(), alwaysAvailable,
         [this](const CommandContext &) {
-            const QString next = m_appearance->activeTheme() == QLatin1String("dark")
-                ? QStringLiteral("light")
-                : QStringLiteral("dark");
-            m_appearance->setThemePreference(next);
+            m_appearance->setThemePreference(m_appearance->activeIsDark() ? QStringLiteral("light")
+                                                                         : QStringLiteral("dark"));
+            return CommandResult::accept();
+        }});
+
+    m_commands->registerCommand(Command{
+        QStringLiteral("appearance.toggleFamily"), QStringLiteral("Changer de famille visuelle (Pixel Atelier, Studio)"),
+        QStringLiteral("Apparence"), {QStringLiteral("thème"), QStringLiteral("atelier"), QStringLiteral("studio"),
+                                      QStringLiteral("pixel")},
+        QString(), alwaysAvailable,
+        [this](const CommandContext &) {
+            const QStringList familles = SystemAppearance::families();
+            const int rang = static_cast<int>(familles.indexOf(m_appearance->familyPreference()));
+            m_appearance->setFamilyPreference(familles.value((rang + 1) % familles.size()));
             return CommandResult::accept();
         }});
 
@@ -535,10 +555,58 @@ void Application::registerBuiltinCommands()
         {QStringLiteral("animation"), QStringLiteral("accessibilité")}, QString(),
         alwaysAvailable,
         [this](const CommandContext &) {
-            const QString next = m_appearance->activeMotionProfile() == QLatin1String("reduced")
-                ? QStringLiteral("standard")
-                : QStringLiteral("reduced");
-            m_appearance->setMotionPreference(next);
+            m_appearance->setMotionPreference(m_appearance->activeMotionProfile() == QLatin1String("reduit")
+                                                  ? QStringLiteral("complet")
+                                                  : QStringLiteral("reduit"));
+            return CommandResult::accept();
+        }});
+
+    m_commands->registerCommand(Command{
+        QStringLiteral("appearance.toggleConcentration"), QStringLiteral("Basculer le mode Concentration"),
+        QStringLiteral("Apparence"), {QStringLiteral("concentration"), QStringLiteral("ambiance"),
+                                      QStringLiteral("décor")},
+        QStringLiteral("Ctrl+Shift+F"), alwaysAvailable,
+        [this](const CommandContext &) {
+            m_appearance->setConcentration(!m_appearance->concentration());
+            return CommandResult::accept(m_appearance->concentration()
+                                             ? QStringLiteral("Mode Concentration activé : ambiance coupée.")
+                                             : QStringLiteral("Mode Concentration désactivé."));
+        }});
+
+    m_commands->registerCommand(Command{
+        QStringLiteral("shell.toggleSidebar"), QStringLiteral("Afficher ou replier la barre des projets"),
+        QStringLiteral("Disposition"), {QStringLiteral("projets"), QStringLiteral("barre"), QStringLiteral("panneau")},
+        QStringLiteral("Ctrl+B"), alwaysAvailable,
+        [this](const CommandContext &) {
+            m_shell->setSidebarCollapsed(!m_shell->isSidebarCollapsed());
+            return CommandResult::accept();
+        }});
+
+    m_commands->registerCommand(Command{
+        QStringLiteral("shell.toggleAgents"), QStringLiteral("Afficher ou masquer le panneau des agents"),
+        QStringLiteral("Disposition"), {QStringLiteral("agents"), QStringLiteral("panneau"), QStringLiteral("droite")},
+        QStringLiteral("Ctrl+Alt+B"), alwaysAvailable,
+        [this](const CommandContext &) {
+            m_shell->setAgentsPanelVisible(!m_shell->isAgentsPanelVisible());
+            return CommandResult::accept();
+        }});
+
+    m_commands->registerCommand(Command{
+        QStringLiteral("shell.toggleDrawer"), QStringLiteral("Afficher ou masquer le volet Activité"),
+        QStringLiteral("Disposition"), {QStringLiteral("activité"), QStringLiteral("tests"), QStringLiteral("sorties"),
+                                        QStringLiteral("volet")},
+        QStringLiteral("Ctrl+J"), alwaysAvailable,
+        [this](const CommandContext &) {
+            m_shell->setBottomDrawerVisible(!m_shell->isBottomDrawerVisible());
+            return CommandResult::accept();
+        }});
+
+    m_commands->registerCommand(Command{
+        QStringLiteral("shell.resetLayout"), QStringLiteral("Rétablir la disposition par défaut"),
+        QStringLiteral("Disposition"), {QStringLiteral("panneaux"), QStringLiteral("largeur"), QStringLiteral("défaut")},
+        QString(), alwaysAvailable,
+        [this](const CommandContext &) {
+            m_shell->resetLayout();
             return CommandResult::accept();
         }});
 

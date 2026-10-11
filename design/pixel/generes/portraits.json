@@ -1,0 +1,530 @@
+{
+  "$schema": "acp.pixel-planche/1",
+  "$source": "design/pixel/sources/portraits.txt",
+  "$genere": "scripts/generer_assets_pixel.py — NE PAS MODIFIER À LA MAIN",
+  "id": "portraits",
+  "case": [
+    16,
+    16
+  ],
+  "echelleSource": 1,
+  "colonnes": 2,
+  "sequences": [
+    {
+      "id": "coordinateur.repos",
+      "rang": 0,
+      "etat": "repos",
+      "boucle": true,
+      "decoratif": true,
+      "images": [
+        {
+          "image": "base+casque",
+          "duree": 2600
+        },
+        {
+          "image": "base+casque+cligne",
+          "duree": 160
+        }
+      ]
+    },
+    {
+      "id": "coordinateur.travail",
+      "rang": 1,
+      "etat": "execute",
+      "boucle": true,
+      "decoratif": false,
+      "images": [
+        {
+          "image": "base+casque+travail-1",
+          "duree": 240
+        },
+        {
+          "image": "base+casque+travail-2",
+          "duree": 240
+        }
+      ]
+    },
+    {
+      "id": "coordinateur.attente",
+      "rang": 2,
+      "etat": "attend",
+      "boucle": false,
+      "decoratif": false,
+      "images": [
+        {
+          "image": "base+casque+attente",
+          "duree": 0
+        }
+      ]
+    },
+    {
+      "id": "coordinateur.echec",
+      "rang": 3,
+      "etat": "echec",
+      "boucle": false,
+      "decoratif": false,
+      "images": [
+        {
+          "image": "base+casque+echec",
+          "duree": 0
+        }
+      ]
+    },
+    {
+      "id": "coordinateur.termine",
+      "rang": 4,
+      "etat": "termine",
+      "boucle": false,
+      "decoratif": false,
+      "images": [
+        {
+          "image": "base+casque+termine",
+          "duree": 0
+        }
+      ]
+    },
+    {
+      "id": "coordinateur.arrete",
+      "rang": 5,
+      "etat": "arrete",
+      "boucle": false,
+      "decoratif": false,
+      "images": [
+        {
+          "image": "base+casque+arrete",
+          "duree": 0
+        }
+      ]
+    },
+    {
+      "id": "developpeur.repos",
+      "rang": 6,
+      "etat": "repos",
+      "boucle": true,
+      "decoratif": true,
+      "images": [
+        {
+          "image": "base+bandeau",
+          "duree": 2600
+        },
+        {
+          "image": "base+bandeau+cligne",
+          "duree": 160
+        }
+      ]
+    },
+    {
+      "id": "developpeur.travail",
+      "rang": 7,
+      "etat": "execute",
+      "boucle": true,
+      "decoratif": false,
+      "images": [
+        {
+          "image": "base+bandeau+travail-1",
+          "duree": 240
+        },
+        {
+          "image": "base+bandeau+travail-2",
+          "duree": 240
+        }
+      ]
+    },
+    {
+      "id": "developpeur.attente",
+      "rang": 8,
+      "etat": "attend",
+      "boucle": false,
+      "decoratif": false,
+      "images": [
+        {
+          "image": "base+bandeau+attente",
+          "duree": 0
+        }
+      ]
+    },
+    {
+      "id": "developpeur.echec",
+      "rang": 9,
+      "etat": "echec",
+      "boucle": false,
+      "decoratif": false,
+      "images": [
+        {
+          "image": "base+bandeau+echec",
+          "duree": 0
+        }
+      ]
+    },
+    {
+      "id": "developpeur.termine",
+      "rang": 10,
+      "etat": "termine",
+      "boucle": false,
+      "decoratif": false,
+      "images": [
+        {
+          "image": "base+bandeau+termine",
+          "duree": 0
+        }
+      ]
+    },
+    {
+      "id": "developpeur.arrete",
+      "rang": 11,
+      "etat": "arrete",
+      "boucle": false,
+      "decoratif": false,
+      "images": [
+        {
+          "image": "base+bandeau+arrete",
+          "duree": 0
+        }
+      ]
+    },
+    {
+      "id": "relecteur.repos",
+      "rang": 12,
+      "etat": "repos",
+      "boucle": true,
+      "decoratif": true,
+      "images": [
+        {
+          "image": "base+lunettes",
+          "duree": 2600
+        },
+        {
+          "image": "base+lunettes+cligne",
+          "duree": 160
+        }
+      ]
+    },
+    {
+      "id": "relecteur.travail",
+      "rang": 13,
+      "etat": "execute",
+      "boucle": true,
+      "decoratif": false,
+      "images": [
+        {
+          "image": "base+lunettes+travail-1",
+          "duree": 240
+        },
+        {
+          "image": "base+lunettes+travail-2",
+          "duree": 240
+        }
+      ]
+    },
+    {
+      "id": "relecteur.attente",
+      "rang": 14,
+      "etat": "attend",
+      "boucle": false,
+      "decoratif": false,
+      "images": [
+        {
+          "image": "base+lunettes+attente",
+          "duree": 0
+        }
+      ]
+    },
+    {
+      "id": "relecteur.echec",
+      "rang": 15,
+      "etat": "echec",
+      "boucle": false,
+      "decoratif": false,
+      "images": [
+        {
+          "image": "base+lunettes+echec",
+          "duree": 0
+        }
+      ]
+    },
+    {
+      "id": "relecteur.termine",
+      "rang": 16,
+      "etat": "termine",
+      "boucle": false,
+      "decoratif": false,
+      "images": [
+        {
+          "image": "base+lunettes+termine",
+          "duree": 0
+        }
+      ]
+    },
+    {
+      "id": "relecteur.arrete",
+      "rang": 17,
+      "etat": "arrete",
+      "boucle": false,
+      "decoratif": false,
+      "images": [
+        {
+          "image": "base+lunettes+arrete",
+          "duree": 0
+        }
+      ]
+    },
+    {
+      "id": "explorateur.repos",
+      "rang": 18,
+      "etat": "repos",
+      "boucle": true,
+      "decoratif": true,
+      "images": [
+        {
+          "image": "base+loupe",
+          "duree": 2600
+        },
+        {
+          "image": "base+loupe+cligne",
+          "duree": 160
+        }
+      ]
+    },
+    {
+      "id": "explorateur.travail",
+      "rang": 19,
+      "etat": "execute",
+      "boucle": true,
+      "decoratif": false,
+      "images": [
+        {
+          "image": "base+loupe+travail-1",
+          "duree": 240
+        },
+        {
+          "image": "base+loupe+travail-2",
+          "duree": 240
+        }
+      ]
+    },
+    {
+      "id": "explorateur.attente",
+      "rang": 20,
+      "etat": "attend",
+      "boucle": false,
+      "decoratif": false,
+      "images": [
+        {
+          "image": "base+loupe+attente",
+          "duree": 0
+        }
+      ]
+    },
+    {
+      "id": "explorateur.echec",
+      "rang": 21,
+      "etat": "echec",
+      "boucle": false,
+      "decoratif": false,
+      "images": [
+        {
+          "image": "base+loupe+echec",
+          "duree": 0
+        }
+      ]
+    },
+    {
+      "id": "explorateur.termine",
+      "rang": 22,
+      "etat": "termine",
+      "boucle": false,
+      "decoratif": false,
+      "images": [
+        {
+          "image": "base+loupe+termine",
+          "duree": 0
+        }
+      ]
+    },
+    {
+      "id": "explorateur.arrete",
+      "rang": 23,
+      "etat": "arrete",
+      "boucle": false,
+      "decoratif": false,
+      "images": [
+        {
+          "image": "base+loupe+arrete",
+          "duree": 0
+        }
+      ]
+    },
+    {
+      "id": "testeur.repos",
+      "rang": 24,
+      "etat": "repos",
+      "boucle": true,
+      "decoratif": true,
+      "images": [
+        {
+          "image": "base+insigne",
+          "duree": 2600
+        },
+        {
+          "image": "base+insigne+cligne",
+          "duree": 160
+        }
+      ]
+    },
+    {
+      "id": "testeur.travail",
+      "rang": 25,
+      "etat": "execute",
+      "boucle": true,
+      "decoratif": false,
+      "images": [
+        {
+          "image": "base+insigne+travail-1",
+          "duree": 240
+        },
+        {
+          "image": "base+insigne+travail-2",
+          "duree": 240
+        }
+      ]
+    },
+    {
+      "id": "testeur.attente",
+      "rang": 26,
+      "etat": "attend",
+      "boucle": false,
+      "decoratif": false,
+      "images": [
+        {
+          "image": "base+insigne+attente",
+          "duree": 0
+        }
+      ]
+    },
+    {
+      "id": "testeur.echec",
+      "rang": 27,
+      "etat": "echec",
+      "boucle": false,
+      "decoratif": false,
+      "images": [
+        {
+          "image": "base+insigne+echec",
+          "duree": 0
+        }
+      ]
+    },
+    {
+      "id": "testeur.termine",
+      "rang": 28,
+      "etat": "termine",
+      "boucle": false,
+      "decoratif": false,
+      "images": [
+        {
+          "image": "base+insigne+termine",
+          "duree": 0
+        }
+      ]
+    },
+    {
+      "id": "testeur.arrete",
+      "rang": 29,
+      "etat": "arrete",
+      "boucle": false,
+      "decoratif": false,
+      "images": [
+        {
+          "image": "base+insigne+arrete",
+          "duree": 0
+        }
+      ]
+    },
+    {
+      "id": "inconnu.repos",
+      "rang": 30,
+      "etat": "repos",
+      "boucle": true,
+      "decoratif": true,
+      "images": [
+        {
+          "image": "base",
+          "duree": 2600
+        },
+        {
+          "image": "base+cligne",
+          "duree": 160
+        }
+      ]
+    },
+    {
+      "id": "inconnu.travail",
+      "rang": 31,
+      "etat": "execute",
+      "boucle": true,
+      "decoratif": false,
+      "images": [
+        {
+          "image": "base+travail-1",
+          "duree": 240
+        },
+        {
+          "image": "base+travail-2",
+          "duree": 240
+        }
+      ]
+    },
+    {
+      "id": "inconnu.attente",
+      "rang": 32,
+      "etat": "attend",
+      "boucle": false,
+      "decoratif": false,
+      "images": [
+        {
+          "image": "base+attente",
+          "duree": 0
+        }
+      ]
+    },
+    {
+      "id": "inconnu.echec",
+      "rang": 33,
+      "etat": "echec",
+      "boucle": false,
+      "decoratif": false,
+      "images": [
+        {
+          "image": "base+echec",
+          "duree": 0
+        }
+      ]
+    },
+    {
+      "id": "inconnu.termine",
+      "rang": 34,
+      "etat": "termine",
+      "boucle": false,
+      "decoratif": false,
+      "images": [
+        {
+          "image": "base+termine",
+          "duree": 0
+        }
+      ]
+    },
+    {
+      "id": "inconnu.arrete",
+      "rang": 35,
+      "etat": "arrete",
+      "boucle": false,
+      "decoratif": false,
+      "images": [
+        {
+          "image": "base+arrete",
+          "duree": 0
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,446 @@
+{
+  "$schema": "acp.pixel-planche/1",
+  "$source": "design/pixel/sources/police.txt",
+  "$genere": "scripts/generer_assets_pixel.py — NE PAS MODIFIER À LA MAIN",
+  "id": "police",
+  "case": [
+    5,
+    10
+  ],
+  "echelleSource": 1,
+  "colonnes": 66,
+  "sequences": [
+    {
+      "id": "atelier-nuit.texte",
+      "rang": 0,
+      "etat": "",
+      "boucle": false,
+      "decoratif": false,
+      "images": "@glyphes"
+    },
+    {
+      "id": "atelier-nuit.attenue",
+      "rang": 1,
+      "etat": "",
+      "boucle": false,
+      "decoratif": false,
+      "images": "@glyphes"
+    },
+    {
+      "id": "atelier-nuit.accent",
+      "rang": 2,
+      "etat": "",
+      "boucle": false,
+      "decoratif": false,
+      "images": "@glyphes"
+    },
+    {
+      "id": "atelier-jour.texte",
+      "rang": 3,
+      "etat": "",
+      "boucle": false,
+      "decoratif": false,
+      "images": "@glyphes"
+    },
+    {
+      "id": "atelier-jour.attenue",
+      "rang": 4,
+      "etat": "",
+      "boucle": false,
+      "decoratif": false,
+      "images": "@glyphes"
+    },
+    {
+      "id": "atelier-jour.accent",
+      "rang": 5,
+      "etat": "",
+      "boucle": false,
+      "decoratif": false,
+      "images": "@glyphes"
+    },
+    {
+      "id": "studio-graphite.texte",
+      "rang": 6,
+      "etat": "",
+      "boucle": false,
+      "decoratif": false,
+      "images": "@glyphes"
+    },
+    {
+      "id": "studio-graphite.attenue",
+      "rang": 7,
+      "etat": "",
+      "boucle": false,
+      "decoratif": false,
+      "images": "@glyphes"
+    },
+    {
+      "id": "studio-graphite.accent",
+      "rang": 8,
+      "etat": "",
+      "boucle": false,
+      "decoratif": false,
+      "images": "@glyphes"
+    },
+    {
+      "id": "studio-papier.texte",
+      "rang": 9,
+      "etat": "",
+      "boucle": false,
+      "decoratif": false,
+      "images": "@glyphes"
+    },
+    {
+      "id": "studio-papier.attenue",
+      "rang": 10,
+      "etat": "",
+      "boucle": false,
+      "decoratif": false,
+      "images": "@glyphes"
+    },
+    {
+      "id": "studio-papier.accent",
+      "rang": 11,
+      "etat": "",
+      "boucle": false,
+      "decoratif": false,
+      "images": "@glyphes"
+    }
+  ],
+  "listes": {
+    "glyphes": [
+      {
+        "image": "A",
+        "duree": 0
+      },
+      {
+        "image": "B",
+        "duree": 0
+      },
+      {
+        "image": "C",
+        "duree": 0
+      },
+      {
+        "image": "D",
+        "duree": 0
+      },
+      {
+        "image": "E",
+        "duree": 0
+      },
+      {
+        "image": "F",
+        "duree": 0
+      },
+      {
+        "image": "G",
+        "duree": 0
+      },
+      {
+        "image": "H",
+        "duree": 0
+      },
+      {
+        "image": "I",
+        "duree": 0
+      },
+      {
+        "image": "J",
+        "duree": 0
+      },
+      {
+        "image": "K",
+        "duree": 0
+      },
+      {
+        "image": "L",
+        "duree": 0
+      },
+      {
+        "image": "M",
+        "duree": 0
+      },
+      {
+        "image": "N",
+        "duree": 0
+      },
+      {
+        "image": "O",
+        "duree": 0
+      },
+      {
+        "image": "P",
+        "duree": 0
+      },
+      {
+        "image": "Q",
+        "duree": 0
+      },
+      {
+        "image": "R",
+        "duree": 0
+      },
+      {
+        "image": "S",
+        "duree": 0
+      },
+      {
+        "image": "T",
+        "duree": 0
+      },
+      {
+        "image": "U",
+        "duree": 0
+      },
+      {
+        "image": "V",
+        "duree": 0
+      },
+      {
+        "image": "W",
+        "duree": 0
+      },
+      {
+        "image": "X",
+        "duree": 0
+      },
+      {
+        "image": "Y",
+        "duree": 0
+      },
+      {
+        "image": "Z",
+        "duree": 0
+      },
+      {
+        "image": "0",
+        "duree": 0
+      },
+      {
+        "image": "1",
+        "duree": 0
+      },
+      {
+        "image": "2",
+        "duree": 0
+      },
+      {
+        "image": "3",
+        "duree": 0
+      },
+      {
+        "image": "4",
+        "duree": 0
+      },
+      {
+        "image": "5",
+        "duree": 0
+      },
+      {
+        "image": "6",
+        "duree": 0
+      },
+      {
+        "image": "7",
+        "duree": 0
+      },
+      {
+        "image": "8",
+        "duree": 0
+      },
+      {
+        "image": "9",
+        "duree": 0
+      },
+      {
+        "image": "espace",
+        "duree": 0
+      },
+      {
+        "image": "point",
+        "duree": 0
+      },
+      {
+        "image": "virgule",
+        "duree": 0
+      },
+      {
+        "image": "deux-points",
+        "duree": 0
+      },
+      {
+        "image": "tiret",
+        "duree": 0
+      },
+      {
+        "image": "barre",
+        "duree": 0
+      },
+      {
+        "image": "exclamation",
+        "duree": 0
+      },
+      {
+        "image": "interrogation",
+        "duree": 0
+      },
+      {
+        "image": "apostrophe",
+        "duree": 0
+      },
+      {
+        "image": "parenthese-g",
+        "duree": 0
+      },
+      {
+        "image": "parenthese-d",
+        "duree": 0
+      },
+      {
+        "image": "plus",
+        "duree": 0
+      },
+      {
+        "image": "diese",
+        "duree": 0
+      },
+      {
+        "image": "pourcent",
+        "duree": 0
+      },
+      {
+        "image": "souligne",
+        "duree": 0
+      },
+      {
+        "image": "inferieur",
+        "duree": 0
+      },
+      {
+        "image": "superieur",
+        "duree": 0
+      },
+      {
+        "image": "E+aigu",
+        "duree": 0
+      },
+      {
+        "image": "E+grave",
+        "duree": 0
+      },
+      {
+        "image": "E+circonflexe",
+        "duree": 0
+      },
+      {
+        "image": "E+trema",
+        "duree": 0
+      },
+      {
+        "image": "A+grave",
+        "duree": 0
+      },
+      {
+        "image": "A+circonflexe",
+        "duree": 0
+      },
+      {
+        "image": "I+circonflexe",
+        "duree": 0
+      },
+      {
+        "image": "I+trema",
+        "duree": 0
+      },
+      {
+        "image": "O+circonflexe",
+        "duree": 0
+      },
+      {
+        "image": "U+grave",
+        "duree": 0
+      },
+      {
+        "image": "U+circonflexe",
+        "duree": 0
+      },
+      {
+        "image": "U+trema",
+        "duree": 0
+      },
+      {
+        "image": "C+cedille",
+        "duree": 0
+      }
+    ]
+  },
+  "glyphes": {
+    "A": 0,
+    "B": 1,
+    "C": 2,
+    "D": 3,
+    "E": 4,
+    "F": 5,
+    "G": 6,
+    "H": 7,
+    "I": 8,
+    "J": 9,
+    "K": 10,
+    "L": 11,
+    "M": 12,
+    "N": 13,
+    "O": 14,
+    "P": 15,
+    "Q": 16,
+    "R": 17,
+    "S": 18,
+    "T": 19,
+    "U": 20,
+    "V": 21,
+    "W": 22,
+    "X": 23,
+    "Y": 24,
+    "Z": 25,
+    "0": 26,
+    "1": 27,
+    "2": 28,
+    "3": 29,
+    "4": 30,
+    "5": 31,
+    "6": 32,
+    "7": 33,
+    "8": 34,
+    "9": 35,
+    " ": 36,
+    ".": 37,
+    ",": 38,
+    ":": 39,
+    "-": 40,
+    "/": 41,
+    "!": 42,
+    "?": 43,
+    "'": 44,
+    "(": 45,
+    ")": 46,
+    "+": 47,
+    "#": 48,
+    "%": 49,
+    "_": 50,
+    "<": 51,
+    ">": 52,
+    "É": 53,
+    "È": 54,
+    "Ê": 55,
+    "Ë": 56,
+    "À": 57,
+    "Â": 58,
+    "Î": 59,
+    "Ï": 60,
+    "Ô": 61,
+    "Ù": 62,
+    "Û": 63,
+    "Ü": 64,
+    "Ç": 65
+  }
+}

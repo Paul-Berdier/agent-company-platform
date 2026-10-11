@@ -20,3 +20,9 @@ apps/interface/** text=auto eol=lf
 hermes/skills/emil-kowalski/** text eol=lf whitespace=-blank-at-eol,-blank-at-eof,-space-before-tab
 hermes/skills/taste-skill/** text eol=lf whitespace=-blank-at-eol,-blank-at-eof,-space-before-tab
 hermes/skills/ecc/** text eol=lf whitespace=-blank-at-eol,-blank-at-eof,-space-before-tab
+# Sources des assets pixel (grilles texte, manifeste) et métadonnées générées : LF partout, Windows
+# compris (scripts/generer_assets_pixel.py --check et ses tests les relisent octet pour octet).
+design/pixel/** text=auto eol=lf
+# Assets pixel et icône Windows générés : binaires, jamais convertis.
+*.ico binary
+apps/desktop/qml/pixel/assets/*.png binary

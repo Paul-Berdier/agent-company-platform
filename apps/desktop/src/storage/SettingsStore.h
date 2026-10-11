@@ -4,7 +4,10 @@
 // énuméré par une liste blanche appliquée à l'exécution : adresse du serveur, thème,
 // disposition des volets, dernier projet ouvert. Toute autre clé est refusée par
 // assertion en débogage et ignorée en production, plutôt que d'ouvrir une porte par
-// laquelle un secret finirait un jour par passer.
+// laquelle un secret finirait un jour par passer. Chantier « atelier » (D165, D167) : les
+// préférences d'apparence (famille, luminosité, mouvement, Concentration, densité, taille du
+// texte) et la disposition des panneaux s'y ajoutent ; aucun brouillon ni aucune donnée
+// métier n'y entre (oubli local).
 //
 // L'adresse du serveur n'est pas un secret : elle est publique par nature, et l'audit
 // signale qu'aucun domaine n'est décidé — il n'y a donc aucune valeur par défaut.
@@ -52,13 +55,40 @@ public:
     [[nodiscard]] QUrl serverUrl() const;
     void setServerUrl(const QUrl &url);
 
-    /*! « system », « dark » ou « light ». « system » par défaut. */
+    /*! Luminosité : « system », « dark » ou « light ». « system » par défaut. */
     [[nodiscard]] QString themePreference() const;
     void setThemePreference(const QString &preference);
 
-    /*! « system », « standard » ou « reduced » pour le profil de mouvement. */
+    /*! Famille visuelle (D165) : « atelier » (par défaut) ou « studio ». */
+    [[nodiscard]] QString familyPreference() const;
+    void setFamilyPreference(const QString &family);
+
+    /*!
+        Profil de mouvement : « complet » (par défaut), « discret » ou « reduit ». Les valeurs
+        des versions 1.0.x sont relues sans perte : « standard » (mouvement fonctionnel sans
+        décor) devient « discret », « reduced » devient « reduit », « system » (l'ancienne
+        valeur par défaut, jamais choisie) prend la valeur par défaut.
+    */
     [[nodiscard]] QString motionPreference() const;
     void setMotionPreference(const QString &preference);
+
+    /*! Mode Concentration : coupe l'ambiance quel que soit le profil. Faux par défaut. */
+    [[nodiscard]] bool concentration() const;
+    void setConcentration(bool active);
+
+    /*! Densité : « compacte », « standard » (par défaut) ou « aeree ». */
+    [[nodiscard]] QString density() const;
+    void setDensity(const QString &density);
+
+    /*! Taille du texte en pour cent : 100 (par défaut), 112, 125 ou 140. */
+    [[nodiscard]] int textScale() const;
+    void setTextScale(int percent);
+
+    //! Valeurs admises, dans l'ordre d'affichage.
+    static const QStringList &families();
+    static const QStringList &motionProfiles();
+    static const QStringList &densities();
+    static const QList<int> &textScales();
 
     /*! Vrai si l'opérateur a explicitement accepté le bouclage local en clair. */
     [[nodiscard]] bool allowInsecureLoopback() const;
@@ -79,6 +109,22 @@ public:
     [[nodiscard]] bool sidebarCollapsed() const;
     void setSidebarCollapsed(bool collapsed);
 
+    /*! Panneau des agents (à droite) affiché ; vrai par défaut. */
+    [[nodiscard]] bool agentsPanelVisible() const;
+    void setAgentsPanelVisible(bool visible);
+
+    /*! Volet bas (Activité, Changements, Tests, Sorties, Services) : affiché, hauteur, onglet. */
+    [[nodiscard]] bool bottomDrawerVisible() const;
+    void setBottomDrawerVisible(bool visible);
+    [[nodiscard]] int bottomDrawerHeight() const;
+    void setBottomDrawerHeight(int height);
+    [[nodiscard]] QString bottomDrawerTab() const;
+    void setBottomDrawerTab(const QString &tab);
+    static const QStringList &bottomDrawerTabs();
+
+    /*! Efface la disposition mémorisée (largeurs, visibilités, onglet) : retour au défaut. */
+    void resetLayout();
+
     /*! Écrit les changements en attente. Appelé à la fermeture. */
     void flush();
 
@@ -92,7 +138,11 @@ public:
 signals:
     void serverUrlChanged();
     void themePreferenceChanged();
+    void familyPreferenceChanged();
     void motionPreferenceChanged();
+    void concentrationChanged();
+    void densityChanged();
+    void textScaleChanged();
     void connexionMemoriseeChanged();
 
 private:

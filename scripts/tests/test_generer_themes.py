@@ -40,7 +40,7 @@ def _modifier(dossier: Path, fichier: str, modification) -> None:
 def test_la_correspondance_suit_les_jetons_du_theme_sombre():
     couleurs, statuts = _jetons("colors"), _jetons("semantic-status")
     theme, _ = gt.construire(gt.charger_jetons())
-    sombre = lambda t: t["dark"]  # noqa: E731
+    sombre = lambda t: t["studio-graphite"]  # noqa: E731
     assert theme["name"] == "acp" and theme["label"] == "ACP"
     assert theme["palette"]["background"] == sombre(couleurs["surface.canvas"])
     assert theme["palette"]["midground"] == sombre(couleurs["text.primary"])
@@ -125,13 +125,13 @@ def test_un_jeton_manquant_est_refuse(jetons_copies):
 
 
 def test_un_contraste_insuffisant_est_refuse(jetons_copies):
-    _modifier(jetons_copies, "colors", lambda d: d["tokens"]["text.muted"].update(dark="#3a453c"))
+    _modifier(jetons_copies, "colors", lambda d: d["tokens"]["text.muted"].update({"studio-graphite": "#3a453c"}))
     with pytest.raises(gt.Refus, match="contraste insuffisant pour « texte atténué"):
         gt.generer(jetons_copies)
 
 
 def test_une_bordure_interactive_trop_faible_est_refusee(jetons_copies):
-    _modifier(jetons_copies, "colors", lambda d: d["tokens"]["border.interactive"].update(dark="#2b332d"))
+    _modifier(jetons_copies, "colors", lambda d: d["tokens"]["border.interactive"].update({"studio-graphite": "#2b332d"}))
     with pytest.raises(gt.Refus, match="bordure interactive"):
         gt.generer(jetons_copies)
 
@@ -170,7 +170,7 @@ def test_check_rouge_sur_une_sortie_retouchee(tmp_path, capsys):
 
 
 def test_check_rouge_sur_un_jeton_modifie(jetons_copies, capsys):
-    _modifier(jetons_copies, "colors", lambda d: d["tokens"]["accent.primary"].update(dark="#66c6ae"))
+    _modifier(jetons_copies, "colors", lambda d: d["tokens"]["accent.primary"].update({"studio-graphite": "#66c6ae"}))
     # La sortie versionnée ET le QML du desktop deviennent périmés : les deux sont signalés.
     assert gt.main(["--check", "--jetons", str(jetons_copies)]) == 1
     erreur = capsys.readouterr().err

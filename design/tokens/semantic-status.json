@@ -1,11 +1,11 @@
 {
   "$schema": "acp.design-tokens/1",
   "$description": "Couleurs sémantiques des états réels du produit. La couleur n'est jamais le seul porteur d'information : chaque état expose aussi un libellé français et un nom de glyphe. Trois rôles par état : foreground (texte, icône, point d'indicateur, mesuré au niveau AA), tint (fond de pastille), border (contour de pastille, mesuré au moins 3:1 contre surface.panel). La table $backendMapping relie chaque état à ce que l'API renvoie vraiment ; elle cite ses sources.",
-  "$version": "1.0.0",
+  "$version": "2.0.0",
   "$file": "semantic-status",
   "$themed": true,
-  "$themes": ["dark", "light"],
-  "$defaultTheme": "dark",
+  "$themes": ["atelier-nuit", "atelier-jour", "studio-graphite", "studio-papier"],
+  "$defaultTheme": "atelier-nuit",
   "$qml": {
     "singleton": "Status",
     "module": "Acp.Design",
@@ -14,12 +14,10 @@
     "listAccessor": "Le générateur produit aussi une fonction de résolution prenant l'identifiant d'état brut de l'API et renvoyant le jeu de jetons, d'après $backendMapping."
   },
   "$contrast": {
-    "$description": "Mesures WCAG 2.1 effectuées à la rédaction.",
-    "foregroundMinimumDark": 5.23,
-    "foregroundMinimumLight": 4.6,
-    "foregroundOnTintMinimum": 4.75,
-    "borderOnPanelMinimum": 3.01,
-    "note": "Le foreground est mesuré contre surface.canvas, surface.panel, surface.panelRaised et surface.sunken ; il reste au-dessus de 4,5:1 sur les quatre."
+    "$description": "Seuils VÉRIFIÉS par le générateur pour les quatre thèmes (refus sous un seuil) : premier plan 4,5:1 sur canvas, panel, panelRaised et sunken, et sur sa propre teinte ; bordure 3:1 sur panel. Minima relevés dans docs/refonte/atelier-da.md.",
+    "premierPlan": 4.5,
+    "premierPlanSurTeinte": 4.5,
+    "bordureSurPanneau": 3.0
   },
   "$priority": {
     "$description": "Ordre d'agrégation quand une liste ou un en-tête résume plusieurs états. Le premier rencontré l'emporte. Une réussite ne masque jamais un échec présent dans le même groupe.",
@@ -55,119 +53,250 @@
       "$label": "Inconnu",
       "$glyphName": "question",
       "$asciiFallback": "?",
-      "dark": "#93a3a8",
-      "light": "#5b6b6f"
+      "atelier-nuit": "#9ea3b8",
+      "atelier-jour": "#5a5970",
+      "studio-graphite": "#93a3a8",
+      "studio-papier": "#5b6b6f"
     },
-    "status.unknown.tint": { "$type": "color", "dark": "#2b363b", "light": "#eff0f1" },
-    "status.unknown.border": { "$type": "color", "dark": "#5f6c71", "light": "#8b9699" },
-
+    "status.unknown.tint": {
+      "$type": "color",
+      "atelier-nuit": "#262b3a",
+      "atelier-jour": "#efedf2",
+      "studio-graphite": "#2b363b",
+      "studio-papier": "#eff0f1"
+    },
+    "status.unknown.border": {
+      "$type": "color",
+      "atelier-nuit": "#666c88",
+      "atelier-jour": "#8a889c",
+      "studio-graphite": "#626f74",
+      "studio-papier": "#8b9699"
+    },
     "status.notConfigured.foreground": {
       "$description": "Capacité présente dans l'interface mais non configurée. Aucun appel externe n'est déclenché, aucun bouton factice n'est proposé.",
       "$type": "color",
       "$label": "Non configuré",
       "$glyphName": "unplugged",
       "$asciiFallback": "-",
-      "dark": "#93a3a8",
-      "light": "#5b6b6f"
+      "atelier-nuit": "#9ea3b8",
+      "atelier-jour": "#5a5970",
+      "studio-graphite": "#93a3a8",
+      "studio-papier": "#5b6b6f"
     },
-    "status.notConfigured.tint": { "$type": "color", "dark": "#2b363b", "light": "#eff0f1" },
-    "status.notConfigured.border": { "$type": "color", "dark": "#5f6c71", "light": "#8b9699" },
-
+    "status.notConfigured.tint": {
+      "$type": "color",
+      "atelier-nuit": "#262b3a",
+      "atelier-jour": "#efedf2",
+      "studio-graphite": "#2b363b",
+      "studio-papier": "#eff0f1"
+    },
+    "status.notConfigured.border": {
+      "$type": "color",
+      "atelier-nuit": "#666c88",
+      "atelier-jour": "#8a889c",
+      "studio-graphite": "#626f74",
+      "studio-papier": "#8b9699"
+    },
     "status.offline.foreground": {
       "$description": "Le client natif n'obtient plus de réponse du backend. Distinct d'un échec de tâche : c'est le lien qui manque, pas le travail qui a raté. Aucune donnée de démonstration ne remplace les données absentes.",
       "$type": "color",
       "$label": "Hors ligne",
       "$glyphName": "link-broken",
       "$asciiFallback": "//",
-      "dark": "#9aabb5",
-      "light": "#4f6270"
+      "atelier-nuit": "#a3adc2",
+      "atelier-jour": "#4e5a6e",
+      "studio-graphite": "#9aabb5",
+      "studio-papier": "#4f6270"
     },
-    "status.offline.tint": { "$type": "color", "dark": "#2c373d", "light": "#edeff1" },
-    "status.offline.border": { "$type": "color", "dark": "#5e6c73", "light": "#89969f" },
-
+    "status.offline.tint": {
+      "$type": "color",
+      "atelier-nuit": "#252c3b",
+      "atelier-jour": "#ebeef2",
+      "studio-graphite": "#2c373d",
+      "studio-papier": "#edeff1"
+    },
+    "status.offline.border": {
+      "$type": "color",
+      "atelier-nuit": "#5e6a82",
+      "atelier-jour": "#87909f",
+      "studio-graphite": "#616f76",
+      "studio-papier": "#89969f"
+    },
     "status.pending.foreground": {
       "$description": "Accepté et en file, pas encore commencé. Ambre calme : c'est une attente, pas une alerte.",
       "$type": "color",
       "$label": "En attente",
       "$glyphName": "queue",
       "$asciiFallback": "..",
-      "dark": "#e6a15a",
-      "light": "#8f4d10"
+      "atelier-nuit": "#f0b26a",
+      "atelier-jour": "#8c4b0e",
+      "studio-graphite": "#e6a15a",
+      "studio-papier": "#8f4d10"
     },
-    "status.pending.tint": { "$type": "color", "dark": "#38352e", "light": "#f4ede7" },
-    "status.pending.border": { "$type": "color", "dark": "#836441", "light": "#b68b64" },
-
+    "status.pending.tint": {
+      "$type": "color",
+      "atelier-nuit": "#33302e",
+      "atelier-jour": "#f6ece2",
+      "studio-graphite": "#38352e",
+      "studio-papier": "#f4ede7"
+    },
+    "status.pending.border": {
+      "$type": "color",
+      "atelier-nuit": "#87694a",
+      "atelier-jour": "#b98a5f",
+      "studio-graphite": "#856745",
+      "studio-papier": "#b68b64"
+    },
     "status.running.foreground": {
       "$description": "Travail en cours. Seul état autorisé à porter du mouvement, et uniquement un mouvement continu et sobre.",
       "$type": "color",
       "$label": "En cours",
       "$glyphName": "activity",
       "$asciiFallback": ">",
-      "dark": "#63d7ce",
-      "light": "#0a6d68"
+      "atelier-nuit": "#7adbc3",
+      "atelier-jour": "#0a6b5c",
+      "studio-graphite": "#63d7ce",
+      "studio-papier": "#0a6d68"
     },
-    "status.running.tint": { "$type": "color", "dark": "#233e41", "light": "#e6f0f0" },
-    "status.running.border": { "$type": "color", "dark": "#397372", "light": "#5d9f9b" },
-
+    "status.running.tint": {
+      "$type": "color",
+      "atelier-nuit": "#1d3638",
+      "atelier-jour": "#e1f2ec",
+      "studio-graphite": "#233e41",
+      "studio-papier": "#e6f0f0"
+    },
+    "status.running.border": {
+      "$type": "color",
+      "atelier-nuit": "#3f7a70",
+      "atelier-jour": "#5a9d8c",
+      "studio-graphite": "#3d7675",
+      "studio-papier": "#5d9f9b"
+    },
     "status.blocked.foreground": {
       "$description": "Arrêté sur un obstacle dont la levée n'est pas automatique. Couvre aussi une exécution interrompue.",
       "$type": "color",
       "$label": "Bloqué",
       "$glyphName": "barrier",
       "$asciiFallback": "!",
-      "dark": "#f2a97e",
-      "light": "#a4441c"
+      "atelier-nuit": "#f4ab84",
+      "atelier-jour": "#a1421b",
+      "studio-graphite": "#f2a97e",
+      "studio-papier": "#a4441c"
     },
-    "status.blocked.tint": { "$type": "color", "dark": "#3a3734", "light": "#f6ece8" },
-    "status.blocked.border": { "$type": "color", "dark": "#826451", "light": "#c4856b" },
-
+    "status.blocked.tint": {
+      "$type": "color",
+      "atelier-nuit": "#352f30",
+      "atelier-jour": "#f7ebe5",
+      "studio-graphite": "#3a3734",
+      "studio-papier": "#f6ece8"
+    },
+    "status.blocked.border": {
+      "$type": "color",
+      "atelier-nuit": "#86644f",
+      "atelier-jour": "#c07f64",
+      "studio-graphite": "#846754",
+      "studio-papier": "#c4856b"
+    },
     "status.failed.foreground": {
       "$description": "Échec attesté par le serveur. Toujours accompagné de la cause et, quand elle existe, de la trace.",
       "$type": "color",
       "$label": "En échec",
       "$glyphName": "cross",
       "$asciiFallback": "x",
-      "dark": "#f17b73",
-      "light": "#a83731"
+      "atelier-nuit": "#ff8a85",
+      "atelier-jour": "#a6302f",
+      "studio-graphite": "#f17b73",
+      "studio-papier": "#a83731"
     },
-    "status.failed.tint": { "$type": "color", "dark": "#3a2f32", "light": "#f6ebea" },
-    "status.failed.border": { "$type": "color", "dark": "#9a5754", "light": "#c8817d" },
-
+    "status.failed.tint": {
+      "$type": "color",
+      "atelier-nuit": "#3a2a33",
+      "atelier-jour": "#f8e9e9",
+      "studio-graphite": "#3a2f32",
+      "studio-papier": "#f6ebea"
+    },
+    "status.failed.border": {
+      "$type": "color",
+      "atelier-nuit": "#a05a5e",
+      "atelier-jour": "#c97f7d",
+      "studio-graphite": "#9c5a57",
+      "studio-papier": "#c8817d"
+    },
     "status.succeeded.foreground": {
       "$description": "Réussite confirmée par le serveur. Le vert n'est jamais affiché par défaut ni par optimisme : il exige une confirmation reçue.",
       "$type": "color",
       "$label": "Réussi",
       "$glyphName": "check",
       "$asciiFallback": "v",
-      "dark": "#5fca91",
-      "light": "#216b45"
+      "atelier-nuit": "#6fd59c",
+      "atelier-jour": "#1f6a43",
+      "studio-graphite": "#5fca91",
+      "studio-papier": "#216b45"
     },
-    "status.succeeded.tint": { "$type": "color", "dark": "#233c37", "light": "#e9f0ec" },
-    "status.succeeded.border": { "$type": "color", "dark": "#3b765c", "light": "#6f9f86" },
-
+    "status.succeeded.tint": {
+      "$type": "color",
+      "atelier-nuit": "#1e3631",
+      "atelier-jour": "#e6f2ea",
+      "studio-graphite": "#233c37",
+      "studio-papier": "#e9f0ec"
+    },
+    "status.succeeded.border": {
+      "$type": "color",
+      "atelier-nuit": "#3e7a5e",
+      "atelier-jour": "#66997e",
+      "studio-graphite": "#3f795f",
+      "studio-papier": "#6f9f86"
+    },
     "status.degraded.foreground": {
       "$description": "Le service répond mais un contrôle a échoué : lecture seule, version incompatible, réponse partielle. Jaune distinct de l'ambre d'attente.",
       "$type": "color",
       "$label": "Dégradé",
       "$glyphName": "warning",
       "$asciiFallback": "~",
-      "dark": "#dcc26a",
-      "light": "#6e570d"
+      "atelier-nuit": "#e2c972",
+      "atelier-jour": "#6b550c",
+      "studio-graphite": "#dcc26a",
+      "studio-papier": "#6e570d"
     },
-    "status.degraded.tint": { "$type": "color", "dark": "#373b31", "light": "#f0eee7" },
-    "status.degraded.border": { "$type": "color", "dark": "#726b45", "light": "#a29364" },
-
+    "status.degraded.tint": {
+      "$type": "color",
+      "atelier-nuit": "#33342c",
+      "atelier-jour": "#f3efe2",
+      "studio-graphite": "#373b31",
+      "studio-papier": "#f0eee7"
+    },
+    "status.degraded.border": {
+      "$type": "color",
+      "atelier-nuit": "#766d47",
+      "atelier-jour": "#9d8e5e",
+      "studio-graphite": "#756e49",
+      "studio-papier": "#a29364"
+    },
     "status.approvalRequired.foreground": {
       "$description": "Une décision humaine est attendue avant que l'exécution reprenne. Teinte iris réservée : elle n'apparaît nulle part ailleurs dans le produit, ni en décor, ni en dégradé, ni en fond de page. C'est le seul état où la couleur désigne une action de l'opérateur et non un fait du système.",
       "$type": "color",
       "$label": "Approbation requise",
       "$glyphName": "hand-raised",
       "$asciiFallback": "?!",
-      "dark": "#b3a4f5",
-      "light": "#54449f"
+      "atelier-nuit": "#c0b4ff",
+      "atelier-jour": "#4f3fb0",
+      "studio-graphite": "#b3a4f5",
+      "studio-papier": "#54449f"
     },
-    "status.approvalRequired.tint": { "$type": "color", "dark": "#303647", "light": "#eeecf5" },
-    "status.approvalRequired.border": { "$type": "color", "dark": "#686592", "light": "#978dc4" }
+    "status.approvalRequired.tint": {
+      "$type": "color",
+      "atelier-nuit": "#2e2c4c",
+      "atelier-jour": "#ece8fb",
+      "studio-graphite": "#303647",
+      "studio-papier": "#eeecf5"
+    },
+    "status.approvalRequired.border": {
+      "$type": "color",
+      "atelier-nuit": "#6f68a8",
+      "atelier-jour": "#9086cf",
+      "studio-graphite": "#6b6894",
+      "studio-papier": "#978dc4"
+    }
   },
   "$backendMapping": {
     "$description": "Correspondance entre les états réellement produits par le backend et les jetons ci-dessus. Deux états peuvent partager une famille de couleur : leur libellé, lui, reste distinct. Sources vérifiées à la rédaction sur la branche feat/desktop-qt-railway.",
@@ -180,46 +309,142 @@
       "apps/web/src/workspace.css:591-622 (tonalités actuelles des pastilles web)"
     ],
     "runStatus": {
-      "pending": { "token": "pending", "label": "En attente" },
-      "queued": { "token": "pending", "label": "En file" },
-      "preparing": { "token": "running", "label": "Préparation" },
-      "running": { "token": "running", "label": "En cours" },
-      "waiting_approval": { "token": "approvalRequired", "label": "Approbation requise" },
-      "stopping": { "token": "running", "label": "Arrêt en cours", "note": "Encore actif, l'arrêt est demandé mais non constaté." },
-      "blocked": { "token": "blocked", "label": "Bloqué" },
-      "succeeded": { "token": "succeeded", "label": "Réussi" },
-      "failed": { "token": "failed", "label": "En échec" },
-      "cancelled": { "token": "unknown", "label": "Annulé", "note": "Famille neutre assumée : une annulation n'est ni un échec du système ni une réussite. Le libellé porte la différence." },
-      "interrupted": { "token": "blocked", "label": "Interrompu" }
+      "pending": {
+        "token": "pending",
+        "label": "En attente"
+      },
+      "queued": {
+        "token": "pending",
+        "label": "En file"
+      },
+      "preparing": {
+        "token": "running",
+        "label": "Préparation"
+      },
+      "running": {
+        "token": "running",
+        "label": "En cours"
+      },
+      "waiting_approval": {
+        "token": "approvalRequired",
+        "label": "Approbation requise"
+      },
+      "stopping": {
+        "token": "running",
+        "label": "Arrêt en cours",
+        "note": "Encore actif, l'arrêt est demandé mais non constaté."
+      },
+      "blocked": {
+        "token": "blocked",
+        "label": "Bloqué"
+      },
+      "succeeded": {
+        "token": "succeeded",
+        "label": "Réussi"
+      },
+      "failed": {
+        "token": "failed",
+        "label": "En échec"
+      },
+      "cancelled": {
+        "token": "unknown",
+        "label": "Annulé",
+        "note": "Famille neutre assumée : une annulation n'est ni un échec du système ni une réussite. Le libellé porte la différence."
+      },
+      "interrupted": {
+        "token": "blocked",
+        "label": "Interrompu"
+      }
     },
     "taskStatus": {
-      "backlog": { "token": "unknown", "label": "En attente de tri" },
-      "queued": { "token": "pending", "label": "En file" },
-      "planning": { "token": "running", "label": "Planification" },
-      "in_progress": { "token": "running", "label": "En cours" },
-      "review": { "token": "approvalRequired", "label": "En revue" },
-      "blocked": { "token": "blocked", "label": "Bloqué" },
-      "done": { "token": "succeeded", "label": "Terminé" },
-      "failed": { "token": "failed", "label": "En échec" }
+      "backlog": {
+        "token": "unknown",
+        "label": "En attente de tri"
+      },
+      "queued": {
+        "token": "pending",
+        "label": "En file"
+      },
+      "planning": {
+        "token": "running",
+        "label": "Planification"
+      },
+      "in_progress": {
+        "token": "running",
+        "label": "En cours"
+      },
+      "review": {
+        "token": "approvalRequired",
+        "label": "En revue"
+      },
+      "blocked": {
+        "token": "blocked",
+        "label": "Bloqué"
+      },
+      "done": {
+        "token": "succeeded",
+        "label": "Terminé"
+      },
+      "failed": {
+        "token": "failed",
+        "label": "En échec"
+      }
     },
     "gatewayDiagnostic": {
-      "not_configured": { "token": "notConfigured", "label": "Non configuré" },
-      "ready": { "token": "succeeded", "label": "Prêt" },
-      "unauthorized": { "token": "failed", "label": "Accès refusé", "note": "Distinct d'une panne : le message doit dire que l'identité a été refusée." },
-      "timeout": { "token": "offline", "label": "Délai dépassé" },
-      "unavailable": { "token": "offline", "label": "Indisponible" },
-      "incompatible_version": { "token": "degraded", "label": "Version incompatible" },
-      "invalid_response": { "token": "degraded", "label": "Réponse inexploitable" }
+      "not_configured": {
+        "token": "notConfigured",
+        "label": "Non configuré"
+      },
+      "ready": {
+        "token": "succeeded",
+        "label": "Prêt"
+      },
+      "unauthorized": {
+        "token": "failed",
+        "label": "Accès refusé",
+        "note": "Distinct d'une panne : le message doit dire que l'identité a été refusée."
+      },
+      "timeout": {
+        "token": "offline",
+        "label": "Délai dépassé"
+      },
+      "unavailable": {
+        "token": "offline",
+        "label": "Indisponible"
+      },
+      "incompatible_version": {
+        "token": "degraded",
+        "label": "Version incompatible"
+      },
+      "invalid_response": {
+        "token": "degraded",
+        "label": "Réponse inexploitable"
+      }
     },
     "readiness": {
-      "ready": { "token": "succeeded", "label": "Prêt" },
-      "degraded": { "token": "degraded", "label": "Dégradé" }
+      "ready": {
+        "token": "succeeded",
+        "label": "Prêt"
+      },
+      "degraded": {
+        "token": "degraded",
+        "label": "Dégradé"
+      }
     },
     "clientTransport": {
       "$description": "États produits par le client natif lui-même, pas par l'API.",
-      "disconnected": { "token": "offline", "label": "Hors ligne" },
-      "reconnecting": { "token": "pending", "label": "Reconnexion" },
-      "no_sample": { "token": "unknown", "label": "Inconnu" }
+      "disconnected": {
+        "token": "offline",
+        "label": "Hors ligne"
+      },
+      "reconnecting": {
+        "token": "pending",
+        "label": "Reconnexion"
+      },
+      "no_sample": {
+        "token": "unknown",
+        "label": "Inconnu"
+      }
     }
   }
 }

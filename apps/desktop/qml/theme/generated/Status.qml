@@ -1,5 +1,5 @@
 // Fichier généré — NE PAS MODIFIER À LA MAIN.
-// Source    : design/tokens/semantic-status.json (version 1.0.0)
+// Source    : design/tokens/semantic-status.json (version 2.0.0)
 // Générateur : apps/desktop/cmake/generate_design_tokens.py
 // Toute correction se fait dans le fichier de jetons, puis par régénération.
 
@@ -10,45 +10,124 @@ import QtQuick
 QtObject {
     id: root
 
-    // Thème actif. Écrit par la couche C++ (ThemeController) au démarrage et à
-    // chaque changement de préférence ; jamais deviné par un composant.
-    property string theme: "dark"
-    readonly property bool isDark: theme !== "light"
+    // Thème actif. Écrit par ThemeBridge (Acp.Theme) d'après la préférence lue par la
+    // couche C++ (SystemAppearance) ; jamais deviné par un composant.
+    property string theme: "atelier-nuit"
+    readonly property var themes: ["atelier-nuit", "atelier-jour", "studio-graphite", "studio-papier"]
+    // Faux si `theme` n'est pas un thème généré : le thème par défaut s'applique alors.
+    readonly property bool known: root.themes.indexOf(root.theme) >= 0
+    readonly property QtObject current: root.theme === "atelier-jour" ? root.atelierJour : root.theme === "studio-graphite" ? root.studioGraphite : root.theme === "studio-papier" ? root.studioPapier : root.atelierNuit
+    readonly property bool isDark: root.current.isDark
+    readonly property string family: root.current.family
 
-    readonly property QtObject dark: QtObject {
-        readonly property color statusUnknownForeground: "#93a3a8"
-        readonly property color statusUnknownTint: "#2b363b"
-        readonly property color statusUnknownBorder: "#5f6c71"
-        readonly property color statusNotConfiguredForeground: "#93a3a8"
-        readonly property color statusNotConfiguredTint: "#2b363b"
-        readonly property color statusNotConfiguredBorder: "#5f6c71"
-        readonly property color statusOfflineForeground: "#9aabb5"
-        readonly property color statusOfflineTint: "#2c373d"
-        readonly property color statusOfflineBorder: "#5e6c73"
-        readonly property color statusPendingForeground: "#e6a15a"
-        readonly property color statusPendingTint: "#38352e"
-        readonly property color statusPendingBorder: "#836441"
-        readonly property color statusRunningForeground: "#63d7ce"
-        readonly property color statusRunningTint: "#233e41"
-        readonly property color statusRunningBorder: "#397372"
-        readonly property color statusBlockedForeground: "#f2a97e"
-        readonly property color statusBlockedTint: "#3a3734"
-        readonly property color statusBlockedBorder: "#826451"
-        readonly property color statusFailedForeground: "#f17b73"
-        readonly property color statusFailedTint: "#3a2f32"
-        readonly property color statusFailedBorder: "#9a5754"
-        readonly property color statusSucceededForeground: "#5fca91"
-        readonly property color statusSucceededTint: "#233c37"
-        readonly property color statusSucceededBorder: "#3b765c"
-        readonly property color statusDegradedForeground: "#dcc26a"
-        readonly property color statusDegradedTint: "#373b31"
-        readonly property color statusDegradedBorder: "#726b45"
-        readonly property color statusApprovalRequiredForeground: "#b3a4f5"
-        readonly property color statusApprovalRequiredTint: "#303647"
-        readonly property color statusApprovalRequiredBorder: "#686592"
+    readonly property QtObject atelierNuit: QtObject {
+        readonly property bool isDark: true
+        readonly property string family: "atelier"
+        readonly property color statusUnknownForeground: "#9ea3b8"
+        readonly property color statusUnknownTint: "#262b3a"
+        readonly property color statusUnknownBorder: "#666c88"
+        readonly property color statusNotConfiguredForeground: "#9ea3b8"
+        readonly property color statusNotConfiguredTint: "#262b3a"
+        readonly property color statusNotConfiguredBorder: "#666c88"
+        readonly property color statusOfflineForeground: "#a3adc2"
+        readonly property color statusOfflineTint: "#252c3b"
+        readonly property color statusOfflineBorder: "#5e6a82"
+        readonly property color statusPendingForeground: "#f0b26a"
+        readonly property color statusPendingTint: "#33302e"
+        readonly property color statusPendingBorder: "#87694a"
+        readonly property color statusRunningForeground: "#7adbc3"
+        readonly property color statusRunningTint: "#1d3638"
+        readonly property color statusRunningBorder: "#3f7a70"
+        readonly property color statusBlockedForeground: "#f4ab84"
+        readonly property color statusBlockedTint: "#352f30"
+        readonly property color statusBlockedBorder: "#86644f"
+        readonly property color statusFailedForeground: "#ff8a85"
+        readonly property color statusFailedTint: "#3a2a33"
+        readonly property color statusFailedBorder: "#a05a5e"
+        readonly property color statusSucceededForeground: "#6fd59c"
+        readonly property color statusSucceededTint: "#1e3631"
+        readonly property color statusSucceededBorder: "#3e7a5e"
+        readonly property color statusDegradedForeground: "#e2c972"
+        readonly property color statusDegradedTint: "#33342c"
+        readonly property color statusDegradedBorder: "#766d47"
+        readonly property color statusApprovalRequiredForeground: "#c0b4ff"
+        readonly property color statusApprovalRequiredTint: "#2e2c4c"
+        readonly property color statusApprovalRequiredBorder: "#6f68a8"
     }
 
-    readonly property QtObject light: QtObject {
+    readonly property QtObject atelierJour: QtObject {
+        readonly property bool isDark: false
+        readonly property string family: "atelier"
+        readonly property color statusUnknownForeground: "#5a5970"
+        readonly property color statusUnknownTint: "#efedf2"
+        readonly property color statusUnknownBorder: "#8a889c"
+        readonly property color statusNotConfiguredForeground: "#5a5970"
+        readonly property color statusNotConfiguredTint: "#efedf2"
+        readonly property color statusNotConfiguredBorder: "#8a889c"
+        readonly property color statusOfflineForeground: "#4e5a6e"
+        readonly property color statusOfflineTint: "#ebeef2"
+        readonly property color statusOfflineBorder: "#87909f"
+        readonly property color statusPendingForeground: "#8c4b0e"
+        readonly property color statusPendingTint: "#f6ece2"
+        readonly property color statusPendingBorder: "#b98a5f"
+        readonly property color statusRunningForeground: "#0a6b5c"
+        readonly property color statusRunningTint: "#e1f2ec"
+        readonly property color statusRunningBorder: "#5a9d8c"
+        readonly property color statusBlockedForeground: "#a1421b"
+        readonly property color statusBlockedTint: "#f7ebe5"
+        readonly property color statusBlockedBorder: "#c07f64"
+        readonly property color statusFailedForeground: "#a6302f"
+        readonly property color statusFailedTint: "#f8e9e9"
+        readonly property color statusFailedBorder: "#c97f7d"
+        readonly property color statusSucceededForeground: "#1f6a43"
+        readonly property color statusSucceededTint: "#e6f2ea"
+        readonly property color statusSucceededBorder: "#66997e"
+        readonly property color statusDegradedForeground: "#6b550c"
+        readonly property color statusDegradedTint: "#f3efe2"
+        readonly property color statusDegradedBorder: "#9d8e5e"
+        readonly property color statusApprovalRequiredForeground: "#4f3fb0"
+        readonly property color statusApprovalRequiredTint: "#ece8fb"
+        readonly property color statusApprovalRequiredBorder: "#9086cf"
+    }
+
+    readonly property QtObject studioGraphite: QtObject {
+        readonly property bool isDark: true
+        readonly property string family: "studio"
+        readonly property color statusUnknownForeground: "#93a3a8"
+        readonly property color statusUnknownTint: "#2b363b"
+        readonly property color statusUnknownBorder: "#626f74"
+        readonly property color statusNotConfiguredForeground: "#93a3a8"
+        readonly property color statusNotConfiguredTint: "#2b363b"
+        readonly property color statusNotConfiguredBorder: "#626f74"
+        readonly property color statusOfflineForeground: "#9aabb5"
+        readonly property color statusOfflineTint: "#2c373d"
+        readonly property color statusOfflineBorder: "#616f76"
+        readonly property color statusPendingForeground: "#e6a15a"
+        readonly property color statusPendingTint: "#38352e"
+        readonly property color statusPendingBorder: "#856745"
+        readonly property color statusRunningForeground: "#63d7ce"
+        readonly property color statusRunningTint: "#233e41"
+        readonly property color statusRunningBorder: "#3d7675"
+        readonly property color statusBlockedForeground: "#f2a97e"
+        readonly property color statusBlockedTint: "#3a3734"
+        readonly property color statusBlockedBorder: "#846754"
+        readonly property color statusFailedForeground: "#f17b73"
+        readonly property color statusFailedTint: "#3a2f32"
+        readonly property color statusFailedBorder: "#9c5a57"
+        readonly property color statusSucceededForeground: "#5fca91"
+        readonly property color statusSucceededTint: "#233c37"
+        readonly property color statusSucceededBorder: "#3f795f"
+        readonly property color statusDegradedForeground: "#dcc26a"
+        readonly property color statusDegradedTint: "#373b31"
+        readonly property color statusDegradedBorder: "#756e49"
+        readonly property color statusApprovalRequiredForeground: "#b3a4f5"
+        readonly property color statusApprovalRequiredTint: "#303647"
+        readonly property color statusApprovalRequiredBorder: "#6b6894"
+    }
+
+    readonly property QtObject studioPapier: QtObject {
+        readonly property bool isDark: false
+        readonly property string family: "studio"
         readonly property color statusUnknownForeground: "#5b6b6f"
         readonly property color statusUnknownTint: "#eff0f1"
         readonly property color statusUnknownBorder: "#8b9699"
@@ -81,36 +160,37 @@ QtObject {
         readonly property color statusApprovalRequiredBorder: "#978dc4"
     }
 
-    readonly property color statusUnknownForeground: (root.isDark ? root.dark : root.light).statusUnknownForeground
-    readonly property color statusUnknownTint: (root.isDark ? root.dark : root.light).statusUnknownTint
-    readonly property color statusUnknownBorder: (root.isDark ? root.dark : root.light).statusUnknownBorder
-    readonly property color statusNotConfiguredForeground: (root.isDark ? root.dark : root.light).statusNotConfiguredForeground
-    readonly property color statusNotConfiguredTint: (root.isDark ? root.dark : root.light).statusNotConfiguredTint
-    readonly property color statusNotConfiguredBorder: (root.isDark ? root.dark : root.light).statusNotConfiguredBorder
-    readonly property color statusOfflineForeground: (root.isDark ? root.dark : root.light).statusOfflineForeground
-    readonly property color statusOfflineTint: (root.isDark ? root.dark : root.light).statusOfflineTint
-    readonly property color statusOfflineBorder: (root.isDark ? root.dark : root.light).statusOfflineBorder
-    readonly property color statusPendingForeground: (root.isDark ? root.dark : root.light).statusPendingForeground
-    readonly property color statusPendingTint: (root.isDark ? root.dark : root.light).statusPendingTint
-    readonly property color statusPendingBorder: (root.isDark ? root.dark : root.light).statusPendingBorder
-    readonly property color statusRunningForeground: (root.isDark ? root.dark : root.light).statusRunningForeground
-    readonly property color statusRunningTint: (root.isDark ? root.dark : root.light).statusRunningTint
-    readonly property color statusRunningBorder: (root.isDark ? root.dark : root.light).statusRunningBorder
-    readonly property color statusBlockedForeground: (root.isDark ? root.dark : root.light).statusBlockedForeground
-    readonly property color statusBlockedTint: (root.isDark ? root.dark : root.light).statusBlockedTint
-    readonly property color statusBlockedBorder: (root.isDark ? root.dark : root.light).statusBlockedBorder
-    readonly property color statusFailedForeground: (root.isDark ? root.dark : root.light).statusFailedForeground
-    readonly property color statusFailedTint: (root.isDark ? root.dark : root.light).statusFailedTint
-    readonly property color statusFailedBorder: (root.isDark ? root.dark : root.light).statusFailedBorder
-    readonly property color statusSucceededForeground: (root.isDark ? root.dark : root.light).statusSucceededForeground
-    readonly property color statusSucceededTint: (root.isDark ? root.dark : root.light).statusSucceededTint
-    readonly property color statusSucceededBorder: (root.isDark ? root.dark : root.light).statusSucceededBorder
-    readonly property color statusDegradedForeground: (root.isDark ? root.dark : root.light).statusDegradedForeground
-    readonly property color statusDegradedTint: (root.isDark ? root.dark : root.light).statusDegradedTint
-    readonly property color statusDegradedBorder: (root.isDark ? root.dark : root.light).statusDegradedBorder
-    readonly property color statusApprovalRequiredForeground: (root.isDark ? root.dark : root.light).statusApprovalRequiredForeground
-    readonly property color statusApprovalRequiredTint: (root.isDark ? root.dark : root.light).statusApprovalRequiredTint
-    readonly property color statusApprovalRequiredBorder: (root.isDark ? root.dark : root.light).statusApprovalRequiredBorder
+    // Accesseurs plats : un composant ne choisit jamais son thème lui-même.
+    readonly property color statusUnknownForeground: root.current.statusUnknownForeground
+    readonly property color statusUnknownTint: root.current.statusUnknownTint
+    readonly property color statusUnknownBorder: root.current.statusUnknownBorder
+    readonly property color statusNotConfiguredForeground: root.current.statusNotConfiguredForeground
+    readonly property color statusNotConfiguredTint: root.current.statusNotConfiguredTint
+    readonly property color statusNotConfiguredBorder: root.current.statusNotConfiguredBorder
+    readonly property color statusOfflineForeground: root.current.statusOfflineForeground
+    readonly property color statusOfflineTint: root.current.statusOfflineTint
+    readonly property color statusOfflineBorder: root.current.statusOfflineBorder
+    readonly property color statusPendingForeground: root.current.statusPendingForeground
+    readonly property color statusPendingTint: root.current.statusPendingTint
+    readonly property color statusPendingBorder: root.current.statusPendingBorder
+    readonly property color statusRunningForeground: root.current.statusRunningForeground
+    readonly property color statusRunningTint: root.current.statusRunningTint
+    readonly property color statusRunningBorder: root.current.statusRunningBorder
+    readonly property color statusBlockedForeground: root.current.statusBlockedForeground
+    readonly property color statusBlockedTint: root.current.statusBlockedTint
+    readonly property color statusBlockedBorder: root.current.statusBlockedBorder
+    readonly property color statusFailedForeground: root.current.statusFailedForeground
+    readonly property color statusFailedTint: root.current.statusFailedTint
+    readonly property color statusFailedBorder: root.current.statusFailedBorder
+    readonly property color statusSucceededForeground: root.current.statusSucceededForeground
+    readonly property color statusSucceededTint: root.current.statusSucceededTint
+    readonly property color statusSucceededBorder: root.current.statusSucceededBorder
+    readonly property color statusDegradedForeground: root.current.statusDegradedForeground
+    readonly property color statusDegradedTint: root.current.statusDegradedTint
+    readonly property color statusDegradedBorder: root.current.statusDegradedBorder
+    readonly property color statusApprovalRequiredForeground: root.current.statusApprovalRequiredForeground
+    readonly property color statusApprovalRequiredTint: root.current.statusApprovalRequiredTint
+    readonly property color statusApprovalRequiredBorder: root.current.statusApprovalRequiredBorder
 
     // Métadonnées d'état : la couleur n'est jamais seule porteuse de sens.
     readonly property QtObject meta: QtObject {
