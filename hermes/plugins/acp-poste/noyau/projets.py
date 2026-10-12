@@ -19,7 +19,7 @@ import unicodedata
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-from . import base, cartes, routage
+from . import base, cartes, observations, routage
 from . import kanban_adapter as ka
 from . import textes as T
 from .motifs_secrets import motif_trouve
@@ -219,17 +219,36 @@ def resume_projet(conn, fiche: Optional[Dict[str, Any]]) -> Dict[str, Any]:
 # ------------------------------------------------------------------ état d'un projet
 
 
-def _statuts(fiche: Dict[str, Any], demandes: List[Dict[str, Any]]) -> Dict[str, Any]:
+def _statuts(fiche: Dict[str, Any], demandes: List[Dict[str, Any]], *, avec_executions: bool = False) -> Dict[str, Any]:
     """{carte: Task} des cartes rattachées (lecture du tableau du projet)."""
     taches: Dict[str, Any] = {}
+    executions: Dict[str, Any] = {}
     with ka.connexion(fiche["tableau"]) as kc:
         for d in demandes:
             if d["carte"]:
                 tache = ka.get_task(kc, d["carte"])
                 if tache is not None:
                     taches[d["carte"]] = tache
+                    if avec_executions:
+                        executions[d["carte"]] = _execution(kc, d, tache)
         resumes = ka.latest_summaries(kc, list(taches)) if taches else {}
-    return {"taches": taches, "resumes": resumes}
+    return {"taches": taches, "resumes": resumes, "executions": executions}
+
+
+def _execution(kc, demande: Dict[str, Any], tache: Any) -> Dict[str, Any]:
+    """Lecture publique du run, isolée : une observation illisible ne masque pas le projet."""
+    if demande.get("voie") not in ka.VOIES_EXECUTION:
+        return observations.vide("non_pris_en_charge")
+    if tache is None:
+        return observations.vide()
+    try:
+        # Une seule tentative lue, même après beaucoup de relances. Un pointeur courant incohérent
+        # reste indisponible : jamais de repli silencieux vers une ancienne exécution réussie.
+        courant = getattr(tache, "current_run_id", None)
+        run = ka.get_run(kc, courant) if courant is not None else ka.latest_run(kc, demande["carte"])
+        return observations.construire(demande, tache, [run] if run is not None else [], ka.masquer)
+    except Exception:  # tableau transitoirement illisible : aucune ancienne observation en repli
+        return observations.vide()
 
 
 def etat_derive(fiche: Dict[str, Any], demandes: List[Dict[str, Any]], taches: Dict[str, Any]) -> str:
@@ -265,7 +284,7 @@ def etat(conn, fiche: Dict[str, Any], *, avec_journal: bool = False) -> Dict[str
     """État complet d'un projet (outil ``projet_etat``, route ``GET /v1/projets/{id}``). Tous les textes
     passent par le masquage des secrets de Hermes ; le modèle servi reste « Non observé » avant P6."""
     demandes = cartes.cartes_du_projet(conn, fiche["id"])
-    lu = _statuts(fiche, demandes)
+    lu = _statuts(fiche, demandes, avec_executions=True)
     taches, resumes = lu["taches"], lu["resumes"]
     liste_cartes = []
     exploration = None
@@ -292,6 +311,7 @@ def etat(conn, fiche: Dict[str, Any], *, avec_journal: bool = False) -> Dict[str
             # Un résumé coupé le dit : longueur totale, et le texte entier par GET /v1/projets/{id}/cartes/{carte}.
             "resume_longueur": len(resume) if resume else None,
             "resume_tronque": bool(resume) and len(resume) > LONGUEUR_RESUME,
+            "execution": lu["executions"].get(d["carte"], observations.vide()),
         })
     tours = [{"tour": t["tour"], "resume": ka.masquer(t["resume"])[:2000], "decisions": [
         ka.masquer(x) for x in json.loads(t["decisions"])]} for t in conn.execute(
@@ -375,11 +395,12 @@ def lire_carte(conn, fiche: Dict[str, Any], carte: str) -> Dict[str, Any]:
     with ka.connexion(fiche["tableau"]) as kc:
         tache = ka.get_task(kc, carte)
         brut = ka.latest_summaries(kc, [carte]).get(carte) if tache is not None else None
+        execution = _execution(kc, demande, tache)
     texte = ka.masquer(brut) if brut else None
     return {"carte": carte, "titre": ka.masquer(tache.title if tache else demande["titre"])[:200],
             "role": demande["role"], "statut": tache.status if tache else T.INCONNU,
             "resume": texte[:LONGUEUR_TEXTE_COMPLET] if texte else None, "longueur": len(texte) if texte else 0,
-            "tronque": bool(texte) and len(texte) > LONGUEUR_TEXTE_COMPLET}
+            "tronque": bool(texte) and len(texte) > LONGUEUR_TEXTE_COMPLET, "execution": execution}
 
 
 # ------------------------------------------------------------------ pause et reprise d'un projet

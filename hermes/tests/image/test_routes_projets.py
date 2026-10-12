@@ -228,7 +228,12 @@ def test_resume_coupe_le_dit_et_se_lit_en_entier(client, noyau):
     liste = client.get(f"{P}/v1/projets").json()["projets"][0]
     assert liste["derniere_note"] == rapport[:200] and liste["derniere_note_tronquee"] is True
     lue = client.get(f"{P}/v1/projets/{projet['id']}/cartes/{planif}")
-    assert lue.status_code == 200 and lue.json()["carte"] == {
+    assert lue.status_code == 200
+    carte_lue = lue.json()["carte"]
+    execution = carte_lue.pop("execution")
+    assert execution["schema_version"] == 1
+    assert execution["etat"] == "non_pris_en_charge" and execution["metadonnees"] is None
+    assert carte_lue == {
         "carte": planif, "titre": "Planification — Rapport long", "role": "planification", "statut": "done",
         "resume": rapport, "longueur": len(rapport), "tronque": False}
     inconnue = client.get(f"{P}/v1/projets/{projet['id']}/cartes/t_inconnue")
