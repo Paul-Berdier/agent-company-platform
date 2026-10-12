@@ -12,12 +12,15 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import tomllib
 from pathlib import Path
 
 import acp_demarrage as ad
 from conftest import env_processus, executer_python, installer_home_de_test
 
 GREFFON = Path("/opt/hermes/plugins/acp-poste")
+# Source indépendante des manifestes et des bannières vérifiés, gardée par check_version.py.
+VERSION_ACP = tomllib.loads((GREFFON / "contrat" / "pyproject.toml").read_text(encoding="utf-8"))["project"]["version"]
 VERROU = json.loads(Path("/opt/acp/catalogue/catalogue.lock.json").read_text(encoding="utf-8"))
 NOMS_ACP = sorted(s["nom"] for s in VERROU["skills"] if s["cible"] == "hermes")
 CATALOGUE = ad.charger_catalogue(ad.Chemins())
@@ -67,9 +70,9 @@ def test_catalogue_conforme(chemins, valeurs):
     assert lu["resume"] == {"verrou_sha256": complet["verrou"]["sha256"], "skills_actives": len(NOMS_ACP),
                             "skills_attendues": len(NOMS_ACP), "context7": "inconnu", "external_dirs_conforme": True,
                             "desactivations_conformes": True, "ecarts": 0}
-    assert lu["interface"] == {"greffons": {"acp-interface": "1.0.1", "acp-catalogue": "1.0.1",
-                                            "acp-projets": "1.0.1", "acp-poste-vues": "1.0.1",
-                                            "acp-discussion": "1.0.1"},
+    assert lu["interface"] == {"greffons": {"acp-interface": VERSION_ACP, "acp-catalogue": VERSION_ACP,
+                                            "acp-projets": VERSION_ACP, "acp-poste-vues": VERSION_ACP,
+                                            "acp-discussion": VERSION_ACP},
                                "sdk_attendu": "1.x"}
     assert lu["meta"] == [lu["resume"], lu["interface"], []]
 
