@@ -1077,7 +1077,7 @@ Item {
                 }
                 Discret {
                     text: formulaire.f.routageAutomatique
-                        ? qsTr("Auto : la politique de Hermes choisit parmi les capacités autorisées et disponibles. Les verrous du propriétaire restent prioritaires.")
+                        ? qsTr("Auto choisit dans la table de routage autorisée et respecte vos verrous. Après connexion et relevé : Assistants → Modèles d'exécution, relisez et appliquez les suggestions souhaitées, puis Valider la table.")
                         : qsTr("Choix manuel : les paramètres d'exploration ci-dessous sont envoyés explicitement.")
                 }
 

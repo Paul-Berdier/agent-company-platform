@@ -163,8 +163,18 @@ def test_relecture_lit_le_code_relu_et_son_diff(banc):
     B), puis relecture de REPLI par la même voie avec un autre modèle (D91) ; le faux Claude relecteur, sous l'UID
     10002, lit le diff et le code relus."""
     titre = "Bout en bout — relecture"
-    # Modèles choisis par le plan (implémentation « sonnet », relecture « opus ») : la voie Codex étant fermée (régime
-    # B), la relecture va à la même voie avec cet autre modèle (repli D91).
+    # Le propriétaire autorise les choix que le plan proposera ; le plan seul ne les rend jamais routables.
+    # La voie Codex étant fermée (régime B), la relecture prend un autre modèle sur Claude (repli D91).
+    classes = {"implementation": [{"voie": "poste-claude", "modele": "sonnet", "effort": "low"}],
+               "relecture": [{"voie": "poste-claude", "modele": "opus", "effort": "low"}]}
+    code, routage = banc.api("GET", "/v1/routage")
+    assert code == 200, routage
+    code, valide = banc.api("POST", "/v1/routage", {"releves": routage["releves"], "classes": classes})
+    assert code == 200, valide
+    for classe, entrees in classes.items():
+        table = valide["classes"][classe]
+        assert table["source"] == "proprietaire" and table["etat"] == "validee", table
+        assert [{k: e[k] for k in ("voie", "modele", "effort")} for e in table["entrees"]] == entrees
     plan = {"resume": "Écrire un fichier, puis le relire.", "decisions": ["Fichier texte"], "etapes": [
         {"ref": "e1", "titre": "Écrire relu.txt", "classe": "implementation", "voie": "poste-claude",
          "modele": "sonnet", "relecture_modele": "opus", "consigne": "Écrire le fichier relu.txt. [scenario:relu]",

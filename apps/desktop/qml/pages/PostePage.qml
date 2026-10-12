@@ -217,6 +217,9 @@ Item {
                     AcpButton { label: qsTr("Quotas et limites"); onTriggered: Navigation.setCurrentRoute("quotas") }
                     AcpButton { label: qsTr("Modèles d'exécution"); onTriggered: Navigation.setCurrentRoute("routing") }
                 }
+                Discret {
+                    text: qsTr("Connecter un assistant ne configure pas le routage. Après le nouveau relevé, ouvrez Modèles d'exécution, relisez et appliquez les suggestions souhaitées, puis Valider la table. Auto utilise les entrées que vous avez autorisées.")
+                }
             }
 
             Carte {

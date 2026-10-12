@@ -99,8 +99,22 @@ pas encore ce réglage. Votre choix clair/sombre et l'URL du serveur sont conser
 les préférences Windows ; une connexion mémorisée reste dans le coffre Windows.
 Les projets et leurs résultats sont relus depuis Hermes : ils ne sont pas rangés dans
 le dossier de l'installeur. Un nouveau projet utilise **Auto** par défaut : Hermes choisit
-l'assistant selon sa politique, les capacités relevées et les verrous du propriétaire.
-Le choix manuel de l'assistant, du modèle et de l'effort reste disponible dans le formulaire.
+l'assistant parmi les entrées autorisées de la table de routage, selon sa politique,
+les capacités relevées et les verrous du propriétaire. Le choix manuel de l'assistant,
+du modèle et de l'effort reste disponible dans le formulaire.
+
+**Connecter Codex ou Claude ne configure pas cette table.** Après la connexion et un
+nouveau relevé reçu dans **Assistants**, ouvrez **Modèles d'exécution**. Dans **Table de
+routage**, relisez les suggestions pour les classes que vous déléguez, notamment
+**Exploration du dépôt**, **Implémentation** et **Relecture croisée**. Choisissez **Appliquer la suggestion**
+pour les entrées que vous autorisez, puis **Valider la table** pour les enregistrer.
+Pour choisir d'autres entrées, utilisez **Modifier dans le navigateur**, puis revenez
+actualiser la page. Sans verrou explicite du propriétaire, Auto refuse une classe déléguée
+sans entrée autorisée : reconnecter l'assistant ne suffit pas à lever ce refus.
+
+Une table valide déjà enregistrée est conservée lors de la mise à jour ; il n'est pas
+nécessaire de la refaire. Ni la connexion ni un nouveau relevé ne valident automatiquement
+de nouvelles entrées. Une suggestion appliquée reste un brouillon jusqu'à votre validation.
 
 Pour une branche terminée, **Assistants → Résultats à récupérer → Préparer la récupération**
 ouvre un guide et une commande SSH à compléter avec le chemin de votre clé. Le résultat

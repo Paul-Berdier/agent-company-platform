@@ -49,6 +49,24 @@ fournisseurs (OAuth) → openai-codex → Connexion**, puis **Modèles** pour so
 C'est le parcours existant de [Railway, § 6](railway.md). Le compte Codex de l'exécutant ne
 configure pas ce coordinateur ; les identifiants restent gérés par Hermes.
 
+## Autoriser les modèles après le relevé
+
+Connecter Codex ou Claude ne configure pas la table de routage. Après **Vérifier maintenant**
+et la réception d'un nouveau relevé, ouvrez **Assistants → Modèles d'exécution**. Dans
+**Table de routage**, relisez les suggestions des classes déléguées, notamment **Exploration du dépôt**,
+**Implémentation** et **Relecture croisée**. Choisissez **Appliquer la suggestion** pour les entrées
+que vous autorisez, puis **Valider la table**. Pour choisir autrement, **Modifier dans le
+navigateur** ouvre l'édition existante ; revenez ensuite actualiser la page.
+
+Auto choisit parmi les entrées autorisées encore admises par la politique, les capacités
+et les quotas. Les verrous du propriétaire restent prioritaires ; les préférences du plan
+ne créent aucune entrée. Sans verrou explicite du propriétaire, Auto refuse une classe
+déléguée dont la table est vide.
+
+Une table valide déjà enregistrée est conservée lors de la mise à jour. Ni une connexion
+ni un nouvel inventaire ne valident automatiquement de nouvelles entrées : les suggestions
+appliquées restent un brouillon jusqu'à **Valider la table**.
+
 ## Vérification sans faux succès
 
 Le HTTP 202 signifie « demande en file ». Il ne confirme aucune connexion. La station garde

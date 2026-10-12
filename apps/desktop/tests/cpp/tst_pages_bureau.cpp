@@ -503,11 +503,10 @@ void TestPagesBureau::pagesAlimenteesPuisRacine()
         VERIFIER(page.get(), QStringLiteral("Routage"));
         QVERIFY(contientTexte(item, QStringLiteral("Exploration du dépôt")));
         QVERIFY(contientTexte(item, QStringLiteral("Aucune surcharge active.")));
-        // Relecture finale de P9 (constat produit-1) : l'introduction dit l'ordre réel de la résolution (surcharge,
-        // choix explicite du formulaire ou du plan, puis la table : routage.py, resoudre), et non « chaque étape
-        // part vers la première entrée admise de sa classe », faux pour l'exploration lancée par le formulaire.
-        QVERIFY(contientTexte(item, QStringLiteral("sinon le choix explicite")));
-        QVERIFY(contientTexte(item, QStringLiteral("« Nouveau projet »")));
+        // L'introduction conserve les verrous prioritaires et le choix manuel d'exploration ; les préférences
+        // du plan départagent seulement les entrées autorisées, sans court-circuiter la table (routage.py).
+        QVERIFY(contientTexte(item, QStringLiteral("Les verrous actifs du propriétaire restent prioritaires. Le choix manuel d'exploration est explicite")));
+        QVERIFY(contientTexte(item, QStringLiteral("les préférences du plan de Hermes départagent uniquement les entrées autorisées de la classe")));
         QVERIFY(!contientTexte(item, QStringLiteral("Chaque étape d'un projet part vers la première entrée admise")));
         pageRoutage->appliquerSuggestion(QStringLiteral("exploration"));
         VERIFIER(page.get(), QStringLiteral("Routage, brouillon"));
