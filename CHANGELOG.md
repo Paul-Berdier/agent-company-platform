@@ -32,7 +32,8 @@ interfaces que nomme la section 1.0.0 (D130), et une rupture de l'une d'elles ap
 - Suivi de la fin d'une nouvelle discussion sans forcer le retour en bas lors de la lecture de son historique.
 - Preuve d'arrêt Windows : délais et refus transitoires ne restent plus des échecs lorsque la convergence finale
   est démontrée ; lecture finale après la dernière attente, sans augmenter le budget d'arrêt.
-- Assertions de version et faux processus de test adaptés au worktree et aux redirecteurs Python Windows.
+- Attentes de version des tests Windows, d’image et de contrat reliées à la version du lot ; faux processus
+  de test adaptés au worktree et aux redirecteurs Python Windows.
 
 ### Sécurité
 
