@@ -20,6 +20,7 @@
 #include "viewmodels/AccueilViewModel.h"
 #include "viewmodels/DiscussionViewModel.h"
 #include "viewmodels/PosteViewModel.h"
+#include "viewmodels/PreparationHermesViewModel.h"
 #include "viewmodels/ProjetsViewModel.h"
 #include "viewmodels/QuestionsViewModel.h"
 #include "viewmodels/QuotasViewModel.h"
@@ -27,6 +28,7 @@
 
 #include <QClipboard>
 #include <QCoreApplication>
+#include <QDir>
 #include <QGuiApplication>
 #include <QKeySequence>
 #include <QJsonArray>
@@ -96,6 +98,7 @@ private slots:
     void questionsReluesAuSignalDuFlux();
     void listeDesProjetsGardeSonDefilement();
     void messageEnvoyeParLeBoutonDeLaDiscussion();
+    void preparationProposeConnexionPuisAnnuleParLesBoutons();
     void workspaceConserveBrouillonEtSuspendPagesMasquees();
     void nouvelleDiscussionSuitSaFinApresHistoriqueDefile();
     void dialogueDeChangementDeServeurEnFrancais();
@@ -1003,6 +1006,87 @@ void TestPagesInteractions::nouvelleDiscussionSuitSaFinApresHistoriqueDefile()
 
 // Le shell garde les pages visitées pour conserver les saisies, mais les pages
 // masquées doivent arrêter leurs sondages. Les routes changent par les vrais boutons.
+// Le démarrage lit les comptes sans lancer d'autorisation ; seuls les vrais boutons
+// créent puis annulent le défi sur le serveur isolé. Aucun navigateur personnel n'est ouvert.
+void TestPagesInteractions::preparationProposeConnexionPuisAnnuleParLesBoutons()
+{
+    auto *preparation = m_application->findChild<PreparationHermesViewModel *>();
+    auto *passerelle = m_application->findChild<GatewayClient *>();
+    auto *poste = m_application->findChild<PosteViewModel *>();
+    auto *navigation = m_application->findChild<NavigationModel *>();
+    QVERIFY(preparation && passerelle && poste && navigation);
+    const QString debut = QStringLiteral("/api/providers/oauth/openai-codex/start");
+    const QString id = QStringLiteral("abcdefghijklmnopqrstuv");
+    const QString annulation = QStringLiteral("/api/providers/oauth/sessions/") + id;
+    m_serveur->methodes.insert(QStringLiteral("setup.status"), [](const QJsonObject &) {
+        return QJsonObject{{QStringLiteral("provider_configured"), false}};
+    });
+    m_serveur->methodes.insert(QStringLiteral("setup.runtime_check"), [](const QJsonObject &) {
+        return QJsonObject{{QStringLiteral("ok"), false}};
+    });
+    m_serveur->route("POST", debut, [id](const RequeteRecue &) {
+        return ReponseFaux::json(200, QJsonObject{
+            {QStringLiteral("session_id"), id}, {QStringLiteral("flow"), QStringLiteral("device_code")},
+            {QStringLiteral("user_code"), QStringLiteral("TEST-1234")},
+            {QStringLiteral("verification_url"), QStringLiteral("https://auth.openai.com/codex/device")},
+            {QStringLiteral("expires_in"), 300}, {QStringLiteral("poll_interval"), 30}});
+    });
+    m_serveur->route("DELETE", annulation, [id](const RequeteRecue &) {
+        return ReponseFaux::json(200, QJsonObject{{QStringLiteral("ok"), true}, {QStringLiteral("session_id"), id}});
+    });
+    const QJsonObject meta = fixture(QStringLiteral("meta.json"));
+    m_serveur->route("GET", kP + QStringLiteral("/meta"), [meta](const RequeteRecue &) {
+        return ReponseFaux::json(200, meta);
+    });
+    m_serveur->route("GET", kP + QStringLiteral("/poste"), [](const RequeteRecue &) {
+        return ReponseFaux::json(200, fixture(QStringLiteral("poste-non-configure.json")));
+    });
+    preparation->oublier();
+    passerelle->ouvrir();
+    QTRY_COMPARE(passerelle->etat(), GatewayClient::Etat::Pret);
+    const int demandes = m_serveur->compter("POST", debut);
+    preparation->activer();
+    QTRY_COMPARE(preparation->etat(), QStringLiteral("manquant"));
+    QCOMPARE(m_serveur->compter("POST", debut), demandes);
+    m_fenetre->resize(1920, 1080);
+    const QColor fondAvant = m_fenetre->color();
+    m_fenetre->setColor(QColor(QStringLiteral("#151923"))); // Fond du shell absent de cette page isolée.
+    auto page = charger(QStringLiteral("HomePage"));
+    QVERIFY(page);
+    auto *racine = qobject_cast<QQuickItem *>(page.get());
+    QTRY_VERIFY(poste->resumeVisible());
+    QTRY_VERIFY(poste->lue());
+    QTest::qWait(100);
+    QVERIFY(cliquer(parNom(racine, QStringLiteral("hermes-connecter"))));
+    QTRY_VERIFY(preparation->defiActif());
+    QCOMPARE(m_serveur->compter("POST", debut), demandes + 1);
+    QQuickItem *code = parNom(racine, QStringLiteral("hermes-code-appareil"));
+    QVERIFY(code && code->isVisible());
+    QCOMPARE(code->property("text").toString(), QStringLiteral("TEST-1234"));
+    QTest::qWait(100);
+    const QString captures = qEnvironmentVariable("ACP_CAPTURES_DIR");
+    if (!captures.isEmpty()) {
+        QVERIFY(QDir().mkpath(captures));
+        QVERIFY(m_fenetre->grabWindow().save(captures + QStringLiteral("/Test-fixture-Accueil-autorisation-1920x1080.png")));
+    }
+    QVERIFY(cliquer(parNom(racine, QStringLiteral("hermes-annuler"))));
+    QTRY_COMPARE(preparation->etat(), QStringLiteral("annule"));
+    QCOMPARE(m_serveur->compter("DELETE", annulation), 1);
+    QVERIFY(preparation->codeAppareil().isEmpty());
+    QVERIFY(!code->isVisible());
+    QVERIFY(cliquer(parNom(racine, QStringLiteral("accueil-preparer-assistants"))));
+    QCOMPARE(navigation->currentRoute(), QStringLiteral("station"));
+    QVERIFY2(m_avertissements.isEmpty(), qPrintable(m_avertissements.join(QLatin1Char('\n'))));
+    page.reset();
+    QTRY_VERIFY(!poste->resumeVisible());
+    preparation->oublier();
+    m_fenetre->setColor(fondAvant);
+    m_fenetre->resize(1280, 850);
+    m_serveur->route("GET", kP + QStringLiteral("/meta"), [](const RequeteRecue &) {
+        return ReponseFaux::json(404, QJsonObject{{QStringLiteral("detail"), QStringLiteral("Not Found")}});
+    });
+}
+
 void TestPagesInteractions::workspaceConserveBrouillonEtSuspendPagesMasquees()
 {
     auto *passerelle = m_application->findChild<GatewayClient *>();

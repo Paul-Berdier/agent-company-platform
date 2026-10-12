@@ -5,7 +5,8 @@
 // /v1/meta est seulement injoignable.
 //
 // Composition du produit (Application), contre deux faux Hermes : A sert le greffon, B ne le
-// sert pas (404). Porteur fixe, aucune connexion ouverte : aucune entrée de coffre n'est écrite.
+// sert pas (404). Porteur fixe pour les pages ; les tests du cycle de passerelle utilisent
+// une authentification de bouclage en mémoire, sans navigateur personnel ni jeton mémorisé.
 
 #include "api/ApiClient.h"
 #include "app/Application.h"
@@ -18,6 +19,7 @@
 #include "services/CompatibiliteHermes.h"
 #include "support/FauxHermes.h"
 #include "support/Fixtures.h"
+#include "support/NavigateurTest.h"
 #include "viewmodels/AccueilViewModel.h"
 #include "viewmodels/DiscussionViewModel.h"
 #include "viewmodels/PosteViewModel.h"
@@ -29,6 +31,7 @@
 #include <QCoreApplication>
 #include <QJsonArray>
 #include <QSettings>
+#include <QSignalSpy>
 #include <QTemporaryDir>
 #include <QTest>
 #include <QUuid>
@@ -79,6 +82,50 @@ void servirLeGreffon(FauxHermes &serveur, QJsonObject *meta)
     });
 }
 
+// Composition complète avec une vraie SessionHermes authentifiée auprès du faux serveur.
+// /meta reste volontairement en vol : appliquerLecture publie ensuite le verdict du
+// sondage, sans dépendre de la vitesse du réseau ou d'une temporisation du test.
+struct BancPasserelle
+{
+    FauxHermes serveur;
+    QJsonObject meta = fixture(QStringLiteral("meta.json"));
+    Navigateur navigateur;
+    Application application{nullptr, QStringLiteral("AcpTestPasserelle-%1")
+        .arg(QUuid::createUuid().toString(QUuid::WithoutBraces))};
+    ApiClient *client = application.findChild<ApiClient *>();
+    SessionHermes *session = application.findChild<SessionHermes *>();
+    CompatibiliteHermes *compatibilite = application.findChild<CompatibiliteHermes *>();
+    GatewayClient *passerelle = application.findChild<GatewayClient *>();
+
+    BancPasserelle()
+    {
+        servirLeGreffon(serveur, &meta);
+        serveur.route("GET", kP + QStringLiteral("/meta"), [this](const RequeteRecue &) {
+            ReponseFaux reponse = ReponseFaux::json(200, meta);
+            reponse.delaiMs = 60000; // La destruction du banc annule cette réponse différée.
+            return reponse;
+        });
+        session->setMemoriser(false);
+        session->flux()->setOuvreurNavigateur(navigateur.ouvreur());
+        client->setAllowInsecureLoopback(true);
+        if (client->setBaseUrl(serveur.url()).isError()) {
+            qFatal("URL du faux Hermes refusée");
+        }
+    }
+
+    bool connecter()
+    {
+        QSignalSpy etablie(session, &SessionHermes::sessionEtablie);
+        session->seConnecter();
+        return etablie.wait(10000) || etablie.count() == 1;
+    }
+
+    int tickets() const
+    {
+        return serveur.compter("POST", QStringLiteral("/api/auth/ws-ticket"));
+    }
+};
+
 } // namespace
 
 class TestOubliLocal : public QObject
@@ -92,6 +139,10 @@ private slots:
     void greffonBloqueOublieSesPages();
     void fluxSuitLeVerdictApplique();
     void greffonAbsentDitLeBlocageAuTempsReel();
+    void passerelleAttendLeVerdictEtRouvreApresCompatibilite();
+    void passerelleNeRouvrePasApresDeconnexion();
+    void passerelleRefuseeNestPasRelanceeParLeVerdict();
+    void passerelleNeRouvrePasApresArret();
     void cleanupTestCase();
 
 private:
@@ -395,6 +446,98 @@ void TestOubliLocal::greffonAbsentDitLeBlocageAuTempsReel()
     QVERIFY2(!etat.contains(QStringLiteral("sondage")), qPrintable(etat));
     QCOMPARE(m_flux->libelleTempsReel(), QStringLiteral("Aucun flux (greffon bloqué)"));
     QVERIFY(QMetaObject::invokeMethod(m_session, "sessionPerdue", Q_ARG(QString, QStringLiteral("Fin de l'essai"))));
+}
+
+// Un rétablissement de compatibilité n'émet pas sessionEtablie : la composition doit
+// réactiver le canal fermé, mais seulement après authentification et verdict rendu.
+void TestOubliLocal::passerelleAttendLeVerdictEtRouvreApresCompatibilite()
+{
+    BancPasserelle banc;
+    banc.compatibilite->appliquerLecture(banc.meta);
+    QCOMPARE(banc.passerelle->etat(), GatewayClient::Etat::Deconnecte);
+    QCOMPARE(banc.tickets(), 0); // Un verdict seul ne crée pas de session.
+
+    QVERIFY(banc.connecter());
+    QTRY_COMPARE_WITH_TIMEOUT(banc.serveur.compter("GET", kP + QStringLiteral("/meta")), 1, 10000);
+    QCOMPARE(banc.compatibilite->etat(), CompatibilityStatus::Verification);
+    QCOMPARE(banc.passerelle->etat(), GatewayClient::Etat::Deconnecte);
+    QCOMPARE(banc.tickets(), 0); // Pas d'ouverture prématurée sur sessionEtablie.
+
+    banc.compatibilite->appliquerLecture(banc.meta);
+    QTRY_COMPARE_WITH_TIMEOUT(banc.passerelle->etat(), GatewayClient::Etat::Pret, 10000);
+    QCOMPARE(banc.tickets(), 1);
+    QJsonObject incompatible = banc.meta;
+    QJsonObject openrpc = incompatible.value(QStringLiteral("openrpc")).toObject();
+    openrpc.insert(QStringLiteral("info_version"), QStringLiteral("version-incompatible"));
+    incompatible.insert(QStringLiteral("openrpc"), openrpc);
+    banc.compatibilite->appliquerLecture(incompatible);
+    QVERIFY(!banc.compatibilite->discussionDisponible());
+    QCOMPARE(banc.passerelle->etat(), GatewayClient::Etat::Deconnecte);
+    QTRY_COMPARE_WITH_TIMEOUT(banc.serveur.clientsConnectes(), 0, 10000);
+
+    banc.compatibilite->verifier();
+    QCOMPARE(banc.compatibilite->etat(), CompatibilityStatus::Verification);
+    QCOMPARE(banc.passerelle->etat(), GatewayClient::Etat::Deconnecte);
+    QCOMPARE(banc.tickets(), 1);
+    banc.compatibilite->appliquerLecture(banc.meta);
+    // Un deuxième verdict identique pendant le ticket ne crée pas un deuxième vol.
+    banc.compatibilite->appliquerLecture(banc.meta);
+    QTRY_COMPARE_WITH_TIMEOUT(banc.passerelle->etat(), GatewayClient::Etat::Pret, 10000);
+    QCOMPARE(banc.tickets(), 2);
+    QCOMPARE(banc.serveur.clientsConnectes(), 1);
+    banc.compatibilite->appliquerLecture(banc.meta);
+    QCOMPARE(banc.passerelle->etat(), GatewayClient::Etat::Pret);
+    QCOMPARE(banc.tickets(), 2);
+
+    // Un sondage ne court-circuite pas le recul d'une reconnexion réseau en attente.
+    banc.passerelle->setRecul(Backoff(std::chrono::seconds(60), std::chrono::seconds(60), 0));
+    banc.serveur.couperClient();
+    QTRY_COMPARE_WITH_TIMEOUT(banc.passerelle->etat(), GatewayClient::Etat::Reconnexion, 10000);
+    banc.compatibilite->appliquerLecture(banc.meta);
+    QCOMPARE(banc.passerelle->etat(), GatewayClient::Etat::Reconnexion);
+    QCOMPARE(banc.tickets(), 2);
+}
+
+void TestOubliLocal::passerelleNeRouvrePasApresDeconnexion()
+{
+    BancPasserelle banc;
+    QVERIFY(banc.connecter());
+    banc.compatibilite->appliquerLecture(banc.meta);
+    QTRY_COMPARE_WITH_TIMEOUT(banc.passerelle->etat(), GatewayClient::Etat::Pret, 10000);
+    const int tickets = banc.tickets();
+    banc.session->seDeconnecter();
+    QVERIFY(!banc.session->estConnectee());
+    QCOMPARE(banc.passerelle->etat(), GatewayClient::Etat::Deconnecte);
+    banc.compatibilite->appliquerLecture(banc.meta); // Publication tardive d'une page.
+    QCOMPARE(banc.passerelle->etat(), GatewayClient::Etat::Deconnecte);
+    QCOMPARE(banc.tickets(), tickets);
+}
+
+void TestOubliLocal::passerelleRefuseeNestPasRelanceeParLeVerdict()
+{
+    BancPasserelle banc;
+    banc.serveur.fermer4403 = 1;
+    QVERIFY(banc.connecter());
+    banc.compatibilite->appliquerLecture(banc.meta);
+    QTRY_COMPARE_WITH_TIMEOUT(banc.passerelle->etat(), GatewayClient::Etat::Refuse, 10000);
+    QCOMPARE(banc.tickets(), 1);
+    banc.compatibilite->appliquerLecture(banc.meta);
+    QCOMPARE(banc.passerelle->etat(), GatewayClient::Etat::Refuse);
+    QCOMPARE(banc.tickets(), 1); // Le refus exige toujours un geste explicite.
+}
+
+void TestOubliLocal::passerelleNeRouvrePasApresArret()
+{
+    BancPasserelle banc;
+    QVERIFY(banc.connecter());
+    banc.compatibilite->appliquerLecture(banc.meta);
+    QTRY_COMPARE_WITH_TIMEOUT(banc.passerelle->etat(), GatewayClient::Etat::Pret, 10000);
+    const int tickets = banc.tickets();
+    banc.application.shutdown();
+    QVERIFY(banc.session->estConnectee()); // L'arrêt ne révoque pas la session.
+    banc.compatibilite->appliquerLecture(banc.meta);
+    QCOMPARE(banc.passerelle->etat(), GatewayClient::Etat::Deconnecte);
+    QCOMPARE(banc.tickets(), tickets);
 }
 
 QTEST_MAIN(TestOubliLocal)

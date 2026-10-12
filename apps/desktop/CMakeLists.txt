@@ -212,6 +212,8 @@ set(ACP_CORE_SOURCES
     src/viewmodels/PageViewModel.h
     src/viewmodels/PosteViewModel.cpp
     src/viewmodels/PosteViewModel.h
+    src/viewmodels/PreparationHermesViewModel.cpp
+    src/viewmodels/PreparationHermesViewModel.h
     src/viewmodels/ProjetsViewModel.cpp
     src/viewmodels/ProjetsViewModel.h
     src/viewmodels/QuestionsViewModel.cpp

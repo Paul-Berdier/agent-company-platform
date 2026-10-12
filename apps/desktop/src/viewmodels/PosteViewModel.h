@@ -58,6 +58,8 @@ class PosteViewModel : public PageViewModel
     Q_PROPERTY(bool peutRevoquer READ peutRevoquer NOTIFY posteChange)
     Q_PROPERTY(QVariantMap executant READ executant NOTIFY executantChange)
     Q_PROPERTY(QVariantMap assistantMachine READ assistantMachine NOTIFY posteChange)
+    Q_PROPERTY(QVariantMap preparation READ preparation NOTIFY preparationChange)
+    Q_PROPERTY(bool resumeVisible READ resumeVisible WRITE setResumeVisible NOTIFY resumeVisibleChange)
     Q_PROPERTY(QVariantList assistants READ assistants NOTIFY posteChange)
     Q_PROPERTY(QString verificationEtat READ verificationEtat NOTIFY verificationChange)
     Q_PROPERTY(QString verificationMessage READ verificationMessage NOTIFY verificationChange)
@@ -108,6 +110,13 @@ public:
     [[nodiscard]] QString lecture() const;
     [[nodiscard]] QString erreur() const;
 
+    /*! Résumé informatif : etat, cle, libelle, detail, action, actionLibelle, fournisseur,
+        connectes, manquants, aVerifier. Les listes contiennent codex/claude ; une connexion
+        observée ne garantit ni le routage, ni les quotas, ni les droits d'un dépôt.
+        action est une recommandation de navigation, jamais une mutation automatique. */
+    [[nodiscard]] QVariantMap preparation() const;
+    [[nodiscard]] bool resumeVisible() const { return m_resumeVisible; }
+    void setResumeVisible(bool visible);
     [[nodiscard]] QVariantMap assistantMachine() const;
     [[nodiscard]] QVariantList assistants() const;
     [[nodiscard]] const QString &verificationEtat() const { return m_verificationEtat; }
@@ -132,6 +141,7 @@ public:
 
     // --- Fonctions pures (tests) ------------------------------------------------------------
     [[nodiscard]] static QVariantMap construireEtat(const QJsonObject &vue);
+    [[nodiscard]] static QVariantMap construirePreparation(const QJsonObject &vue, bool lue, const QString &erreur);
     [[nodiscard]] static QVariantMap construireMachine(const QJsonObject &vue);
     [[nodiscard]] static QVariantMap construireInventaire(const QJsonObject &vue);
     /*!
@@ -147,6 +157,8 @@ public:
 
 signals:
     void posteChange();
+    void preparationChange();
+    void resumeVisibleChange();
     void executantChange();
     void codeChange();
     void decompteChange();
@@ -161,6 +173,7 @@ protected:
 
 private:
     void lire(const QJsonObject &vue);
+    void majSondage();
     void apresGeste();
     void evaluerVerification();
     void oublierVerification();
@@ -177,6 +190,7 @@ private:
     Horloge m_horloge;
     Presse m_presse;
     bool m_lue = false;
+    bool m_resumeVisible = false;
     QJsonObject m_vue;
     QVariantMap m_etat;
     QVariantMap m_machine;

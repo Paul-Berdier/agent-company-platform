@@ -17,6 +17,10 @@
 #include "auth/SessionHermes.h"
 #include "storage/JetonsCoffre.h"
 #include "storage/SettingsStore.h"
+#include "commands/CommandRegistry.h"
+#include "navigation/NavigationModel.h"
+#include "services/HealthService.h"
+#include "viewmodels/ShellViewModel.h"
 #include "support/CoffreMemoire.h"
 #include "support/FauxHermes.h"
 #include "support/NavigateurTest.h"
@@ -43,7 +47,11 @@ struct Banc
     CoffreMemoire coffre;
     SettingsStore reglages;
     ApiClient client;
+    HealthService sante{&client};
+    NavigationModel navigation;
+    CommandRegistry commandes;
     std::unique_ptr<SessionHermes> session;
+    std::unique_ptr<ShellViewModel> shell;
     Navigateur navigateur;
     QDateTime horloge = QDateTime::currentDateTimeUtc();
 
@@ -56,6 +64,7 @@ struct Banc
             qFatal("URL du faux Hermes refusée");
         }
         session = std::make_unique<SessionHermes>(&client, &coffre, &reglages);
+        shell = std::make_unique<ShellViewModel>(&client, session.get(), &sante, &navigation, &commandes, &reglages);
         session->flux()->setOuvreurNavigateur(navigateur.ouvreur());
         session->setRecul(Backoff(std::chrono::milliseconds(50), std::chrono::milliseconds(100), 0));
     }
@@ -66,6 +75,14 @@ struct Banc
     {
         EntreeJetons entree;
         return JetonsCoffre::decoder(coffre.entrees.value(cle()), entree) ? entree.jeton : QByteArray();
+    }
+
+    bool memoriserSessionPrecedente()
+    {
+        const QJsonObject jetons = serveur.emettreJetons();
+        return JetonsCoffre(&coffre).memoriser(serveur.url(), QStringLiteral("self-hosted"),
+                                              QStringLiteral("proprietaire-test"),
+                                              jetons.value(QStringLiteral("refresh_token")).toString().toUtf8()).ok;
     }
 
     bool connecter()
@@ -110,6 +127,10 @@ private slots:
     void refresh503GardeLeJetonPuisPropose();
     void echecDEcritureDuCoffre();
     void demarrageAvecJetonMemorise();
+    void restaurationAttendIdentiteConfirmee();
+    void restaurationEnEchec_data();
+    void restaurationEnEchec();
+    void restaurationTardiveApresChangementDeServeur();
     void deconnexionRevoqueEtOublie();
     void consentementRetireEffaceLEntree();
     void changementDeServeurPurgeLAncienneEntree();
@@ -162,8 +183,18 @@ void TestSessionHermes::rotationAuCoffreAvantLeSignal()
         serveurAuSignal = banc.serveur.jetonRafraichissementCourant;
     });
     QSignalSpy renouveles(banc.session.get(), &SessionHermes::jetonsRenouveles);
+    banc.serveur.delaiRefreshMs = 100;
+    QVERIFY(banc.session->identiteConfirmee());
     banc.session->rafraichir();
+    QCOMPARE(banc.session->etat(), SessionStatus::Rafraichissement);
+    QVERIFY(banc.session->identiteConfirmee());
+    QVERIFY(!banc.session->restaurationInitiale());
+    QVERIFY(!banc.shell->isConnectionRequired());
+    banc.session->seConnecter();
+    QCOMPARE(banc.session->etat(), SessionStatus::Rafraichissement);
     QVERIFY(renouveles.wait(5000));
+    QVERIFY(!banc.shell->isConnectionRequired());
+    QCOMPARE(banc.serveur.compter("GET", QStringLiteral("/auth/native/authorize")), 1);
     QVERIFY(serveurAuSignal != ancien);
     QCOMPARE(auCoffreAuSignal, serveurAuSignal);
     QVERIFY(banc.serveur.jetonsRafraichissementTournes.contains(ancien));
@@ -227,6 +258,8 @@ void TestSessionHermes::refresh503GardeLeJetonPuisPropose()
     banc.serveur.refresh503 = 100000;
     banc.session->rafraichir();
     QTRY_COMPARE(banc.session->etat(), SessionStatus::FournisseurInjoignable);
+    QVERIFY(banc.session->identiteConfirmee());
+    QVERIFY(!banc.shell->isConnectionRequired());
     QVERIFY(banc.session->derniereErreur().contains(QStringLiteral("Le jeton est gardé")));
     // Les nouveaux essais partent seuls (recul) ; l'horloge avance de 3 minutes.
     banc.horloge = banc.horloge.addSecs(180);
@@ -289,7 +322,122 @@ void TestSessionHermes::demarrageAvecJetonMemorise()
     Banc sansConsentement(false);
     sansConsentement.session->restaurer();
     QCOMPARE(sansConsentement.session->etat(), SessionStatus::Deconnectee);
+    QVERIFY(!sansConsentement.session->identiteConfirmee());
+    QVERIFY(!sansConsentement.session->restaurationInitiale());
+    QVERIFY(sansConsentement.shell->isConnectionRequired());
     QCOMPARE(sansConsentement.coffre.lectures, 0);
+}
+
+void TestSessionHermes::restaurationAttendIdentiteConfirmee()
+{
+    Banc banc;
+    QVERIFY(banc.memoriserSessionPrecedente());
+    banc.serveur.delaiRefreshMs = 100;
+    banc.serveur.route("GET", QStringLiteral("/api/auth/me"), [](const RequeteRecue &) {
+        auto reponse = ReponseFaux::json(200, QJsonObject{
+            {QStringLiteral("user_id"), QStringLiteral("proprietaire-test")},
+            {QStringLiteral("display_name"), QStringLiteral("Propriétaire de test")}});
+        reponse.delaiMs = 300;
+        return reponse;
+    });
+    QSignalSpy etablie(banc.session.get(), &SessionHermes::sessionEtablie);
+    QSignalSpy changementShell(banc.shell.get(), &ShellViewModel::shellStateChanged);
+    banc.session->restaurer();
+    QCOMPARE(banc.session->etat(), SessionStatus::Rafraichissement);
+    QVERIFY(banc.session->restaurationInitiale());
+    QVERIFY(!banc.session->identiteConfirmee());
+    QVERIFY(banc.shell->isConnectionRequired());
+    // Même un appel direct ne peut remplacer la rotation par une nouvelle connexion.
+    banc.session->seConnecter();
+    QCOMPARE(banc.session->etat(), SessionStatus::Rafraichissement);
+    QTRY_COMPARE(banc.serveur.compter("GET", QStringLiteral("/api/auth/me")), 1);
+    QCOMPARE(banc.session->etat(), SessionStatus::Echange);
+    QVERIFY(!banc.session->jetonAcces().isEmpty());
+    QVERIFY(!banc.session->identiteConfirmee());
+    QVERIFY(banc.shell->isConnectionRequired());
+    QVERIFY(banc.session->restaurationInitiale());
+    banc.session->seConnecter();
+    QCOMPARE(banc.session->etat(), SessionStatus::Echange);
+    QTRY_COMPARE(etablie.count(), 1);
+    QVERIFY(banc.session->identiteConfirmee());
+    QVERIFY(!banc.session->restaurationInitiale());
+    QVERIFY(!banc.shell->isConnectionRequired());
+    QVERIFY(!changementShell.isEmpty());
+    QCOMPARE(banc.serveur.compter("POST", QStringLiteral("/auth/native/refresh")), 1);
+    QCOMPARE(banc.serveur.compter("GET", QStringLiteral("/auth/native/authorize")), 0);
+    QCOMPARE(banc.serveur.compter("GET", QStringLiteral("/api/auth/providers")), 0);
+}
+
+void TestSessionHermes::restaurationEnEchec_data()
+{
+    QTest::addColumn<int>("panne");
+    QTest::addColumn<int>("etatAttendu");
+    QTest::newRow("fournisseur-injoignable") << 503 << static_cast<int>(SessionStatus::FournisseurInjoignable);
+    QTest::newRow("jeton-expire") << 401 << static_cast<int>(SessionStatus::Expiree);
+    QTest::newRow("identite-incoherente") << 200 << static_cast<int>(SessionStatus::Refusee);
+}
+
+void TestSessionHermes::restaurationEnEchec()
+{
+    QFETCH(int, panne);
+    QFETCH(int, etatAttendu);
+    Banc banc;
+    QVERIFY(banc.memoriserSessionPrecedente());
+    const QByteArray ancien = banc.jetonAuCoffre();
+    banc.session->setRecul(Backoff(std::chrono::seconds(60), std::chrono::seconds(60), 0));
+    banc.serveur.refresh503 = panne == 503 ? 1 : 0;
+    banc.serveur.refreshExpire = panne == 401;
+    if (panne == 200) {
+        banc.serveur.route("GET", QStringLiteral("/api/auth/me"), [](const RequeteRecue &) {
+            return ReponseFaux::json(200, QJsonObject{{QStringLiteral("user_id"), QStringLiteral("autre-identite")}});
+        });
+    }
+    QSignalSpy etablie(banc.session.get(), &SessionHermes::sessionEtablie);
+    banc.session->restaurer();
+    QTRY_COMPARE(banc.session->etatValeur(), etatAttendu);
+    QCOMPARE(etablie.count(), 0);
+    QVERIFY(!banc.session->identiteConfirmee());
+    QVERIFY(banc.shell->isConnectionRequired());
+    QVERIFY(!banc.session->derniereErreur().isEmpty());
+    if (panne == 503) {
+        QCOMPARE(banc.jetonAuCoffre(), ancien);
+        QVERIFY(banc.session->restaurationInitiale());
+        QVERIFY(!banc.session->estOccupee());
+        // Le geste de reprise réutilise la connexion conservée, sans navigateur.
+        banc.session->reessayer();
+        QTRY_COMPARE(etablie.count(), 1);
+        QVERIFY(banc.session->identiteConfirmee());
+        QVERIFY(!banc.shell->isConnectionRequired());
+        QVERIFY(!banc.session->restaurationInitiale());
+    } else {
+        QVERIFY(banc.jetonAuCoffre().isEmpty());
+        QVERIFY(!banc.session->restaurationInitiale());
+    }
+    QCOMPARE(banc.serveur.compter("GET", QStringLiteral("/auth/native/authorize")), 0);
+}
+
+void TestSessionHermes::restaurationTardiveApresChangementDeServeur()
+{
+    Banc banc;
+    QVERIFY(banc.memoriserSessionPrecedente());
+    banc.serveur.route("GET", QStringLiteral("/api/auth/me"), [](const RequeteRecue &) {
+        auto reponse = ReponseFaux::json(200, QJsonObject{{QStringLiteral("user_id"), QStringLiteral("proprietaire-test")}});
+        reponse.delaiMs = 300;
+        return reponse;
+    });
+    QSignalSpy etablie(banc.session.get(), &SessionHermes::sessionEtablie);
+    banc.session->restaurer();
+    QTRY_COMPARE(banc.serveur.compter("GET", QStringLiteral("/api/auth/me")), 1);
+    QCOMPARE(banc.session->etat(), SessionStatus::Echange);
+    QVERIFY(!banc.client.setBaseUrl(QUrl(QStringLiteral("https://autre-hermes.test"))).isError());
+    QTest::qWait(350); // L'ancienne réponse arrive après le changement de serveur.
+    QCOMPARE(etablie.count(), 0);
+    QCOMPARE(banc.session->etat(), SessionStatus::Deconnectee);
+    QVERIFY(!banc.session->identiteConfirmee());
+    QVERIFY(!banc.session->restaurationInitiale());
+    QVERIFY(banc.shell->isConnectionRequired());
+    QVERIFY(banc.session->jetonAcces().isEmpty());
+    QVERIFY(banc.jetonAuCoffre().isEmpty());
 }
 
 void TestSessionHermes::deconnexionRevoqueEtOublie()
@@ -301,6 +449,8 @@ void TestSessionHermes::deconnexionRevoqueEtOublie()
     banc.session->seDeconnecter();
     QCOMPARE(perdue.count(), 1);
     QCOMPARE(banc.session->etat(), SessionStatus::Deconnectee);
+    QVERIFY(!banc.session->identiteConfirmee());
+    QVERIFY(banc.shell->isConnectionRequired());
     QVERIFY(banc.coffre.entrees.isEmpty());
     QVERIFY(banc.session->jetonAcces().isEmpty());
     QTRY_COMPARE(banc.serveur.compter("POST", QStringLiteral("/auth/logout")), 1);
@@ -341,6 +491,8 @@ void TestSessionHermes::changementDeServeurPurgeLAncienneEntree()
     QVERIFY(!banc.client.setBaseUrl(QUrl(QStringLiteral("https://autre-hermes.test"))).isError());
     QCOMPARE(perdue.count(), 1);
     QCOMPARE(banc.session->etat(), SessionStatus::Deconnectee);
+    QVERIFY(!banc.session->identiteConfirmee());
+    QVERIFY(banc.shell->isConnectionRequired());
     QVERIFY(banc.coffre.entrees.isEmpty());
     QVERIFY(banc.session->jetonAcces().isEmpty());
 }

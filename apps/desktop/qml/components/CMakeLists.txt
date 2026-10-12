@@ -12,6 +12,7 @@ acp_add_qml_module(
         Carte.qml
         EmptyState.qml
         ExecutionDetails.qml
+        HermesConnectionCard.qml
         EtatLecture.qml
         KeyValueRow.qml
         PastilleCompteur.qml

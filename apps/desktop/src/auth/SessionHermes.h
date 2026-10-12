@@ -56,6 +56,8 @@ class SessionHermes : public QObject
     Q_PROPERTY(int etat READ etatValeur NOTIFY etatChange)
     Q_PROPERTY(QString libelleEtat READ libelleEtat NOTIFY etatChange)
     Q_PROPERTY(bool connectee READ estConnectee NOTIFY etatChange)
+    Q_PROPERTY(bool identiteConfirmee READ identiteConfirmee NOTIFY identiteChange)
+    Q_PROPERTY(bool restaurationInitiale READ restaurationInitiale NOTIFY etatChange)
     Q_PROPERTY(bool occupee READ estOccupee NOTIFY etatChange)
     Q_PROPERTY(QString derniereErreur READ derniereErreur NOTIFY etatChange)
     Q_PROPERTY(bool navigateurNonOuvert READ navigateurNonOuvert NOTIFY etatChange)
@@ -88,6 +90,10 @@ public:
     [[nodiscard]] QString libelleEtat() const;
     [[nodiscard]] bool estConnectee() const { return m_etat == SessionStatus::Connectee; }
     [[nodiscard]] bool estOccupee() const;
+    /*! Identité ACP confirmée dans ce processus ; conservée pendant une rotation, effacée à la perte de session. */
+    [[nodiscard]] bool identiteConfirmee() const { return m_identiteLue; }
+    /*! Reprise depuis le coffre encore en attente de confirmation de l’identité ACP. */
+    [[nodiscard]] bool restaurationInitiale() const { return m_restaurationInitiale; }
     [[nodiscard]] const QString &derniereErreur() const { return m_derniereErreur; }
     [[nodiscard]] bool navigateurNonOuvert() const;
     [[nodiscard]] int secondesRestantes() const;
@@ -174,6 +180,7 @@ private:
     QString m_nomAffiche;
     QString m_courriel;
     bool m_identiteLue = false;
+    bool m_restaurationInitiale = false;
     bool m_rafraichissementEnVol = false;
     QPointer<ApiCall> m_appelRafraichissement;
     int m_echecsConsecutifs = 0;

@@ -29,6 +29,7 @@ class GatewayClient;
 class HealthService;
 class NavigationModel;
 class PosteViewModel;
+class PreparationHermesViewModel;
 class ProjetsViewModel;
 class QuestionsViewModel;
 class QuotasViewModel;
@@ -98,6 +99,7 @@ private:
     ProjetsViewModel *m_projets = nullptr;
     QuestionsViewModel *m_questions = nullptr;
     PosteViewModel *m_poste = nullptr;
+    PreparationHermesViewModel *m_preparationHermes = nullptr;
     QuotasViewModel *m_quotas = nullptr;
     RoutageViewModel *m_routage = nullptr;
     SauvegardeViewModel *m_sauvegarde = nullptr;

@@ -14,7 +14,7 @@ Rectangle {
     property bool development: Shell.allowsInsecureLoopback
     readonly property bool wide: width >= 1050
     readonly property bool lienUtilisable: Health.linkStatus === LinkStatus.Online || Health.linkStatus === LinkStatus.Degraded
-    readonly property bool enAttente: Session.etat === SessionStatus.AttenteNavigateur || Session.etat === SessionStatus.Echange
+    readonly property bool enAttente: Session.occupee
 
     Rectangle {
         visible: page.wide
@@ -82,13 +82,21 @@ Rectangle {
             AcpButton { objectName: "connexion-se-connecter"; label: qsTr("Se connecter avec le navigateur"); iconName: "chevronRight"; primary: true; commandId: "session.signIn"; Layout.fillWidth: true }
             Text { textFormat: Text.PlainText;
                 visible: page.enAttente; Layout.fillWidth: true; wrapMode: Text.WordWrap
-                text: Session.etat === SessionStatus.Echange ? qsTr("Connexion reçue, vérification…") : qsTr("Terminez la connexion dans votre navigateur · %1 s restantes.").arg(Session.secondesRestantes)
+                text: Session.restaurationInitiale ? qsTr("Reprise de votre session…")
+                    : Session.etat === SessionStatus.Echange ? qsTr("Connexion reçue, vérification…")
+                    : qsTr("Terminez la connexion dans votre navigateur · %1 s restantes.").arg(Session.secondesRestantes)
                 color: Colors.accentPrimary; font.family: Type.prose.family; font.pixelSize: 14
             }
             RowLayout {
-                visible: page.enAttente; spacing: Space.space4
+                visible: page.enAttente && !Session.restaurationInitiale; spacing: Space.space4
                 AcpButton { objectName: "connexion-annuler"; label: qsTr("Annuler"); onTriggered: Session.annulerConnexion() }
                 AcpButton { objectName: "connexion-copier-lien"; visible: Session.etat === SessionStatus.AttenteNavigateur; label: qsTr("Copier le lien"); onTriggered: Shell.notify(Session.copierLienConnexion() ? qsTr("Lien de connexion copié.") : qsTr("Le lien n'a pas pu être copié.")) }
+            }
+            AcpButton {
+                objectName: "connexion-retenter-reprise"
+                visible: Session.restaurationInitiale && !Session.occupee
+                label: qsTr("Retenter la reprise de session")
+                onTriggered: Session.reessayer()
             }
             Text { textFormat: Text.PlainText; visible: Session.navigateurNonOuvert; text: qsTr("Le navigateur ne s'est pas ouvert. Copiez le lien et ouvrez-le dans un navigateur de ce poste."); Layout.fillWidth: true; wrapMode: Text.WordWrap; color: Status.statusDegradedForeground; font.pixelSize: 14 }
             Text { textFormat: Text.PlainText; visible: Session.derniereErreur.length > 0; text: Session.derniereErreur; Layout.fillWidth: true; wrapMode: Text.WordWrap; color: Status.statusFailedForeground; font.pixelSize: 14; Accessible.role: Accessible.AlertMessage }

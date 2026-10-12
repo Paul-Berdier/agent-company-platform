@@ -70,13 +70,13 @@ bool ShellViewModel::isFirstRun() const
     return !m_client->isConfigured();
 }
 
-bool ShellViewModel::connectionRequired(bool serverConfigured, SessionStatus::State session)
+bool ShellViewModel::connectionRequired(bool serverConfigured, SessionStatus::State session, bool identiteConfirmee)
 {
-    if (!serverConfigured) {
+    if (!serverConfigured || !identiteConfirmee) {
         return true;
     }
-    // Une session établie reste affichée pendant une rotation ou une coupure : les
-    // dernières données reçues restent visibles, datées, et la barre d'état dit pourquoi.
+    // Après confirmation, une rotation ou une coupure garde les dernières données datées.
+    // La restauration initiale reste sur l’écran de connexion jusqu’à lireIdentite().
     switch (session) {
     case SessionStatus::Connectee:
     case SessionStatus::Rafraichissement:
@@ -96,7 +96,7 @@ bool ShellViewModel::connectionRequired(bool serverConfigured, SessionStatus::St
 
 bool ShellViewModel::isConnectionRequired() const
 {
-    return connectionRequired(m_client->isConfigured(), sessionState());
+    return connectionRequired(m_client->isConfigured(), sessionState(), m_session->identiteConfirmee());
 }
 
 bool ShellViewModel::allowsInsecureLoopback() const
@@ -222,7 +222,7 @@ void ShellViewModel::refreshCommandContext()
     const SessionStatus::State etat = m_session->etat();
     context.extra.insert(QStringLiteral("configured"), m_client->isConfigured());
     context.extra.insert(QStringLiteral("sessionBusy"), m_session->estOccupee());
-    context.extra.insert(QStringLiteral("sessionPresent"), !connectionRequired(m_client->isConfigured(), etat));
+    context.extra.insert(QStringLiteral("sessionPresent"), !connectionRequired(m_client->isConfigured(), etat, m_session->identiteConfirmee()));
     context.extra.insert(QStringLiteral("sessionStalled"),
                          etat == SessionStatus::FournisseurInjoignable || etat == SessionStatus::HorsLigne);
     m_commands->setContext(context);

@@ -25,6 +25,7 @@
 #include "viewmodels/DiagnosticsViewModel.h"
 #include "viewmodels/DiscussionViewModel.h"
 #include "viewmodels/PosteViewModel.h"
+#include "viewmodels/PreparationHermesViewModel.h"
 #include "viewmodels/ProjetsViewModel.h"
 #include "viewmodels/QuestionsViewModel.h"
 #include "viewmodels/QuotasViewModel.h"
@@ -113,6 +114,9 @@ Application::Application(QObject *parent, const QString &nomCoffre)
     m_projets = new ProjetsViewModel(m_client, m_greffon.get(), m_flux, this);
     m_questions = new QuestionsViewModel(m_client, m_greffon.get(), m_flux, this);
     m_poste = new PosteViewModel(m_greffon.get(), m_compatibilite, m_flux, this);
+    m_preparationHermes = new PreparationHermesViewModel(m_client, m_passerelle, this);
+    connect(m_session, &SessionHermes::sessionEtablie, m_preparationHermes, &PreparationHermesViewModel::activer);
+    connect(m_session, &SessionHermes::sessionPerdue, m_preparationHermes, &PreparationHermesViewModel::oublier);
     m_quotas = new QuotasViewModel(m_greffon.get(), m_flux, this);
     m_routage = new RoutageViewModel(m_client, m_greffon.get(), m_flux, this);
     // Sauvegarde : chiffrée par DPAPI pour la session Windows courante (format ACPB1).
@@ -123,10 +127,8 @@ Application::Application(QObject *parent, const QString &nomCoffre)
     // La compatibilité se lit en session (/v1/meta est derrière la porte de Hermes).
     connect(m_session, &SessionHermes::sessionEtablie, m_compatibilite, &CompatibiliteHermes::verifier);
     connect(m_session, &SessionHermes::sessionPerdue, m_compatibilite, &CompatibiliteHermes::oublier);
-    // Passerelle JSON-RPC : ouverte dès la session établie (sessions.changed, demandes de
-    // l'agent), fermée à sa perte ; coupée si le contrat JSON-RPC servi n'est pas celui de la
-    // station.
-    connect(m_session, &SessionHermes::sessionEtablie, m_passerelle, &GatewayClient::ouvrir);
+    // Passerelle JSON-RPC : le verdict ci-dessous autorise l'ouverture après la session
+    // établie ; sa perte ferme le canal, même si une vérification reste en vol.
     connect(m_session, &SessionHermes::sessionPerdue, m_passerelle, &GatewayClient::fermer);
     // Temps réel : sondage léger, veille du kanban et pages actives suivent la session.
     connect(m_session, &SessionHermes::sessionEtablie, m_flux, &EventStreamService::demarrer);
@@ -183,8 +185,18 @@ Application::Application(QObject *parent, const QString &nomCoffre)
         const CompatibilityStatus::State etat = m_compatibilite->etat();
         const bool verdictRendu = etat != CompatibilityStatus::NonVerifiee
             && etat != CompatibilityStatus::Verification && etat != CompatibilityStatus::Injoignable;
-        if (verdictRendu && !m_compatibilite->discussionDisponible()) {
+        if (!verdictRendu) {
+            return; // Une vérification en cours ou injoignable ne change pas le canal existant.
+        }
+        if (!m_compatibilite->discussionDisponible()) {
             m_passerelle->fermer();
+        } else if (m_session->estConnectee() && m_flux->sessionOuverte()
+                   && m_passerelle->etat() == GatewayClient::Etat::Deconnecte) {
+            // Le contrat peut redevenir compatible sans nouvelle authentification. Une
+            // fermeture de compatibilité a arrêté les reprises : il faut rouvrir ici.
+            // Les sondages ne relancent ni un canal actif, ni son recul, ni un refus.
+            // Le temps réel arrêté interdit aussi une réouverture tardive après shutdown().
+            m_passerelle->ouvrir();
         }
     });
     m_updates = new UpdateService(version(), this);
@@ -246,6 +258,7 @@ void Application::registerQmlTypes()
     qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Projets", m_projets);
     qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Questions", m_questions);
     qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Poste", m_poste);
+    qmlRegisterSingletonInstance(kQmlUri, 1, 0, "PreparationHermes", m_preparationHermes);
     qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Quotas", m_quotas);
     qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Routage", m_routage);
     qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Sauvegarde", m_sauvegarde);
@@ -296,6 +309,7 @@ void Application::start()
 
 void Application::shutdown()
 {
+    m_preparationHermes->oublier();
     m_flux->arreter();
     m_passerelle->fermer();
     m_health->setPeriodicProbeEnabled(false);
