@@ -78,6 +78,8 @@ Vous pouvez conserver l'ancien dossier jusqu'à cette vérification.
 Ne lancez pas simultanément l'ancienne et la nouvelle station : elles partagent les
 préférences du même profil Windows.
 
+**La station et le poste ont des mises à jour séparées.** Le Setup desktop ne remplace ni le poste Windows facultatif `acp-poste`, ni ses copies de Codex et Claude Code, ni l'exécutant Railway. Pour une installation Windows existante, reportez-vous à la [procédure du poste](../apps/poste/README.md#installation-vous-seul-sous-luac), qui commence par une répétition à blanc. Le fichier `poste.toml` existant est conservé ; un changement de version des CLI demande le contrôle décrit dans cette procédure. La mise à jour de l'exécutant Railway relève du [manuel d'exploitation (§ 6.5)](exploitation.md#65-authelia-binaires-de-lexécutant-acp-lui-même).
+
 ## 4. Vérifier la reprise
 
 1. Ouvrez **Réglages → Mises à jour** : la version affichée doit être **1.1.0**.

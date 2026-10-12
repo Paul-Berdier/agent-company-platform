@@ -85,6 +85,9 @@ Vérifiez son empreinte avant l'import :
 $bundleAcp = Read-Host 'Chemin local du fichier .bundle'
 $empreinteAcp = Read-Host 'SHA-256 affiché par acp-poste bundle'
 $ErrorActionPreference = 'Stop'
+$fichierBundleAcp = Get-Item -LiteralPath $bundleAcp
+if ($fichierBundleAcp -isnot [System.IO.FileInfo]) { throw 'Le chemin doit désigner un fichier bundle.' }
+$bundleAcp = $fichierBundleAcp.FullName
 if ($empreinteAcp -notmatch '^[0-9a-fA-F]{64}$') { throw 'Empreinte attendue invalide.' }
 $empreinteLocaleAcp = (Get-FileHash -LiteralPath $bundleAcp -Algorithm SHA256).Hash
 if (-not $empreinteLocaleAcp.Equals($empreinteAcp, [StringComparison]::OrdinalIgnoreCase)) {
@@ -114,7 +117,7 @@ if ($LASTEXITCODE -eq 0) { throw 'Cette branche locale existe déjà : choisir u
 if ($LASTEXITCODE -ne 1) { throw 'Impossible de vérifier les branches du dépôt local.' }
 git -C $depotAcp bundle verify $bundleAcp
 if ($LASTEXITCODE -ne 0) { throw 'Bundle non vérifié : import arrêté.' }
-git -C $depotAcp fetch --no-tags $bundleAcp "${brancheDistanteAcp}:refs/heads/$brancheLocaleAcp"
+git -C $depotAcp fetch --no-tags -- $bundleAcp "${brancheDistanteAcp}:refs/heads/$brancheLocaleAcp"
 if ($LASTEXITCODE -ne 0) { throw 'Import Git refusé.' }
 $teteLocaleAcp = (git -C $depotAcp rev-parse "refs/heads/$brancheLocaleAcp").Trim()
 if ($LASTEXITCODE -ne 0 -or $teteLocaleAcp -cne $teteAttendueAcp.ToLowerInvariant()) {
@@ -133,6 +136,7 @@ votre checkout habituel et ses modifications. Dans la même session PowerShell :
 
 ```powershell
 $dossierRevueAcp = Read-Host 'Chemin d un nouveau dossier pour la revue'
+$dossierRevueAcp = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($dossierRevueAcp)
 if (Test-Path -LiteralPath $dossierRevueAcp) { throw 'Ce dossier existe déjà : choisir un nouveau chemin.' }
 git -C $depotAcp worktree add $dossierRevueAcp $brancheLocaleAcp
 if ($LASTEXITCODE -ne 0) { throw 'Création du dossier de revue refusée.' }
@@ -141,6 +145,15 @@ if ($LASTEXITCODE -ne 0) { throw 'Création du dossier de revue refusée.' }
 Ouvrez ce dossier dans votre éditeur, lisez le diff et exécutez les vérifications
 propres au projet. Vous choisissez ensuite le push et la PR dans ce dépôt. ACP n'a
 ni publié le code sur GitHub ni fusionné le résultat en effectuant cette récupération.
+
+## 5. Clore l'accès Railway
+
+Dès que les opérations distantes sont terminées, même en cas d'échec ou d'interruption,
+quittez la session SSH avec `exit` si elle est encore ouverte. Dans votre console
+d'administration Railway, retirez la clé dédiée avec `railway ssh keys remove --2fa-code <code>`
+(en remplaçant `<code>` par votre code de second facteur), vérifiez que `railway ssh keys`
+est vide, puis exécutez `railway logout`. Une déconnexion seule ne retire pas la clé.
+Ce sont les gestes du propriétaire décrits au [§ 11 du manuel Railway](refonte/railway.md#11-sécurité-du-compte-railway) ; ACP ne les exécute pas.
 
 ## Retrouver le travail demain
 

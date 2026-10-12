@@ -629,6 +629,9 @@ void TestPoste::guidesCopientSeulementDesCommandesConnues()
     banc.ouvrirLaPage(QStringLiteral("poste-en-ligne.json"));
     banc.poste.ouvrirGuide(QStringLiteral("codex"));
     const QVariantList windows = banc.poste.guide().value(QStringLiteral("etapes")).toList();
+    for (const QVariant &etape : windows) {
+        QVERIFY(!etape.toMap().value(QStringLiteral("texte")).toString().contains(QStringLiteral("railway"), Qt::CaseInsensitive));
+    }
     QCOMPARE(windows.at(0).toMap().value(QStringLiteral("commande")).toString(),
              QStringLiteral("runas /user:acp-poste \"powershell -NoProfile\""));
     banc.poste.copierEtape(1);
@@ -639,13 +642,27 @@ void TestPoste::guidesCopientSeulementDesCommandesConnues()
     banc.poste.ouvrirGuide(QStringLiteral("claude"));
     QCOMPARE(banc.poste.guide().value(QStringLiteral("etapes")).toList().first().toMap()
                  .value(QStringLiteral("commande")).toString(), QStringLiteral("claude setup-token"));
+    for (const QVariant &etape : banc.poste.guide().value(QStringLiteral("etapes")).toList()) {
+        QVERIFY(!etape.toMap().value(QStringLiteral("texte")).toString().contains(QStringLiteral("railway"), Qt::CaseInsensitive));
+    }
 
     banc.vue = fixture(QStringLiteral("poste-assistants-railway.json"));
     banc.relire();
     QVERIFY(banc.poste.guide().isEmpty());
     banc.poste.ouvrirGuide(QStringLiteral("codex"));
     QStringList commandes;
-    for (const QVariant &etape : banc.poste.guide().value(QStringLiteral("etapes")).toList()) {
+    const QVariantList railway = banc.poste.guide().value(QStringLiteral("etapes")).toList();
+    const QVariantMap cloture = railway.last().toMap();
+    QCOMPARE(cloture.value(QStringLiteral("titre")).toString(), QStringLiteral("Clore l'accès Railway"));
+    const QString instructions = cloture.value(QStringLiteral("texte")).toString();
+    QVERIFY(instructions.contains(QStringLiteral("railway ssh keys remove --2fa-code <code>")));
+    QVERIFY(instructions.contains(QStringLiteral("railway ssh keys est vide")));
+    QVERIFY(instructions.contains(QStringLiteral("railway logout")));
+    QVERIFY(cloture.value(QStringLiteral("commande")).toString().isEmpty());
+    const auto copiesAvantCloture = banc.copies.size();
+    banc.poste.copierEtape(static_cast<int>(railway.size()) - 1);
+    QCOMPARE(banc.copies.size(), copiesAvantCloture);
+    for (const QVariant &etape : railway) {
         const QString commande = etape.toMap().value(QStringLiteral("commande")).toString();
         if (!commande.isEmpty()) {
             commandes.append(commande);
@@ -659,9 +676,30 @@ void TestPoste::guidesCopientSeulementDesCommandesConnues()
     banc.poste.copierEtape(0);
     QCOMPARE(banc.copies.last(), commandes.first());
     QVERIFY(banc.poste.copieGuide().contains(QStringLiteral("complétez")));
+    banc.poste.ouvrirGuide(QStringLiteral("claude"));
+    QCOMPARE(banc.poste.guide().value(QStringLiteral("etapes")).toList().last().toMap(), cloture);
     banc.poste.ouvrirGuide(QStringLiteral("hermes"));
     for (const QVariant &etape : banc.poste.guide().value(QStringLiteral("etapes")).toList()) {
         QVERIFY(etape.toMap().value(QStringLiteral("commande")).toString().isEmpty());
+    }
+    // Un hôte Linux non identifié comme Railway ne reçoit aucun geste de compte Railway.
+    QJsonObject machine = banc.vue.value(QStringLiteral("machine")).toObject();
+    QJsonObject identite = machine.value(QStringLiteral("machine")).toObject();
+    identite.remove(QStringLiteral("hote"));
+    machine.insert(QStringLiteral("machine"), identite);
+    banc.vue.insert(QStringLiteral("machine"), machine);
+    QJsonObject executant = banc.vue.value(QStringLiteral("executant")).toObject();
+    executant.remove(QStringLiteral("hote"));
+    banc.vue.insert(QStringLiteral("executant"), executant);
+    banc.relire();
+    for (const QString &fournisseur : {QStringLiteral("codex"), QStringLiteral("claude")}) {
+        banc.poste.ouvrirGuide(fournisseur);
+        const QVariantList horsRailway = banc.poste.guide().value(QStringLiteral("etapes")).toList();
+        QVERIFY(!horsRailway.isEmpty());
+        for (const QVariant &etape : horsRailway) {
+            QVERIFY(!etape.toMap().value(QStringLiteral("texte")).toString().contains(QStringLiteral("railway"), Qt::CaseInsensitive));
+            QVERIFY(!etape.toMap().value(QStringLiteral("commande")).toString().contains(QStringLiteral("railway"), Qt::CaseInsensitive));
+        }
     }
     banc.poste.ouvrirGuide(QStringLiteral("codex; commande-arbitraire"));
     QVERIFY(banc.poste.guide().isEmpty());
@@ -726,13 +764,19 @@ void TestPoste::recuperationGuideLeResultatReelEtSeFermeSurChangement()
     };
     ouvrir();
     const QVariantList etapes = banc.poste.guide().value(QStringLiteral("etapes")).toList();
-    QCOMPARE(etapes.size(), 5);
+    QCOMPARE(etapes.size(), 6);
     QCOMPARE(etapes.at(1).toMap().value(QStringLiteral("aCompleter")).toBool(), true);
     const QString commande = QStringLiteral("railway ssh -i \"<chemin-cle-SSH>\" --service executant -- acp-poste bundle jetable hermes/projet-demo");
     QCOMPARE(etapes.at(1).toMap().value(QStringLiteral("commande")).toString(), commande);
-    QVERIFY(etapes.last().toMap().value(QStringLiteral("texte")).toString().contains(QString(40, QLatin1Char('a'))));
+    QVERIFY(etapes.at(4).toMap().value(QStringLiteral("texte")).toString().contains(QString(40, QLatin1Char('a'))));
+    const QString cloture = etapes.last().toMap().value(QStringLiteral("texte")).toString();
+    QVERIFY(cloture.contains(QStringLiteral("railway ssh keys remove --2fa-code <code>")));
+    QVERIFY(cloture.contains(QStringLiteral("railway ssh keys est vide")));
+    QVERIFY(cloture.contains(QStringLiteral("railway logout")));
+    QVERIFY(etapes.last().toMap().value(QStringLiteral("commande")).toString().isEmpty());
     banc.poste.copierEtape(0); // Le fichier et l'instance sont inconnus : pas de commande fabriquée.
     banc.poste.copierEtape(2);
+    banc.poste.copierEtape(5); // Le rappel de clôture n'ajoute aucune commande de compte copiable.
     QVERIFY(banc.copies.isEmpty());
     banc.poste.copierEtape(1);
     QCOMPARE(banc.copies, QStringList{commande});

@@ -35,7 +35,14 @@ avec sa clé dédiée selon [le manuel Railway, § 13.4–13.5](railway.md). Ne 
 Dans cette console : `acp-poste pause`, attendre l'arrêt propre de la carte en cours, effectuer
 `acp-poste connexion codex` ou `acp-poste connexion claude`, puis `acp-poste reprise` et
 `acp-poste diagnostic`. Les commandes de connexion lancent les CLI sous leurs UID dédiés.
-Le guide n'exécute jamais `railway login`, `railway link` ni une opération d'administration.
+À la fin de l'opération, même en cas d'échec, quitter la session SSH avec `exit`. Dans la
+console d'administration Railway, retirer la clé dédiée avec
+`railway ssh keys remove --2fa-code <code>` (remplacer `<code>` par le code de second facteur),
+vérifier que `railway ssh keys` est vide, puis lancer `railway logout`, selon le
+[§ 11 du manuel Railway](railway.md#11-sécurité-du-compte-railway). Une déconnexion seule
+ne retire pas la clé. Ce rappel ne concerne que Railway, pas le poste Windows ni un autre
+hôte Linux. Le guide n'exécute jamais ces gestes, `railway login`, `railway link` ni une
+opération d'administration.
 
 Hermes coordinateur se configure dans son propre tableau de bord : **Clés → Connexions
 fournisseurs (OAuth) → openai-codex → Connexion**, puis **Modèles** pour son modèle par défaut.

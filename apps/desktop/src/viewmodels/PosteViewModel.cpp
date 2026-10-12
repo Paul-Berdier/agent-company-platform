@@ -26,6 +26,11 @@ QString texteOuVide(const QJsonValue &valeur)
     return libelles::estTexte(valeur) ? valeur.toString() : QString();
 }
 
+QString clotureRailway()
+{
+    return QStringLiteral("À la fin de l'opération, même si elle a échoué, quittez la session SSH. Dans votre console d'administration Railway, retirez la clé dédiée avec railway ssh keys remove --2fa-code <code> (remplacez <code> par votre code de second facteur). Vérifiez que railway ssh keys est vide, puis exécutez railway logout. Une déconnexion seule ne retire pas la clé. Ces gestes restent les vôtres, selon le guide Railway (§ 11).");
+}
+
 QJsonObject machineDe(const QJsonObject &vue)
 {
     return vue.value(QStringLiteral("machine")).toObject().value(QStringLiteral("machine")).toObject();
@@ -342,6 +347,8 @@ void PosteViewModel::ouvrirGuideRecuperation(const QString &projet, const QStrin
             QStringLiteral("Sur votre PC, calculez le SHA-256 du fichier et comparez-le à celui affiché par l'exécutant. Dans votre dépôt local, lancez git bundle verify avec le chemin réel du bundle. Si l'empreinte ou la vérification ne concorde pas, ne récupérez pas la branche."));
     ajouter(QStringLiteral("Importer puis comparer le commit"),
             QStringLiteral("Dans votre dépôt local, git fetch suivi du chemin du bundle et de %1:%1 importe la branche sans la fusionner. Vérifiez avec git rev-parse %1 que la tête importée est exactement %2. La revue et une éventuelle publication restent vos actions explicites.").arg(branche, tete));
+    // Ce parcours récupère une branche sur Railway, même si la machine active a changé depuis.
+    ajouter(QStringLiteral("Clore l'accès Railway"), clotureRailway());
     m_guide = {{QStringLiteral("type"), QStringLiteral("recuperation")}, {QStringLiteral("resultat"), resultat},
                {QStringLiteral("titre"), QStringLiteral("Récupérer %1").arg(resultat.value(QStringLiteral("titre")).toString())},
                {QStringLiteral("etapes"), etapes}};
@@ -927,6 +934,9 @@ void PosteViewModel::ouvrirGuide(const QString &fournisseur)
     }
     ajouter(QStringLiteral("Contrôler la machine"), QStringLiteral("Lisez le diagnostic, puis revenez ici et choisissez Vérifier maintenant. Un nouveau relevé peut demander une à deux minutes ; les états refusé ou inconnu restent affichés tels quels."), prefixe + QStringLiteral("diagnostic"));
     ajouter(QStringLiteral("Comprendre les effets"), QStringLiteral("Reconnecter remplace l'accès de cet assistant sur cette machine et peut interrompre les prochaines missions qui l'utilisent. ACP ne propose pas encore de déconnexion distante du compte. Révoquer la machine dans les diagnostics coupe son lien avec ACP, sans déconnecter son compte fournisseur."));
+    if (!windows && machine.value(QStringLiteral("hote")).toString() == QLatin1String("railway")) {
+        ajouter(QStringLiteral("Clore l'accès Railway"), clotureRailway());
+    }
     m_guide = {{QStringLiteral("titre"), QStringLiteral("Configurer %1 · %2").arg(codex ? QStringLiteral("Codex") : QStringLiteral("Claude Code"), machine.value(QStringLiteral("nom")).toString())},
                {QStringLiteral("etapes"), etapes}};
     emit guideChange();
