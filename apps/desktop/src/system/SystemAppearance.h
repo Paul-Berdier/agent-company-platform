@@ -25,6 +25,7 @@ class SystemAppearance : public QObject
     Q_PROPERTY(QString activeTheme READ activeTheme NOTIFY activeThemeChanged)
     Q_PROPERTY(QString themePreference READ themePreference WRITE setThemePreference NOTIFY
                    activeThemeChanged)
+    Q_PROPERTY(QString themeFamily READ themeFamily WRITE setThemeFamily NOTIFY themeFamilyChanged)
     Q_PROPERTY(QString activeMotionProfile READ activeMotionProfile NOTIFY activeMotionChanged)
     Q_PROPERTY(QString motionPreference READ motionPreference WRITE setMotionPreference NOTIFY
                    activeMotionChanged)
@@ -40,6 +41,10 @@ public:
     /*! « system », « dark » ou « light ». */
     [[nodiscard]] QString themePreference() const;
     void setThemePreference(const QString &preference);
+
+    /*! Famille « pixel » ou « studio », appliquée à chaud sans modifier la luminosité. */
+    [[nodiscard]] QString themeFamily() const;
+    void setThemeFamily(const QString &family);
 
     /*! « standard » ou « reduced » : le profil de mouvement à appliquer. */
     [[nodiscard]] QString activeMotionProfile() const;
@@ -57,6 +62,7 @@ public:
 
 signals:
     void activeThemeChanged();
+    void themeFamilyChanged();
     void activeMotionChanged();
 
 private:

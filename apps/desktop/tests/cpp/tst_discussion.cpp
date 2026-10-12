@@ -173,6 +173,7 @@ class TestDiscussion : public QObject
 private slots:
     void lignesDeSessionEtDeTranscription();
     void messagesEtIssues();
+    void brouillonsIsolesEtOublies();
     void listeEtOuverture();
     void discussionsEnAttenteMarqueesDansLaListe();
     void fluxDUnTourSansContenuBrut();
@@ -573,6 +574,25 @@ void TestDiscussion::secretToujoursRefuse()
     QCOMPARE(banc.reponseA(QStringLiteral("srq-7")).value(QStringLiteral("error")).toObject().value(QStringLiteral("code")).toInt(),
              JsonRpcChannel::kMethodeIntrouvable);
     QCOMPARE(banc.demandes.nombre(), 0);
+}
+
+void TestDiscussion::brouillonsIsolesEtOublies()
+{
+    Banc banc;
+    banc.ouvrirPasserelle();
+    banc.ouvrirSession();
+    banc.discussion.setBrouillon(QStringLiteral("Consigne non envoyée A"));
+    banc.ouvrirSession(QStringLiteral("s2"));
+    QCOMPARE(banc.discussion.brouillon(), QString());
+    banc.discussion.setBrouillon(QStringLiteral("Consigne non envoyée B"));
+    banc.ouvrirSession();
+    QCOMPARE(banc.discussion.brouillon(), QStringLiteral("Consigne non envoyée A"));
+    banc.discussion.setBrouillon(QString());
+    banc.ouvrirSession(QStringLiteral("s2"));
+    QCOMPARE(banc.discussion.brouillon(), QStringLiteral("Consigne non envoyée B"));
+    banc.discussion.oublier();
+    banc.ouvrirSession(QStringLiteral("s2"));
+    QCOMPARE(banc.discussion.brouillon(), QString());
 }
 
 QTEST_MAIN(TestDiscussion)

@@ -10,7 +10,7 @@ import QtQuick
 QtObject {
     id: root
 
-    // Thème actif. Écrit par la couche C++ (ThemeController) au démarrage et à
+    // Thème actif. Écrit par ThemeBridge au démarrage et à
     // chaque changement de préférence ; jamais deviné par un composant.
     property string theme: "dark"
     readonly property bool isDark: theme !== "light"

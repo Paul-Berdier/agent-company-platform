@@ -1,6 +1,6 @@
 {
   "$schema": "acp.design-tokens/1",
-  "$description": "Mouvement. Bref, fonctionnel, jamais décoratif : une animation sert à montrer d'où vient une chose ou qu'un travail est vivant, sinon elle est retirée. Aucune transition ne dépasse 240 ms, les durées se branchent sur NumberAnimation.duration en QML et les courbes sur easing.bezierCurve. Le profil « mouvement réduit » est une variante complète, pas un simple interrupteur : il annule les déplacements et garde les fondus courts qui évitent un changement brutal.",
+  "$description": "Mouvement. Les transitions fonctionnelles restent brèves : elles montrent l'origine d'une couche ou un état réel et ne dépassent pas 240 ms. Pixel Atelier admet une respiration lumineuse décorative lente et très faible dans son illustration d'accueil, sans déplacement ni simulation d'activité. Les durées se branchent sur NumberAnimation.duration en QML. Le profil « mouvement réduit » annule les déplacements et les boucles décoratives et conserve les fondus courts des états fonctionnels.",
   "$version": "1.0.0",
   "$file": "motion",
   "$themed": false,
@@ -16,7 +16,7 @@
     "duration.micro": { "$description": "Retour d'état d'un contrôle : appui, bascule, apparition d'un anneau de focus.", "$type": "duration", "$value": 80 },
     "duration.fast": { "$description": "Fondu d'une infobulle, d'une pastille qui change d'état, d'un compteur qui se met à jour.", "$type": "duration", "$value": 120 },
     "duration.base": { "$description": "Ouverture d'une couche flottante, d'un panneau latéral, d'un bloc d'exécution qui se déplie.", "$type": "duration", "$value": 180 },
-    "duration.slow": { "$description": "Plus longue durée autorisée. Réservée à une modale et au déplacement d'un volet redimensionnable.", "$type": "duration", "$value": 240 },
+    "duration.slow": { "$description": "Plus longue transition fonctionnelle autorisée. Réservée à une modale et au déplacement d'un volet redimensionnable ; ne décrit pas le cycle décoratif de l'illustration Pixel Atelier.", "$type": "duration", "$value": 240 },
     "duration.pulse": { "$description": "Période complète de l'indicateur d'activité continue. Assez lente pour ne pas attirer l'œil en permanence.", "$type": "duration", "$value": 1600 },
     "easing.standard": { "$description": "Courbe par défaut, sortie douce. Pour tout ce qui apparaît ou change de valeur.", "$type": "cubicBezier", "$value": [0.2, 0, 0, 1] },
     "easing.enter": { "$description": "Entrée d'une couche : démarrage franc, arrivée amortie.", "$type": "cubicBezier", "$value": [0.05, 0.7, 0.1, 1] },
@@ -57,6 +57,8 @@
     "Rien ne bouge pendant qu'une donnée arrive : un flux d'événements s'allonge, il ne défile pas tout seul sous les yeux de l'opérateur.",
     "Aucune animation ne retarde l'affichage d'une information. Le contenu est peint d'abord, l'animation habille au plus.",
     "Aucune animation de chargement qui simule une progression inconnue : un indicateur indéterminé se dit indéterminé.",
+    "La respiration décorative de Pixel Atelier reste limitée à une variation de luminosité de 3 % sur un cycle de 8 secondes ; elle ne représente jamais l'activité d'un agent ou de Hermes.",
+    "Cette exception décorative est arrêtée en Studio, en mouvement réduit, lorsque la page est masquée ou que la fenêtre est inactive, masquée ou minimisée ; l'illustration revient immédiatement à son rendu fixe.",
     "Le profil réduit doit rester utilisable et complet ; il ne dégrade aucune information."
   ]
 }

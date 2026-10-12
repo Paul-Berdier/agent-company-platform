@@ -27,8 +27,8 @@ Rectangle {
     implicitHeight: colonne.implicitHeight + Space.space4 * 2
     radius: Radius.radiusMd
     color: bulle.deVous ? Colors.accentMuted
-        : bulle.role === "outil" || bulle.role === "systeme" ? Colors.surfaceSunken : Colors.surfacePanelRaised
-    border.width: Space.layoutBorderWidth
+        : bulle.role === "outil" || bulle.role === "systeme" ? Colors.surfaceSunken : "transparent"
+    border.width: bulle.deVous ? Space.layoutBorderWidth : 0
     border.color: Colors.borderSubtle
 
     Accessible.role: Accessible.StaticText
@@ -43,6 +43,7 @@ Rectangle {
         RowLayout {
             Layout.fillWidth: true
             spacing: Space.space3
+            AtelierMark { visible: bulle.role === "assistant"; Layout.preferredWidth: 24; Layout.preferredHeight: 20 }
             Text {
                 text: bulle.auteur
                 textFormat: Text.PlainText

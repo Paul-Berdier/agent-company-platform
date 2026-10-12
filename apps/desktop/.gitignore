@@ -1,2 +1,5 @@
 # Répertoires de construction des préréglages CMake.
 build/
+
+# Local LimeZu sprites generated from the owner's licensed archive.
+resources/atelier-local/

@@ -13,7 +13,8 @@ import Acp.Controls
 Item {
     id: page
 
-    Component.onCompleted: Quotas.pageVisible = true
+    Component.onCompleted: Quotas.pageVisible = visible
+    onVisibleChanged: Quotas.pageVisible = visible
     Component.onDestruction: Quotas.pageVisible = false
 
     component Discret: Text {

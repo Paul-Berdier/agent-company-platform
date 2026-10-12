@@ -9,6 +9,7 @@
 #include "diagnostics/Redaction.h"
 
 #include <QGuiApplication>
+#include <QIcon>
 #include <QQmlApplicationEngine>
 #include <QQuickStyle>
 #include <QTextStream>
@@ -70,6 +71,7 @@ int main(int argc, char *argv[])
     qInstallMessageHandler(redactingMessageHandler);
 
     QGuiApplication application(argc, argv);
+    application.setWindowIcon(QIcon(QStringLiteral(":/atelier/icon.png")));
     QGuiApplication::setOrganizationName(QStringLiteral("Agent Company Platform"));
     // Domaine employé uniquement comme espace de nommage de QSettings : il n'est pas une
     // adresse de serveur, et aucune adresse n'est codée en dur dans ce programme.

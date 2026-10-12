@@ -14,6 +14,8 @@
 #include "gateway/DemandesAgent.h"
 #include "gateway/GatewayClient.h"
 #include "models/JsonListModel.h"
+#include "navigation/NavigationModel.h"
+#include "system/SystemAppearance.h"
 #include "services/CompatibiliteHermes.h"
 #include "support/FauxHermes.h"
 #include "support/Fixtures.h"
@@ -27,6 +29,9 @@
 #include "viewmodels/SauvegardeViewModel.h"
 
 #include <QDateTime>
+#include <QDir>
+#include <QSettings>
+#include <QUuid>
 #include <QJsonArray>
 #include <QQmlApplicationEngine>
 #include <QQmlComponent>
@@ -38,6 +43,7 @@
 #include <QTemporaryDir>
 #include <QTest>
 
+#include <algorithm>
 #include <memory>
 
 using namespace acp;
@@ -111,6 +117,38 @@ bool contientTexte(QQuickItem *racine, const QString &attendu)
         }
     }
     return false;
+}
+
+QQuickItem *parNom(QQuickItem *item, const QString &nom)
+{
+    if (!item) return nullptr;
+    if (item->objectName() == nom) return item;
+    for (QQuickItem *enfant : item->childItems()) {
+        if (auto *trouve = parNom(enfant, nom)) return trouve;
+    }
+    return nullptr;
+}
+
+bool cliquer(QQuickWindow &fenetre, QQuickItem *racine, const QString &nom)
+{
+    auto *item = parNom(racine, nom);
+    if (!item || !item->isVisible() || !item->isEnabled()) return false;
+    for (auto *parent = item->parentItem(); parent; parent = parent->parentItem()) {
+        if (parent->inherits("QQuickFlickable")) {
+            auto *contenu = parent->property("contentItem").value<QQuickItem *>();
+            const double haut = item->mapToItem(contenu, QPointF(0, 0)).y();
+            const double maximum = std::max(0.0, parent->property("contentHeight").toDouble() - parent->height());
+            const double visible = parent->property("contentY").toDouble();
+            if (haut < visible || haut + item->height() > visible + parent->height())
+                parent->setProperty("contentY", std::clamp(haut - 40.0, 0.0, maximum));
+            break;
+        }
+    }
+    const QPointF centre = item->mapToScene(QPointF(item->width() / 2, item->height() / 2));
+    if (!QRectF(QPointF(0, 0), fenetre.size()).contains(centre)) return false;
+    QTest::mouseClick(&fenetre, Qt::LeftButton, Qt::NoModifier, centre.toPoint());
+    QTest::qWait(50);
+    return true;
 }
 
 } // namespace
@@ -204,7 +242,14 @@ void TestPagesBureau::pagesAlimenteesPuisRacine()
         return ReponseFaux::json(200, QJsonObject{{QStringLiteral("latest_event_id"), 1}, {QStringLiteral("columns"), QJsonArray{}}});
     });
 
-    acp::Application application;
+    // Les préférences de la matrice visuelle ne touchent jamais le profil du propriétaire.
+    QTemporaryDir preferences;
+    QVERIFY(preferences.isValid());
+    QCoreApplication::setOrganizationName(QStringLiteral("ACP Test pages %1").arg(QUuid::createUuid().toString(QUuid::WithoutBraces)));
+    QCoreApplication::setApplicationName(QStringLiteral("tst_pages_bureau"));
+    QSettings::setDefaultFormat(QSettings::IniFormat);
+    QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, preferences.path());
+    acp::Application application(nullptr, QStringLiteral("AcpTestPagesBureau"));
     application.registerQmlTypes();
     auto *client = application.findChild<ApiClient *>();
     auto *flux = application.findChild<EventStreamService *>();
@@ -230,6 +275,13 @@ void TestPagesBureau::pagesAlimenteesPuisRacine()
     connect(&engine, &QQmlEngine::warnings, this, [&warnings](const QList<QQmlError> &errors) {
         for (const auto &error : errors) warnings.append(error.toString());
     });
+    QQmlComponent pontComposant(&engine);
+    pontComposant.loadFromModule(QStringLiteral("Acp.Theme"), QStringLiteral("ThemeBridge"));
+    QVERIFY2(pontComposant.isReady(), qPrintable(pontComposant.errorString()));
+    std::unique_ptr<QObject> pont(pontComposant.create());
+    QVERIFY(pont);
+    const QString repertoireCaptures = qEnvironmentVariable("ACP_CAPTURES_DIR");
+    if (!repertoireCaptures.isEmpty()) QVERIFY(QDir().mkpath(repertoireCaptures));
     QQuickWindow window;
     window.resize(1280, 850);
     window.show();
@@ -267,7 +319,8 @@ void TestPagesBureau::pagesAlimenteesPuisRacine()
         if (!captures.isEmpty()) {
             QString fichier = etape;
             fichier.replace(QRegularExpression(QStringLiteral("[^A-Za-z0-9]+")), QStringLiteral("-"));
-            window.grabWindow().save(captures + QLatin1Char('/') + fichier + QStringLiteral(".png"));
+            if (!window.grabWindow().save(captures + QLatin1Char('/') + fichier + QStringLiteral(".png")))
+                return etape + QStringLiteral(" : capture PNG impossible");
         }
         return fautes.isEmpty() ? QString() : etape + QStringLiteral(" : ") + fautes;
     };
@@ -294,10 +347,11 @@ void TestPagesBureau::pagesAlimenteesPuisRacine()
         QTRY_COMPARE_WITH_TIMEOUT(accueil->sessions()->count(), 2, 5000);
         QTRY_VERIFY_WITH_TIMEOUT(application.findChild<CompatibiliteHermes *>()->lecture().startsWith(QStringLiteral("Lu à")), 5000);
         VERIFIER(page.get(), QStringLiteral("Accueil"));
+        auto *item = qobject_cast<QQuickItem *>(page.get());
+        QVERIFY(cliquer(window, item, QStringLiteral("accueil-afficher-operations")));
         VERIFIER_CADENCE(page.get(), accueil,
                          QStringLiteral("Sans temps réel : Accueil, bilan quotidien, discussions récentes et carte Hermes "
                                         "relus toutes les 15 secondes tant que la page est affichée."));
-        auto *item = qobject_cast<QQuickItem *>(page.get());
         // Les cartes de l'Accueil agrégé, dans l'ordre du navigateur.
         QVERIFY(contientTexte(item, QStringLiteral("À traiter par vous")));
         QVERIFY(contientTexte(item, QStringLiteral("Question : Exploration du dépôt « jetable » · Outil jetable")));
@@ -330,15 +384,18 @@ void TestPagesBureau::pagesAlimenteesPuisRacine()
         QTRY_VERIFY_WITH_TIMEOUT(pageProjets->detailLu(), 5000);
         VERIFIER(page.get(), QStringLiteral("Projets, détail"));
         QVERIFY(contientTexte(item, QStringLiteral("Écrire outil.py.")));
+        QVERIFY(contientTexte(item, QStringLiteral("Quelle version de Python viser ?")));
+        QVERIFY(cliquer(window, item, QStringLiteral("projets-onglet-reglages")));
+        VERIFIER(page.get(), QStringLiteral("Projets, réglages"));
         // Étape P7 : « Qui répond » se lit « Vous » ; les gestes « Changer qui répond » et « Clore le projet ».
         QVERIFY(contientTexte(item, QStringLiteral("Vous")));
         QVERIFY(contientTexte(item, QStringLiteral("Changer qui répond")));
         QVERIFY(contientTexte(item, QStringLiteral("Clore le projet")));
-        QVERIFY(contientTexte(item, QStringLiteral("Quelle version de Python viser ?")));
 
         pageProjets->afficherNouveau();
         QTRY_VERIFY_WITH_TIMEOUT(pageProjets->formulaire().value(QStringLiteral("pret")).toBool(), 5000);
         VERIFIER(page.get(), QStringLiteral("Projets, nouveau projet"));
+        QVERIFY(cliquer(window, item, QStringLiteral("projets-routage-manuel")));
         QVERIFY(contientTexte(item, QStringLiteral("Relevé factice")));
         pageProjets->choisirDepot(QStringLiteral("jetable"));
         VERIFIER(page.get(), QStringLiteral("Projets, nouveau projet avec exploration"));
@@ -349,7 +406,7 @@ void TestPagesBureau::pagesAlimenteesPuisRacine()
         pageProjets->actualiser();
         QTRY_COMPARE_WITH_TIMEOUT(pageProjets->projets()->count(), 0, 5000);
         VERIFIER(page.get(), QStringLiteral("Projets, liste vide"));
-        QVERIFY(contientTexte(item, QStringLiteral("Aucun projet pour l'instant")));
+        QVERIFY(contientTexte(item, QStringLiteral("Votre prochain projet commence ici")));
     }
     QTRY_VERIFY(!pageProjets->actif());
 
@@ -385,6 +442,8 @@ void TestPagesBureau::pagesAlimenteesPuisRacine()
         QVERIFY(page);
         auto *item = qobject_cast<QQuickItem *>(page.get());
         QTRY_VERIFY_WITH_TIMEOUT(pagePoste->lue() && pagePoste->peutRelever(), 5000);
+        VERIFIER(page.get(), QStringLiteral("Assistants guidés"));
+        QVERIFY(page->setProperty("diagnosticsOuverts", true));
         VERIFIER(page.get(), QStringLiteral("Poste en ligne"));
         VERIFIER_CADENCE(page.get(), pagePoste, kCadencePage);
         QVERIFY(contientTexte(item, QStringLiteral("Compte dédié acp-poste")));
@@ -539,6 +598,47 @@ void TestPagesBureau::pagesAlimenteesPuisRacine()
         auto coquille = charger(QStringLiteral("Acp.Station"), QStringLiteral("ShellRoot"));
         QVERIFY(coquille);
         VERIFIER(coquille.get(), QStringLiteral("Coquille"));
+        // Matrice native facultative : vraies pages et faux Hermes isolé, quatre thèmes,
+        // deux tailles. Le PNG n'est accepté que si Qt l'a réellement écrit.
+        if (!repertoireCaptures.isEmpty()) {
+            auto *apparence = application.findChild<SystemAppearance *>();
+            auto *navigation = application.findChild<NavigationModel *>();
+            auto *item = qobject_cast<QQuickItem *>(coquille.get());
+            QVERIFY(apparence && navigation && item);
+            const QString familleAvant = apparence->themeFamily();
+            const QString themeAvant = apparence->themePreference();
+            const QString mouvementAvant = apparence->motionPreference();
+            apparence->setMotionPreference(QStringLiteral("reduced"));
+            projets = fixture(QStringLiteral("projets.json"));
+            for (const QString &famille : {QStringLiteral("pixel"), QStringLiteral("studio")}) {
+                apparence->setThemeFamily(famille);
+                for (const QString &theme : {QStringLiteral("dark"), QStringLiteral("light")}) {
+                    apparence->setThemePreference(theme);
+                    for (const QSize taille : {QSize(1280, 720), QSize(1920, 1080)}) {
+                        window.resize(taille);
+                        item->setSize(taille);
+                        const QString nom = QStringLiteral("Test-fixture-Workspace-%1-%2-%3x%4")
+                            .arg(famille, theme).arg(taille.width()).arg(taille.height());
+                        QVERIFY(cliquer(window, item, QStringLiteral("navigation-home")));
+                        QTRY_VERIFY(accueil->actif());
+                        VERIFIER(coquille.get(), nom + QStringLiteral("-Accueil"));
+                        QVERIFY(cliquer(window, item, QStringLiteral("navigation-projects")));
+                        pageProjets->afficherListe();
+                        pageProjets->actualiser();
+                        QTRY_COMPARE_WITH_TIMEOUT(pageProjets->projets()->count(), 2, 5000);
+                        VERIFIER(coquille.get(), nom + QStringLiteral("-Projets"));
+                        QVERIFY(cliquer(window, item, QStringLiteral("projets-ouvrir-") + kId));
+                        QTRY_VERIFY_WITH_TIMEOUT(pageProjets->detailLu(), 5000);
+                        VERIFIER(coquille.get(), nom + QStringLiteral("-Travail"));
+                    }
+                }
+            }
+            apparence->setThemeFamily(familleAvant);
+            apparence->setThemePreference(themeAvant);
+            apparence->setMotionPreference(mouvementAvant);
+            window.resize(1280, 850);
+            item->setSize(window.size());
+        }
     }
     window.hide();
 

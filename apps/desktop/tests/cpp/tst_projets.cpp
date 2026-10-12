@@ -133,8 +133,12 @@ private slots:
     void listeLueSeulementPageAffichee();
     void detailOuvreLaVeilleEtRelitAuChangement();
     void resumeEntierPauseRepriseEtKanban();
+    void resumeFermeIgnoreReponsesTardives();
+    void resumeLePlusRecentGagne();
     void formulaireSansInventaireOuPosteIllisible();
+    void formulaireIgnoreLecturesRemplaceesEtAbandonnees();
     void lancementCorpsExactEtCleDIdempotence();
+    void lancementAutoSansSurchargeImplicite();
     void lancementRefuseGardeLaCle();
     void modeleExigeRefuseSansEnvoi();
     void messagesQuiRepondEtCloture();
@@ -268,6 +272,15 @@ void TestProjets::cartesRangeesDansLOrdreDuGraphe()
     for (qsizetype index = cartes.size() - 1; index >= 0; --index) {
         inverse.append(cartes.at(index));
     }
+    const QJsonObject verification{{QStringLiteral("etat"), QStringLiteral("non_executee")}};
+    const QJsonObject metadonnees{{QStringLiteral("branche"), QStringLiteral("hermes/t_test")},
+                                  {QStringLiteral("verification"), verification}};
+    const QJsonObject execution{{QStringLiteral("etat"), QStringLiteral("observe")},
+                                {QStringLiteral("run_id"), 42},
+                                {QStringLiteral("metadonnees"), metadonnees}};
+    QJsonObject premiere = inverse.first().toObject();
+    premiere.insert(QStringLiteral("execution"), execution);
+    inverse.replace(0, premiere);
     const QJsonArray lignes = ProjetsViewModel::construireCartes(inverse);
     QCOMPARE(lignes.size(), 2);
     const QJsonObject exploration = lignes.at(0).toObject();
@@ -282,6 +295,8 @@ void TestProjets::cartesRangeesDansLOrdreDuGraphe()
     QCOMPARE(planification.value(QStringLiteral("effort")).toString(), QStringLiteral("Par défaut"));
     QCOMPARE(planification.value(QStringLiteral("resume")).toString(), QString());
     QCOMPARE(planification.value(QStringLiteral("resumeLongueur")).toString(), QStringLiteral("Inconnu"));
+    QCOMPARE(planification.value(QStringLiteral("execution")).toObject(), execution);
+    QVERIFY(exploration.value(QStringLiteral("execution")).toObject().isEmpty());
 }
 
 void TestProjets::journalLisible()
@@ -418,6 +433,70 @@ void TestProjets::resumeEntierPauseRepriseEtKanban()
     QCOMPARE(banc.ouvertes.last(), QUrl(banc.serveur.url().toString() + QStringLiteral("/hermes/kanban")));
 }
 
+// Une réponse reçue après Échap ou le départ de la page ne doit pas rouvrir
+// le résumé. Même règle pour un refus réseau, et pour un changement de vue interne.
+void TestProjets::resumeFermeIgnoreReponsesTardives()
+{
+    Banc banc;
+    banc.ouvrirLaPage();
+    const QString route = kP + QStringLiteral("/projets/") + kId + QStringLiteral("/cartes/t_7aa28f61");
+    for (const int statut : {200, 503}) {
+        banc.serveur.route("GET", route, [statut](const RequeteRecue &) {
+            auto reponse = ReponseFaux::json(statut, statut == 200
+                ? QJsonObject{{QStringLiteral("carte"), QJsonObject{
+                    {QStringLiteral("resume"), QStringLiteral("Réponse tardive")}}}}
+                : refus(QStringLiteral("indisponible"), QStringLiteral("Résumé indisponible.")));
+            reponse.delaiMs = 100;
+            return reponse;
+        });
+        for (int annulation = 0; annulation < 3; ++annulation) {
+            banc.projets.setPageVisible(true);
+            banc.projets.ouvrirProjet(kId);
+            QTRY_VERIFY(banc.projets.detailLu());
+            const int avant = banc.serveur.compter("GET", route);
+            banc.projets.lireCarteEnEntier(QStringLiteral("t_7aa28f61"));
+            QVERIFY(banc.projets.carteLue().value(QStringLiteral("chargement")).toBool());
+            QTRY_COMPARE(banc.serveur.compter("GET", route), avant + 1);
+            if (annulation == 0)
+                banc.projets.fermerCarteLue();
+            else if (annulation == 1)
+                banc.projets.setPageVisible(false);
+            else
+                banc.projets.afficherListe();
+            QVERIFY(banc.projets.carteLue().isEmpty());
+            QSignalSpy changements(&banc.projets, &ProjetsViewModel::carteLueChange);
+            QTest::qWait(200);
+            QVERIFY(banc.projets.carteLue().isEmpty());
+            QCOMPARE(changements.count(), 0);
+        }
+    }
+}
+
+void TestProjets::resumeLePlusRecentGagne()
+{
+    Banc banc;
+    banc.ouvrirLaPage();
+    banc.projets.ouvrirProjet(kId);
+    QTRY_VERIFY(banc.projets.detailLu());
+    const QString lente = QStringLiteral("t_7aa28f61");
+    const QString rapide = QStringLiteral("t_2468abcd");
+    for (const QString &carte : {lente, rapide}) {
+        banc.serveur.route("GET", kP + QStringLiteral("/projets/") + kId + QStringLiteral("/cartes/") + carte,
+            [carte, lente](const RequeteRecue &) {
+                auto reponse = ReponseFaux::json(200, QJsonObject{{QStringLiteral("carte"),
+                    QJsonObject{{QStringLiteral("resume"), carte}}}});
+                reponse.delaiMs = carte == lente ? 150 : 0;
+                return reponse;
+            });
+    }
+    banc.projets.lireCarteEnEntier(lente);
+    banc.projets.lireCarteEnEntier(rapide);
+    QTRY_COMPARE(banc.projets.carteLue().value(QStringLiteral("resume")).toString(), rapide);
+    QTest::qWait(250);
+    QCOMPARE(banc.projets.carteLue().value(QStringLiteral("carte")).toString(), rapide);
+    QCOMPARE(banc.projets.carteLue().value(QStringLiteral("resume")).toString(), rapide);
+}
+
 void TestProjets::formulaireSansInventaireOuPosteIllisible()
 {
     Banc banc;
@@ -445,12 +524,82 @@ void TestProjets::formulaireSansInventaireOuPosteIllisible()
              QStringLiteral("Dépôts inconnus : l'inventaire du poste est illisible (voir l'erreur ci-dessus)."));
 }
 
+// Les deux lectures d'un formulaire appartiennent au même rafraîchissement. Une
+// réponse ancienne, même un refus, ne doit ni remplacer le catalogue ni effacer un choix.
+void TestProjets::formulaireIgnoreLecturesRemplaceesEtAbandonnees()
+{
+    for (const int ancienStatut : {200, 503}) {
+        Banc banc;
+        int catalogues = 0;
+        int postes = 0;
+        banc.serveur.route("GET", kP + QStringLiteral("/catalogue"), [&catalogues, ancienStatut](const RequeteRecue &) {
+            const bool ancien = ++catalogues == 1;
+            auto reponse = ReponseFaux::json(ancien ? ancienStatut : 200, QJsonObject{
+                {QStringLiteral("profils"), QJsonObject{{ancien ? QStringLiteral("obsolete") : QStringLiteral("recent"), QJsonObject{}}}}});
+            reponse.delaiMs = ancien ? 300 : 0;
+            return reponse;
+        });
+        banc.serveur.route("GET", kP + QStringLiteral("/poste"), [&postes, ancienStatut](const RequeteRecue &) {
+            const bool ancien = ++postes == 1;
+            auto reponse = ReponseFaux::json(ancien ? ancienStatut : 200,
+                fixture(ancien ? QStringLiteral("poste-vide.json") : QStringLiteral("poste-releve.json")));
+            reponse.delaiMs = ancien ? 300 : 0;
+            return reponse;
+        });
+        banc.ouvrirLaPage();
+        banc.projets.afficherNouveau();
+        QTRY_COMPARE(catalogues, 1);
+        QTRY_COMPARE(postes, 1);
+        banc.projets.actualiser();
+        banc.attendreFormulaire();
+        QCOMPARE(catalogues, 2);
+        QCOMPARE(postes, 2);
+        banc.projets.choisirDepot(QStringLiteral("jetable"));
+        banc.projets.choisirRoutageAutomatique(false);
+        banc.projets.choisirModele(QStringLiteral("factice-claude-1"));
+        const QVariantMap recent = banc.projets.formulaire();
+        QCOMPARE(recent.value(QStringLiteral("depot")).toString(), QStringLiteral("jetable"));
+        QCOMPARE(recent.value(QStringLiteral("profils")).toList().first().toMap().value(QStringLiteral("valeur")).toString(),
+                 QStringLiteral("recent"));
+        QSignalSpy changements(&banc.projets, &ProjetsViewModel::formulaireChange);
+        QTest::qWait(400);
+        QCOMPARE(changements.count(), 0);
+        QCOMPARE(banc.projets.formulaire(), recent);
+    }
+
+    // Abandon vers la liste, vers un projet et oubli de session : aucune lecture
+    // tardive ne rend de nouveau le formulaire prêt après son invalidation.
+    for (int abandon = 0; abandon < 3; ++abandon) {
+        Banc banc;
+        for (const QString &route : {QStringLiteral("/catalogue"), QStringLiteral("/poste")}) {
+            banc.serveur.route("GET", kP + route, [route](const RequeteRecue &) {
+                auto reponse = ReponseFaux::json(200, fixture(route == QLatin1String("/catalogue")
+                    ? QStringLiteral("catalogue-profils.json") : QStringLiteral("poste-releve.json")));
+                reponse.delaiMs = 200;
+                return reponse;
+            });
+        }
+        banc.ouvrirLaPage();
+        banc.projets.afficherNouveau();
+        QTRY_COMPARE(banc.serveur.compter("GET", kP + QStringLiteral("/poste")), 1);
+        QTRY_COMPARE(banc.serveur.compter("GET", kP + QStringLiteral("/catalogue")), 1);
+        if (abandon == 0) banc.projets.afficherListe();
+        else if (abandon == 1) banc.projets.ouvrirProjet(kId);
+        else banc.projets.oublier();
+        QSignalSpy changements(&banc.projets, &ProjetsViewModel::formulaireChange);
+        QTest::qWait(300);
+        QCOMPARE(changements.count(), 0);
+        QVERIFY(!banc.projets.formulaire().value(QStringLiteral("pret")).toBool());
+    }
+}
+
 void TestProjets::lancementCorpsExactEtCleDIdempotence()
 {
     Banc banc;
     banc.ouvrirLaPage();
     banc.projets.afficherNouveau();
     banc.attendreFormulaire();
+    banc.projets.choisirRoutageAutomatique(false);
     QCOMPARE(banc.projets.formulaire().value(QStringLiteral("releveFactice")).toBool(), true);
     banc.projets.choisirDepot(QStringLiteral("jetable"));
     QVariantMap f = banc.projets.formulaire();
@@ -497,6 +646,27 @@ void TestProjets::lancementCorpsExactEtCleDIdempotence()
     QVERIFY(seconds.last().entete("idempotency-key") != premiereCle);
     QCOMPARE(seconds.last().json().value(QStringLiteral("depot")), QJsonValue(QJsonValue::Null));
     QVERIFY(!seconds.last().json().contains(QStringLiteral("exploration")));
+}
+
+void TestProjets::lancementAutoSansSurchargeImplicite()
+{
+    Banc banc;
+    banc.ouvrirLaPage();
+    banc.projets.afficherNouveau();
+    banc.attendreFormulaire();
+    banc.projets.choisirDepot(QStringLiteral("jetable"));
+    QVERIFY(banc.projets.formulaire().value(QStringLiteral("routageAutomatique")).toBool());
+    // Même des valeurs manuelles mémorisées ne contournent pas Auto.
+    banc.projets.choisirModele(QStringLiteral("factice-claude-2"));
+    banc.projets.lancer(QStringLiteral("Outil"), QStringLiteral("Écrire outil.py."), QStringLiteral("base"),
+                        QStringLiteral("proprietaire"), QStringLiteral("high"));
+    QTRY_VERIFY(!banc.projets.gesteEnCours());
+    const auto envois = banc.serveur.filtrer("POST", kP + QStringLiteral("/projets"));
+    QCOMPARE(envois.size(), 1);
+    QCOMPARE(envois.first().json().value(QStringLiteral("depot")), QJsonValue(QStringLiteral("jetable")));
+    QVERIFY(!envois.first().json().contains(QStringLiteral("exploration")));
+    QVERIFY(!envois.first().json().contains(QStringLiteral("modele")));
+    QVERIFY(!envois.first().json().contains(QStringLiteral("effort")));
 }
 
 void TestProjets::lancementRefuseGardeLaCle()
@@ -546,6 +716,7 @@ void TestProjets::modeleExigeRefuseSansEnvoi()
     banc.ouvrirLaPage();
     banc.projets.afficherNouveau();
     banc.attendreFormulaire();
+    banc.projets.choisirRoutageAutomatique(false);
     banc.projets.choisirDepot(QStringLiteral("jetable"));
     QCOMPARE(banc.projets.formulaire().value(QStringLiteral("modeleExige")).toBool(), true);
     QCOMPARE(banc.projets.formulaire().value(QStringLiteral("libelleModeleVide")).toString(),
@@ -765,6 +936,7 @@ void TestProjets::executantFermePourLeDepotJamaisRetenu()
     banc.ouvrirLaPage();
     banc.projets.afficherNouveau();
     banc.attendreFormulaire();
+    banc.projets.choisirRoutageAutomatique(false);
     // Dépôt privé : Codex choisi par le propriétaire.
     banc.projets.choisirDepot(QStringLiteral("jetable"));
     banc.projets.choisirVoie(QStringLiteral("poste-codex"));

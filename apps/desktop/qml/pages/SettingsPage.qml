@@ -4,6 +4,7 @@ import QtQuick.Layouts
 import Acp.Design
 import Acp.Runtime
 import Acp.Controls
+import Acp.Components
 
 ScrollView {
     id: page
@@ -14,6 +15,13 @@ ScrollView {
         y: Space.space6
         spacing: Space.space5
         Label { textFormat: Text.PlainText; text: qsTr("Réglages"); color: Colors.textPrimary; font.pixelSize: Type.pageTitle.pixelSize }
+        Flow {
+            Layout.fillWidth: true; spacing: Space.space3
+            Repeater {
+                model: [{title: qsTr("Exécutants et comptes"), route: "station"}, {title: qsTr("Modèles et budgets"), route: "quotas"}, {title: qsTr("Routage"), route: "routing"}, {title: qsTr("Sauvegarde"), route: "backup"}, {title: qsTr("Diagnostics"), route: "diagnostics"}]
+                delegate: AcpButton { required property var modelData; objectName: "reglages-ouvrir-" + modelData.route; label: modelData.title; onTriggered: Navigation.setCurrentRoute(modelData.route) }
+            }
+        }
         Label { textFormat: Text.PlainText; text: qsTr("Serveur"); color: Colors.textPrimary; font.bold: true }
         AcpTextField { id: server; Layout.fillWidth: true; text: Shell.serverUrl; placeholder: qsTr("Adresse HTTPS de Hermes") }
         CheckBox { id: loopback; text: qsTr("Autoriser HTTP uniquement sur cette machine (développement)"); checked: Shell.allowsInsecureLoopback }
@@ -52,6 +60,12 @@ ScrollView {
         }
         Label { textFormat: Text.PlainText; text: qsTr("Apparence"); color: Colors.textPrimary; font.bold: true }
         RowLayout {
+            ComboBox {
+                objectName: "reglages-famille"; model: [qsTr("Pixel Atelier"), qsTr("Studio")]
+                currentIndex: Appearance.themeFamily === "studio" ? 1 : 0
+                Accessible.name: qsTr("Famille visuelle")
+                onActivated: Appearance.themeFamily = currentIndex === 1 ? "studio" : "pixel"
+            }
             Label { textFormat: Text.PlainText; text: qsTr("Thème"); color: Colors.textSecondary }
             ComboBox {
                 model: [qsTr("Suivre Windows"), qsTr("Clair"), qsTr("Sombre")]
@@ -86,6 +100,11 @@ ScrollView {
         Label { visible: Updates.latestVersion.length > 0; text: qsTr("Publication vérifiée : %1").arg(Updates.latestVersion); textFormat: Text.PlainText; color: Colors.textPrimary }
         Label { objectName: "reglages-avertissement-paquet"; textFormat: Text.PlainText; visible: Updates.updateAvailable; text: qsTr("Vérifiez l'empreinte du paquet dans SHA256SUMS.txt avant installation. Un paquet n'est signé que si les notes de sa publication le disent."); color: Colors.textSecondary; Layout.fillWidth: true; wrapMode: Text.WordWrap }
         TextArea { visible: Updates.notes.length > 0; text: Updates.notes; textFormat: TextEdit.PlainText; readOnly: true; selectByMouse: true; wrapMode: TextEdit.Wrap; color: Colors.textPrimary; Layout.fillWidth: true }
+        Label {
+            text: qsTr("Identité ACP originale · Pixel art : LimeZu — limezu.itch.io (si le pack local est importé)")
+            textFormat: Text.PlainText; Layout.fillWidth: true; wrapMode: Text.WordWrap
+            color: Colors.textMuted; font.pixelSize: Type.metadata.pixelSize
+        }
         Item { Layout.preferredHeight: Space.space8 }
     }
     // Boutons explicites, en français (les boutons standard de Qt s'afficheraient en anglais :

@@ -18,6 +18,8 @@ SystemAppearance::SystemAppearance(SettingsStore *settings, QObject *parent)
     if (m_settings) {
         connect(m_settings, &SettingsStore::themePreferenceChanged, this,
                 &SystemAppearance::activeThemeChanged);
+        connect(m_settings, &SettingsStore::themeFamilyChanged, this,
+                &SystemAppearance::themeFamilyChanged);
         connect(m_settings, &SettingsStore::motionPreferenceChanged, this,
                 &SystemAppearance::activeMotionChanged);
     }
@@ -74,6 +76,18 @@ QString SystemAppearance::activeTheme() const
     // Thème par défaut du produit quand le système ne dit rien : sombre, comme les jetons
     // le déclarent ($defaultTheme).
     return detected.isEmpty() ? QStringLiteral("dark") : detected;
+}
+
+QString SystemAppearance::themeFamily() const
+{
+    return m_settings ? m_settings->themeFamily() : QStringLiteral("pixel");
+}
+
+void SystemAppearance::setThemeFamily(const QString &family)
+{
+    if (m_settings) {
+        m_settings->setThemeFamily(family);
+    }
 }
 
 QString SystemAppearance::motionPreference() const

@@ -15,7 +15,8 @@ import Acp.Controls
 Item {
     id: page
 
-    Component.onCompleted: Questions.pageVisible = true
+    Component.onCompleted: Questions.pageVisible = visible
+    onVisibleChanged: Questions.pageVisible = visible
     Component.onDestruction: Questions.pageVisible = false
 
     function ouvrirProjet(identifiant) {

@@ -1,5 +1,18 @@
 # Reprise du travail sur un autre poste
 
+## Priorité locale — 12 octobre 2026, Pixel Atelier
+
+Une refonte native de l’interface est préparée dans le worktree `pixel-atelier`,
+branche `codex/pixel-atelier`, depuis le `origin/main` local `85b458b`.
+Lire [pixel-atelier.md](refonte/pixel-atelier.md) pour les parcours, thèmes, assets,
+preuves et limites. Les modifications personnelles de l’ancien checkout sont
+préservées. Le propriétaire a ensuite demandé les ajouts fonctionnels, commits, push,
+PR et fusion. La version **1.1.0** est ouverte (`d3185d9`) : Auto, guides assistants,
+observations d’exécution et récupération assistée complètent la refonte visuelle.
+Les validations et la publication sont en cours ; ne pas confondre les captures
+fictives avec une preuve de connexion aux comptes du propriétaire. Le déploiement
+Railway et la publication humaine du brouillon suivent les procédures du dépôt.
+
 ## Priorité de reprise — 10 octobre 2026, correctif 1.0.1
 
 `main` porte désormais 1.0.0 (`f76e7c5`, PR #25), et `v1.0.0` existe. Le propriétaire a demandé la correction

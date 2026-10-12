@@ -1,52 +1,58 @@
-# Agent Company Platform {{VERSION}} — station de travail Windows
+# Agent Company Platform {{VERSION}} — Pixel Atelier pour Windows
 
-Station de travail native du propriétaire d'ACP (C++23, Qt 6, QML, sans WebView). Elle se connecte au Hermes du
-propriétaire par son fournisseur d'identité OIDC (connexion native par le navigateur du système, RFC 8252) et
-n'appelle que les API de ce Hermes : tableau de bord, JSON-RPC et façade du greffon `acp-poste`. Pages : Accueil,
-Projets, Questions, Discussion, Poste, Quotas, Routage, Diagnostics, Sauvegarde (export chiffré de Hermes, format
-`ACPB1`, protégé par DPAPI pour l'utilisateur Windows courant) et Réglages.
+Station de travail native C++23 / Qt 6 / QML. **Mon atelier** rassemble les projets à
+reprendre et les demandes en attente. Chaque projet organise son contenu en **Travail**,
+**Résultats**, **Journal** et **Réglages**. Les familles **Pixel Atelier** et **Studio**
+sont disponibles en clair et sombre ; les préférences de mouvement sont conservées.
 
-## Contenu
+La station se connecte au Hermes du propriétaire via son fournisseur d'identité, avec
+le navigateur système. Les états, questions et résultats proviennent de ce Hermes.
+Le décor est une illustration, pas une visualisation d'agents réellement actifs.
+
+## Fichiers
 
 | Fichier | Usage |
-|---|---|
-| `{{PREFIXE}}-Setup-{{VERSION}}-{{SUFFIXE}}.exe` | Programme d'installation par utilisateur, sans élévation de privilèges. |
-| `{{PREFIXE}}-Portable-{{VERSION}}-{{SUFFIXE}}.zip` | Archive portable : décompresser et lancer. Les préférences non sensibles utilisent le profil Windows ; la session peut être mémorisée dans le coffre sur consentement. |
-| `SHA256SUMS.txt` | Sommes de contrôle SHA-256 des deux fichiers ci-dessus. |
+| --- | --- |
+| `{{PREFIXE}}-Setup-{{VERSION}}-{{SUFFIXE}}.exe` | Installation ou mise à jour par utilisateur |
+| `{{PREFIXE}}-Portable-{{VERSION}}-{{SUFFIXE}}.zip` | Extraire dans un dossier, puis lancer `AgentCompanyPlatform.exe` |
+| `SHA256SUMS.txt` | Empreintes des deux paquets |
 
-## Signature de code
+Les paquets du workflow public utilisent le décor ACP original. La scène LimeZu est
+réservée aux builds ayant importé le pack local sous licence ; ses sources ne sont pas
+publiées dans Git ni jointes séparément à la release.
+
+## Signature
 
 {{SIGNATURE}}
 
-## Vérifier les sommes de contrôle avant d'exécuter
+## Installer ou mettre à jour
 
-```powershell
-Get-FileHash .\{{PREFIXE}}-Setup-{{VERSION}}-{{SUFFIXE}}.exe -Algorithm SHA256
-```
+1. Téléchargez le paquet voulu et `SHA256SUMS.txt` depuis cette publication.
+2. Comparez l'empreinte du fichier à sa ligne dans `SHA256SUMS.txt` :
 
-Comparez l'empreinte obtenue à la ligne correspondante de `SHA256SUMS.txt`. Le
-fichier suit le format de `sha256sum` : `<empreinte>  <nom de fichier>`.
+   ```powershell
+   Get-FileHash .\{{PREFIXE}}-Setup-{{VERSION}}-{{SUFFIXE}}.exe -Algorithm SHA256
+   ```
 
-## Installation, connexion, désinstallation
+3. Fermez ACP. Pour une installation existante, lancez le nouveau Setup avec le même
+   compte Windows, sans désinstaller l'ancienne version. Pour le portable, utilisez un
+   nouveau dossier et ne mélangez pas les DLL de deux versions.
+4. Relancez et vérifiez la version dans **Réglages → Mises à jour**. Reconnectez-vous
+   par le navigateur si la session le demande.
 
-- **Installation** : `{{PREFIXE}}-Setup-{{VERSION}}-{{SUFFIXE}}.exe` installe pour l'utilisateur courant, sans
-  élévation ; l'archive portable se décompresse où vous voulez.
-- **Connexion** : au premier lancement, saisissez l'adresse de votre Hermes (HTTPS imposé ; aucune adresse n'est
-  proposée par défaut), testez le lien, puis « Se connecter avec le navigateur ». La connexion se fait chez votre
-  fournisseur d'identité : aucun mot de passe n'est saisi dans la station. Mémoriser la session (coffre Windows) est
-  facultatif.
-- **Désinstallation** : comme un programme installé pour l'utilisateur courant, depuis la liste des applications
-  de Windows.
+Les préférences utilisent le profil Windows ; la session mémorisée, avec consentement,
+reste dans son coffre. Les projets sont conservés côté Hermes. La mise à jour du client
+ne remplace pas un déploiement du serveur. L'application vérifie les releases à la demande
+et ouvre leur page ; elle n'installe rien automatiquement.
 
-Construction, tests et architecture, dans le dépôt à l'étiquette de cette publication : `apps/desktop/README.md`,
-`docs/desktop-build.md` et `docs/refonte/desktop.md`.
+Guide complet : [mettre à jour et reprendre son travail](https://github.com/Paul-Berdier/agent-company-platform/blob/v{{VERSION}}/docs/mettre-a-jour-1.1.md).
+Pour le code produit par un projet : [récupérer le résultat](https://github.com/Paul-Berdier/agent-company-platform/blob/v{{VERSION}}/docs/recuperer-resultat.md).
 
-## Ce que cette publication ne prouve pas
+## Validation et limites
 
-Les binaires sont compilés, testés (Qt Test et Qt Quick Test) et empaquetés par le workflow Desktop Release, à
-l'étiquette de cette publication, sur l'exécuteur GitHub `windows-2022`, avec les mêmes scripts que Desktop CI ;
-ces tests natifs éprouvent la station contre un faux Hermes et contre les documents de référence partagés avec le
-greffon. Cela ne prouve pas : une installation sur un Windows propre (jamais faite) ; une connexion à un Hermes
-déployé sur Railway, avec une vraie passkey et un vrai appareil (aucun test n'en emploie) ; une revue visuelle ou un
-lecteur d'écran réel. Les binaires ne sont signés que si la section « Signature de code » ci-dessus le dit. Limites
-détaillées : `docs/refonte/desktop.md`, section « Non prouvé ».
+Desktop Release compile, teste et empaquette cette étiquette sur `windows-2022`, avec
+la chaîne épinglée du dépôt. Les tests utilisent notamment un faux Hermes ; ils ne
+prouvent pas une vraie passkey, une connexion personnelle à Railway ni une installation
+sur Windows propre. Les captures et essais locaux de Pixel Atelier sont décrits dans
+[le relevé du lot](https://github.com/Paul-Berdier/agent-company-platform/blob/v{{VERSION}}/docs/refonte/pixel-atelier.md)
+avec leurs limites. Ne considérer le paquet comme signé que si la section Signature le dit.

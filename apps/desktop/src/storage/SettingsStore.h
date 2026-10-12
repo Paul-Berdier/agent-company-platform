@@ -56,6 +56,10 @@ public:
     [[nodiscard]] QString themePreference() const;
     void setThemePreference(const QString &preference);
 
+    /*! Famille « pixel » (défaut) ou « studio », indépendante du mode clair/sombre. */
+    [[nodiscard]] QString themeFamily() const;
+    void setThemeFamily(const QString &family);
+
     /*! « system », « standard » ou « reduced » pour le profil de mouvement. */
     [[nodiscard]] QString motionPreference() const;
     void setMotionPreference(const QString &preference);
@@ -92,6 +96,7 @@ public:
 signals:
     void serverUrlChanged();
     void themePreferenceChanged();
+    void themeFamilyChanged();
     void motionPreferenceChanged();
     void connexionMemoriseeChanged();
 

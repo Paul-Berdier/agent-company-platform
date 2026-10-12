@@ -28,6 +28,7 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QSettings>
+#include <QSignalSpy>
 #include <QTemporaryDir>
 #include <QTest>
 #include <QUuid>
@@ -124,6 +125,7 @@ class TestDiagnostics : public QObject
 
 private slots:
     void initTestCase();
+    void famillesDeThemePersistantesEtIndependantes();
     void valeursInconnuesJamaisInventees();
     void controleDesPreferencesSansValeur();
     void compteursDeLaPasserelle();
@@ -142,6 +144,49 @@ void TestDiagnostics::initTestCase()
     QCoreApplication::setApplicationName(QStringLiteral("Diagnostics"));
     QSettings::setDefaultFormat(QSettings::IniFormat);
     QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, m_dossier.path());
+}
+
+void TestDiagnostics::famillesDeThemePersistantesEtIndependantes()
+{
+    SettingsStore reglages;
+    reglages.clear();
+    SystemAppearance apparence(&reglages);
+    QCOMPARE(apparence.themeFamily(), QStringLiteral("pixel"));
+    QCOMPARE(apparence.themePreference(), QStringLiteral("system"));
+
+    QSignalSpy famille(&apparence, &SystemAppearance::themeFamilyChanged);
+    QSignalSpy luminosite(&apparence, &SystemAppearance::activeThemeChanged);
+    apparence.setThemePreference(QStringLiteral("light"));
+    QCOMPARE(apparence.activeTheme(), QStringLiteral("light"));
+    luminosite.clear();
+    apparence.setThemeFamily(QStringLiteral("studio"));
+    QCOMPARE(famille.count(), 1);
+    QCOMPARE(luminosite.count(), 0);
+    QCOMPARE(apparence.activeTheme(), QStringLiteral("light"));
+    QCOMPARE(apparence.themePreference(), QStringLiteral("light"));
+    reglages.flush();
+
+    // Une nouvelle instance relit les deux axes, sans toucher aux réglages réels du poste.
+    {
+        SettingsStore relus;
+        SystemAppearance reprise(&relus);
+        QCOMPARE(reprise.themeFamily(), QStringLiteral("studio"));
+        QCOMPARE(reprise.activeTheme(), QStringLiteral("light"));
+        QVERIFY(relus.controler().conforme());
+    }
+    apparence.setThemeFamily(QStringLiteral("inconnue"));
+    apparence.setThemeFamily(QStringLiteral("studio"));
+    QCOMPARE(famille.count(), 1);
+    QCOMPARE(apparence.themeFamily(), QStringLiteral("studio"));
+    apparence.setThemePreference(QStringLiteral("dark"));
+    QCOMPARE(apparence.themeFamily(), QStringLiteral("studio"));
+    QCOMPARE(apparence.activeTheme(), QStringLiteral("dark"));
+    apparence.setThemePreference(QStringLiteral("system"));
+    QCOMPARE(apparence.themeFamily(), QStringLiteral("studio"));
+    QCOMPARE(apparence.themePreference(), QStringLiteral("system"));
+    reglages.clear();
+    QCOMPARE(famille.count(), 2);
+    QCOMPARE(apparence.themeFamily(), QStringLiteral("pixel"));
 }
 
 void TestDiagnostics::valeursInconnuesJamaisInventees()

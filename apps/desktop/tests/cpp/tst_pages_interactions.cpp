@@ -39,10 +39,12 @@
 #include <QQuickWindow>
 #include <QRegularExpression>
 #include <QSettings>
+#include <QScopeGuard>
 #include <QSignalSpy>
 #include <QTemporaryDir>
 #include <QTest>
 #include <QUuid>
+#include <QWheelEvent>
 
 #include <algorithm>
 #include <memory>
@@ -94,6 +96,8 @@ private slots:
     void questionsReluesAuSignalDuFlux();
     void listeDesProjetsGardeSonDefilement();
     void messageEnvoyeParLeBoutonDeLaDiscussion();
+    void workspaceConserveBrouillonEtSuspendPagesMasquees();
+    void nouvelleDiscussionSuitSaFinApresHistoriqueDefile();
     void dialogueDeChangementDeServeurEnFrancais();
     void copieDuRapportParLaPalette();
     void discussionEnAttenteOuverteParLeBouton();
@@ -436,6 +440,8 @@ void TestPagesInteractions::clotureEtQuiRepondParLesVraisBoutons()
     const QString reponses = kP + QStringLiteral("/projets/p_367e23fd51b7/reponses");
     const QString clore = kP + QStringLiteral("/projets/p_367e23fd51b7/clore");
 
+    QVERIFY(cliquer(parNom(racine, QStringLiteral("projets-onglet-reglages"))));
+
     // « Changer qui répond » : le formulaire s'ouvre sur le réglage lu (« Moi »), le choix passe à « Hermes d'abord ».
     QVERIFY(cliquer(parNom(racine, QStringLiteral("projets-changer-reponses"))));
     QQuickItem *choix = parNom(racine, QStringLiteral("projets-choix-reponses"));
@@ -512,6 +518,7 @@ void TestPagesInteractions::executantFermeGriseDansLeFormulaire()
     QTRY_COMPARE(m_projets->formulaire().value(QStringLiteral("depot")).toString(), QStringLiteral("demo"));
     QTest::qWait(50);
 
+    QVERIFY(cliquer(parNom(racine, QStringLiteral("projets-routage-manuel"))));
     QQuickItem *voie = parNom(racine, QStringLiteral("projets-champ-voie"));
     QTRY_VERIFY(voie && voie->isVisible());
     QCOMPARE(voie->property("currentValue").toString(), QStringLiteral("poste-claude"));
@@ -663,10 +670,10 @@ void TestPagesInteractions::pastilleDesQuestionsDitCeQuElleCompte()
     QVERIFY(entree);
     const auto nom = [entree] { return QQmlProperty(entree, QStringLiteral("Accessible.name"), qmlContext(entree)).read().toString(); };
     // Discussions lues : le total les compte, le nom ne dit plus le contraire.
-    QTRY_COMPARE(nom(), QStringLiteral("Questions (%1 demandes à traiter par vous)").arg(m_flux->aTraiter()));
+    QTRY_COMPARE(nom(), QStringLiteral("À traiter (%1 demandes à traiter par vous)").arg(m_flux->aTraiter()));
     // Discussions inconnues (passerelle indisponible, refus) : le nom le dit.
     m_flux->discussions()->oublier();
-    QTRY_COMPARE(nom(), QStringLiteral("Questions (%1 demandes à traiter par vous (discussions non comptées))")
+    QTRY_COMPARE(nom(), QStringLiteral("À traiter (%1 demandes à traiter par vous (discussions non comptées))")
                             .arg(m_flux->aTraiter()));
     QVERIFY2(m_avertissements.isEmpty(), qPrintable(m_avertissements.join(QLatin1Char('\n'))));
 }
@@ -712,6 +719,7 @@ void TestPagesInteractions::greffonSansEtapeP7NiAccueilNiGestes()
     m_projets->ouvrirProjet(QStringLiteral("p_367e23fd51b7"));
     QTRY_VERIFY_WITH_TIMEOUT(m_projets->detailLu(), 5000);
     QTest::qWait(150);
+    QVERIFY(cliquer(parNom(racine, QStringLiteral("projets-onglet-reglages"))));
     QQuickItem *raison = parNom(racine, QStringLiteral("projet-gestes-p7"));
     QVERIFY(raison && raison->isVisible());
     QVERIFY2(raison->property("text").toString().startsWith(
@@ -909,6 +917,155 @@ void TestPagesInteractions::messageEnvoyeParLeBoutonDeLaDiscussion()
     page.reset();
     discussion->quitter();
     passerelle->fermer();
+}
+
+// Le choix de lire plus haut appartient à une discussion. Ouvrir une autre
+// discussion longue doit retrouver ses derniers messages, sans sauter ceux de la même session.
+void TestPagesInteractions::nouvelleDiscussionSuitSaFinApresHistoriqueDefile()
+{
+    auto *passerelle = m_application->findChild<GatewayClient *>();
+    auto *discussion = m_application->findChild<DiscussionViewModel *>();
+    QVERIFY(passerelle && discussion);
+    const auto listeInitiale = m_serveur->methodes.value(QStringLiteral("session.list"));
+    const auto repriseInitiale = m_serveur->methodes.value(QStringLiteral("session.resume"));
+    const auto restaurer = qScopeGuard([&] {
+        // Une assertion interrompue ne doit pas contaminer les discussions suivantes.
+        passerelle->fermer();
+        discussion->oublier();
+        m_serveur->methodes.insert(QStringLiteral("session.list"), listeInitiale);
+        m_serveur->methodes.insert(QStringLiteral("session.resume"), repriseInitiale);
+    });
+    m_serveur->methodes.insert(QStringLiteral("session.list"), [](const QJsonObject &) {
+        QJsonArray sessions;
+        for (const QString &id : {QStringLiteral("s1"), QStringLiteral("s2")}) {
+            sessions.append(QJsonObject{{QStringLiteral("id"), id}, {QStringLiteral("title"), id},
+                {QStringLiteral("started_at"), 1790300000}, {QStringLiteral("message_count"), 40}});
+        }
+        return QJsonObject{{QStringLiteral("sessions"), sessions}};
+    });
+    m_serveur->methodes.insert(QStringLiteral("session.resume"), [](const QJsonObject &params) {
+        const QString id = params.value(QStringLiteral("session_id")).toString();
+        QJsonArray messages;
+        for (int rang = 0; rang < 40; ++rang) {
+            messages.append(QJsonObject{{QStringLiteral("role"), QStringLiteral("assistant")},
+                {QStringLiteral("text"), QStringLiteral("Message %1 de %2. Une étape de travail enregistrée dans cette discussion.").arg(rang).arg(id)}});
+        }
+        return QJsonObject{{QStringLiteral("session_id"), QStringLiteral("rt-") + id},
+            {QStringLiteral("messages"), messages}, {QStringLiteral("running"), false},
+            {QStringLiteral("info"), QJsonObject{{QStringLiteral("title"), id}}}};
+    });
+    discussion->quitter();
+    passerelle->ouvrir();
+    QTRY_COMPARE_WITH_TIMEOUT(passerelle->etat(), GatewayClient::Etat::Pret, 10000);
+    auto page = charger(QStringLiteral("DiscussionPage"));
+    QVERIFY(page);
+    auto *racine = qobject_cast<QQuickItem *>(page.get());
+    QTRY_COMPARE(discussion->sessions()->count(), 2);
+    QTRY_VERIFY(parNom(racine, QStringLiteral("discussion-session-s1")));
+    QVERIFY(cliquer(parNom(racine, QStringLiteral("discussion-session-s1"))));
+    QTRY_COMPARE(discussion->sessionVivante(), QStringLiteral("rt-s1"));
+    QTRY_COMPARE(discussion->transcription()->count(), 40);
+    auto *transcription = parNom(racine, QStringLiteral("discussion-transcription"));
+    QVERIFY(transcription);
+    QTRY_VERIFY(transcription->property("contentHeight").toDouble() > transcription->height() + 500);
+    QTRY_VERIFY(transcription->property("atYEnd").toBool());
+
+    // Viser la marge de la liste, hors des TextEdit sélectionnables des bulles.
+    const QPoint centre = transcription->mapToScene(QPointF(8, transcription->height() / 2)).toPoint();
+    QVERIFY(QRectF(QPointF(0, 0), m_fenetre->size()).contains(centre));
+    QTest::mouseMove(m_fenetre.get(), centre);
+    QSignalSpy mouvements(transcription, SIGNAL(movementStarted()));
+    QVERIFY(mouvements.isValid());
+    QWheelEvent roue(centre, m_fenetre->mapToGlobal(centre), QPoint(), QPoint(0, 720),
+                     Qt::NoButton, Qt::NoModifier, Qt::NoScrollPhase, false);
+    roue.setAccepted(false);
+    QCoreApplication::sendEvent(m_fenetre.get(), &roue);
+    QVERIFY2(roue.isAccepted(), "la molette doit être prise en charge par la liste");
+    QTRY_VERIFY(mouvements.count() > 0);
+    QTRY_VERIFY(!transcription->property("atYEnd").toBool());
+    QTRY_VERIFY(!transcription->property("following").toBool());
+
+    // Relire la même session ne réactive pas le suivi choisi par le propriétaire.
+    const auto reprises = m_serveur->tramesDeMethode(QStringLiteral("session.resume")).size();
+    QVERIFY(cliquer(parNom(racine, QStringLiteral("discussion-session-s1"))));
+    QTRY_COMPARE(m_serveur->tramesDeMethode(QStringLiteral("session.resume")).size(), reprises + 1);
+    QTRY_VERIFY(!discussion->ouverture());
+    QVERIFY(!transcription->property("following").toBool());
+
+    QVERIFY(cliquer(parNom(racine, QStringLiteral("discussion-session-s2"))));
+    QTRY_COMPARE(discussion->sessionVivante(), QStringLiteral("rt-s2"));
+    QTRY_COMPARE(discussion->transcription()->count(), 40);
+    QTRY_VERIFY(transcription->property("following").toBool());
+    QTRY_VERIFY(transcription->property("atYEnd").toBool());
+    QVERIFY2(m_avertissements.isEmpty(), qPrintable(m_avertissements.join(QLatin1Char('\n'))));
+    page.reset();
+}
+
+// Le shell garde les pages visitées pour conserver les saisies, mais les pages
+// masquées doivent arrêter leurs sondages. Les routes changent par les vrais boutons.
+void TestPagesInteractions::workspaceConserveBrouillonEtSuspendPagesMasquees()
+{
+    auto *passerelle = m_application->findChild<GatewayClient *>();
+    auto *discussion = m_application->findChild<DiscussionViewModel *>();
+    auto *navigation = m_application->findChild<NavigationModel *>();
+    auto *accueil = m_application->findChild<AccueilViewModel *>();
+    QVERIFY(passerelle && discussion && navigation && accueil);
+    m_serveur->route("GET", kP + QStringLiteral("/meta"), [](const RequeteRecue &) {
+        return ReponseFaux::json(200, fixture(QStringLiteral("meta.json")));
+    });
+    navigation->setCurrentRoute(QStringLiteral("home"));
+    passerelle->ouvrir();
+    QTRY_COMPARE_WITH_TIMEOUT(passerelle->etat(), GatewayClient::Etat::Pret, 10000);
+    auto shell = charger(QStringLiteral("ShellRoot"), QStringLiteral("Acp.Station"));
+    QVERIFY(shell);
+    auto *racine = qobject_cast<QQuickItem *>(shell.get());
+    QTRY_VERIFY(accueil->actif());
+    // L'activité démarre au premier tour de boucle ; le SplitView doit encore finir
+    // sa mise en page avant que les coordonnées du clic soient utilisables.
+    QTest::qWait(100);
+    auto *entreeDiscussion = parNom(racine, QStringLiteral("navigation-chat"));
+    QVERIFY(entreeDiscussion && entreeDiscussion->width() > 0 && entreeDiscussion->height() > 0);
+    QVERIFY(cliquer(entreeDiscussion));
+    QTRY_COMPARE(navigation->currentRoute(), QStringLiteral("chat"));
+    QTRY_VERIFY(discussion->actif());
+    QTRY_VERIFY(!accueil->actif());
+    discussion->ouvrir(QStringLiteral("s1"));
+    QTRY_COMPARE_WITH_TIMEOUT(discussion->sessionVivante(), QStringLiteral("rt-s1"), 5000);
+    QTest::qWait(100);
+    QPointer<QQuickItem> saisie = parNom(racine, QStringLiteral("discussion-saisie"));
+    QVERIFY(saisie);
+    const QString brouillon = QStringLiteral("Conserver cette consigne pendant la navigation");
+    QVERIFY(taper(saisie, brouillon));
+
+    QVERIFY(cliquer(parNom(racine, QStringLiteral("navigation-settings"))));
+    QTRY_COMPARE(navigation->currentRoute(), QStringLiteral("settings"));
+    QTRY_VERIFY(!discussion->actif());
+    QVERIFY(saisie && !saisie->isVisible());
+    QCOMPARE(saisie->property("text").toString(), brouillon);
+    QVERIFY(cliquer(parNom(racine, QStringLiteral("navigation-home"))));
+    QTRY_VERIFY(accueil->actif());
+    QVERIFY(!discussion->actif());
+    QVERIFY(cliquer(parNom(racine, QStringLiteral("navigation-projects"))));
+    QTRY_VERIFY(m_projets->actif());
+    QTRY_VERIFY(!accueil->actif());
+    QVERIFY(cliquer(parNom(racine, QStringLiteral("navigation-chat"))));
+    QTRY_VERIFY(discussion->actif());
+    QTRY_VERIFY(!m_projets->actif());
+    QVERIFY2(saisie, "la navigation a détruit la saisie de discussion");
+    QCOMPARE(parNom(racine, QStringLiteral("discussion-saisie")), saisie.data());
+    QVERIFY(saisie->isVisible());
+    QCOMPARE(saisie->property("text").toString(), brouillon);
+    QVERIFY2(m_avertissements.isEmpty(), qPrintable(m_avertissements.join(QLatin1Char('\n'))));
+    shell.reset();
+    QTRY_VERIFY(!discussion->actif());
+    QTRY_VERIFY(!accueil->actif());
+    QTRY_VERIFY(!m_projets->actif());
+    discussion->quitter();
+    passerelle->fermer();
+    navigation->setCurrentRoute(QStringLiteral("home"));
+    m_serveur->route("GET", kP + QStringLiteral("/meta"), [](const RequeteRecue &) {
+        return ReponseFaux::json(404, QJsonObject{{QStringLiteral("detail"), QStringLiteral("Not Found")}});
+    });
 }
 
 // Constat de relecture P8 : le dialogue « Changer de serveur ? » affichait « Cancel » (boutons

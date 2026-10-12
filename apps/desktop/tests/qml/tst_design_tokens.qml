@@ -12,11 +12,53 @@ TestCase {
     id: testCase
     name: "DesignTokens"
 
+    readonly property color liveAccent: Colors.accentPrimary
+    readonly property color liveStatus: Status.meta.running.foreground
+
     function init() {
+        Colors.family = "pixel";
+        Status.family = "pixel";
         Colors.theme = "dark";
         Status.theme = "dark";
         Elevation.theme = "dark";
         Motion.profile = "standard";
+    }
+
+    function test_family_changes_live_without_changing_brightness() {
+        Colors.theme = "light";
+        Colors.family = "studio";
+        compare(Colors.theme, "light");
+        compare(Colors.variantLabel, "Studio Papier");
+        compare(String(liveAccent), "#0a6d60");
+        Colors.family = "pixel";
+        compare(Colors.theme, "light");
+        compare(Colors.variantLabel, "Pixel Atelier Jour");
+        compare(String(liveAccent), "#6654af");
+        Colors.theme = "dark";
+        compare(Colors.family, "pixel");
+        compare(Colors.variantLabel, "Pixel Atelier Nuit");
+        compare(String(liveAccent), "#a99aff");
+        compare(String(Colors.accentSecondary), "#7adbc3");
+        Colors.family = "studio";
+        compare(Colors.variantLabel, "Studio Graphite");
+        compare(String(liveAccent), "#65c6ae");
+    }
+
+    function test_status_metadata_follows_the_selected_brightness() {
+        // Le composant conserve son objet meta ; sa couleur change sans le recréer.
+        const running = Status.meta.running;
+        compare(String(liveStatus), "#7adbc3");
+        Status.family = "studio";
+        Status.theme = "light";
+        compare(Status.meta.running, running);
+        compare(String(liveStatus), "#226d5e");
+        compare(running.label, "En cours");
+    }
+
+    function test_unknown_family_uses_pixel_fallback() {
+        Colors.family = "ancienne-valeur";
+        compare(Colors.familyLabel, "Pixel Atelier");
+        compare(String(Colors.surfaceCanvas), "#151923");
     }
 
     function test_palette_exposes_both_themes() {

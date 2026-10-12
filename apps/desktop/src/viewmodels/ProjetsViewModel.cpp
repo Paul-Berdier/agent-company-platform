@@ -98,6 +98,13 @@ ProjetsViewModel::ProjetsViewModel(ApiClient *client, ClientGreffonPoste *greffo
     m_pause = AccueilViewModel::construireCartePause({});
     viderDetail();
     majFormulaire();
+    // L'activité des sondages est différée pendant la construction QML. La lecture
+    // modale, elle, est annulée dès le masquage, avant une éventuelle réponse HTTP.
+    connect(this, &PageViewModel::pageVisibleChange, this, [this] {
+        if (!pageVisible()) {
+            fermerCarteLue();
+        }
+    });
     for (Sondage *sondage : {m_liste, m_detailSondage}) {
         connect(sondage, &Sondage::etatChange, this, &ProjetsViewModel::lectureChange);
     }
@@ -160,8 +167,11 @@ QString ProjetsViewModel::etatVeille() const
 
 // --- Activité et navigation ---------------------------------------------------------------
 
-void ProjetsViewModel::surActivite(bool)
+void ProjetsViewModel::surActivite(bool active)
 {
+    if (!active) {
+        fermerCarteLue();
+    }
     majSondages();
     majVeille();
 }
@@ -192,6 +202,8 @@ void ProjetsViewModel::changerVue(const QString &vue)
     if (vue == m_vue) {
         return;
     }
+    fermerCarteLue();
+    if (m_vue == QLatin1String("nouveau")) ++m_generationFormulaire;
     m_vue = vue;
     emit vueChange();
     majSondages();
@@ -200,6 +212,7 @@ void ProjetsViewModel::changerVue(const QString &vue)
 
 void ProjetsViewModel::surOubli()
 {
+    ++m_generationFormulaire;
     m_liste->oublier();
     m_detailSondage->oublier();
     m_projets->clear();
@@ -215,6 +228,7 @@ void ProjetsViewModel::surOubli()
     m_posteLu = false;
     m_erreurCatalogue.clear();
     m_erreurPoste.clear();
+    m_routageAutomatique = true;
     m_depot.clear();
     m_voie.clear();
     m_modele.clear();
@@ -242,6 +256,7 @@ void ProjetsViewModel::ouvrirProjet(const QString &identifiant)
     }
     const bool dejaActif = m_detailSondage->actif();
     if (m_vue != QLatin1String("detail")) {
+        if (m_vue == QLatin1String("nouveau")) ++m_generationFormulaire;
         m_vue = QStringLiteral("detail");
         majSondages();
         majVeille();
@@ -258,6 +273,7 @@ void ProjetsViewModel::afficherNouveau()
     if (m_cle.isEmpty()) {
         m_cle = makeIdempotencyKey(QStringLiteral("projet"));
     }
+    m_routageAutomatique = true;
     m_depot.clear();
     m_voie.clear();
     m_modele.clear();
@@ -336,7 +352,7 @@ QJsonObject ProjetsViewModel::construireLigneProjet(const QJsonObject &projet)
 
 void ProjetsViewModel::viderDetail()
 {
-    ++m_generationDetail;
+    ++m_generationCarte;
     m_detailLu = false;
     m_tableauOuvert.clear();
     m_etatProjet.clear();
@@ -501,6 +517,7 @@ QJsonArray ProjetsViewModel::construireCartes(const QJsonArray &cartes)
             {QStringLiteral("resume"), libelles::estTexte(resume) ? resume.toString() : QString()},
             {QStringLiteral("resumeTronque"), carte.value(QStringLiteral("resume_tronque")).toBool()},
             {QStringLiteral("resumeLongueur"), libelles::nombre(carte.value(QStringLiteral("resume_longueur")))},
+            {QStringLiteral("execution"), carte.value(QStringLiteral("execution")).toObject()},
         });
     }
     std::stable_sort(lignes.begin(), lignes.end(), [](const QJsonObject &a, const QJsonObject &b) {
@@ -541,12 +558,12 @@ QJsonArray ProjetsViewModel::construireJournal(const QJsonArray &journal)
 
 void ProjetsViewModel::lireCarteEnEntier(const QString &carte)
 {
-    const quint64 generation = m_generationDetail;
+    const quint64 generation = ++m_generationCarte;
     m_carteLue = QVariantMap{{QStringLiteral("carte"), carte}, {QStringLiteral("chargement"), true}};
     emit carteLueChange();
     ApiCall *appel = m_greffon->carteDuProjet(m_projetOuvert, carte);
     connect(appel, &ApiCall::succeeded, this, [this, generation, carte](const ApiResponse &reponse) {
-        if (generation != m_generationDetail) {
+        if (generation != m_generationCarte) {
             return;
         }
         const QJsonObject lue = reponse.json.object().value(QStringLiteral("carte")).toObject();
@@ -560,6 +577,7 @@ void ProjetsViewModel::lireCarteEnEntier(const QString &carte)
             {QStringLiteral("statut"), statut.connu() ? statut.texte : libelles::texte(lue.value(QStringLiteral("statut")))},
             {QStringLiteral("resume"), libelles::estTexte(resume) ? resume.toString() : QString()},
             {QStringLiteral("aucunResume"), !libelles::estTexte(resume)},
+            {QStringLiteral("execution"), lue.value(QStringLiteral("execution")).toObject().toVariantMap()},
             {QStringLiteral("longueur"), libelles::nombre(lue.value(QStringLiteral("longueur")))},
             {QStringLiteral("tronque"), tronque},
             {QStringLiteral("borne"), tronque ? QStringLiteral("Texte borné à 100 000 caractères par le greffon.") : QString()},
@@ -568,7 +586,7 @@ void ProjetsViewModel::lireCarteEnEntier(const QString &carte)
         emit carteLueChange();
     });
     connect(appel, &ApiCall::failed, this, [this, generation, carte](const ApiError &erreur) {
-        if (generation != m_generationDetail) {
+        if (generation != m_generationCarte) {
             return;
         }
         m_carteLue = QVariantMap{{QStringLiteral("carte"), carte},
@@ -580,6 +598,10 @@ void ProjetsViewModel::lireCarteEnEntier(const QString &carte)
 
 void ProjetsViewModel::fermerCarteLue()
 {
+    ++m_generationCarte;
+    if (m_carteLue.isEmpty()) {
+        return;
+    }
     m_carteLue.clear();
     emit carteLueChange();
 }
@@ -730,18 +752,21 @@ bool ProjetsViewModel::ouvrirKanban()
 
 void ProjetsViewModel::lireFormulaire()
 {
+    const quint64 generation = ++m_generationFormulaire;
     m_catalogueLu = false;
     m_posteLu = false;
     m_erreurCatalogue.clear();
     m_erreurPoste.clear();
     majFormulaire();
     ApiCall *catalogue = m_greffon->catalogue();
-    connect(catalogue, &ApiCall::succeeded, this, [this](const ApiResponse &reponse) {
+    connect(catalogue, &ApiCall::succeeded, this, [this, generation](const ApiResponse &reponse) {
+        if (generation != m_generationFormulaire) return;
         m_catalogue = reponse.json.object();
         m_catalogueLu = true;
         majFormulaire();
     });
-    connect(catalogue, &ApiCall::failed, this, [this](const ApiError &erreur) {
+    connect(catalogue, &ApiCall::failed, this, [this, generation](const ApiError &erreur) {
+        if (generation != m_generationFormulaire) return;
         m_catalogue = {};
         m_catalogueLu = true;
         m_erreurCatalogue = QStringLiteral("Catalogue ACP indisponible : le greffon acp-poste ne sert pas la route "
@@ -750,12 +775,14 @@ void ProjetsViewModel::lireFormulaire()
         majFormulaire();
     });
     ApiCall *poste = m_greffon->poste();
-    connect(poste, &ApiCall::succeeded, this, [this](const ApiResponse &reponse) {
+    connect(poste, &ApiCall::succeeded, this, [this, generation](const ApiResponse &reponse) {
+        if (generation != m_generationFormulaire) return;
         m_poste = reponse.json.object();
         m_posteLu = true;
         majFormulaire();
     });
-    connect(poste, &ApiCall::failed, this, [this](const ApiError &erreur) {
+    connect(poste, &ApiCall::failed, this, [this, generation](const ApiError &erreur) {
+        if (generation != m_generationFormulaire) return;
         m_poste = {};
         m_posteLu = true;
         m_erreurPoste = QStringLiteral("L'inventaire du poste est indisponible : le greffon acp-poste ne répond pas "
@@ -892,7 +919,7 @@ void ProjetsViewModel::majFormulaire()
         m_modele.clear();
     }
     const bool avecExploration = !m_depot.isEmpty() && !voies.isEmpty();
-    const bool modeleExige = avecExploration && !voieChoisie.isEmpty() && m_modele.isEmpty() && !modeleParDefaut;
+    const bool modeleExige = !m_routageAutomatique && avecExploration && !voieChoisie.isEmpty() && m_modele.isEmpty() && !modeleParDefaut;
     QVariantList listeVoies;
     QStringList voiesFermees;
     for (const QString &voie : voies) {
@@ -922,6 +949,7 @@ void ProjetsViewModel::majFormulaire()
         {QStringLiteral("reponsesSansObjet"), m_depot.isEmpty()},
         {QStringLiteral("releveFactice"), cataloguePoste.value(QStringLiteral("releve_factice")) == QJsonValue(true)},
         {QStringLiteral("avecExploration"), avecExploration},
+        {QStringLiteral("routageAutomatique"), m_routageAutomatique},
         {QStringLiteral("voies"), listeVoies},
         {QStringLiteral("voie"), voieChoisie},
         {QStringLiteral("voiesFermees"), voiesFermees},
@@ -938,6 +966,13 @@ void ProjetsViewModel::majFormulaire()
         {QStringLiteral("modeleExige"), modeleExige},
     };
     emit formulaireChange();
+}
+
+void ProjetsViewModel::choisirRoutageAutomatique(bool automatique)
+{
+    if (m_routageAutomatique == automatique) return;
+    m_routageAutomatique = automatique;
+    majFormulaire();
 }
 
 void ProjetsViewModel::choisirDepot(const QString &depot)
@@ -993,7 +1028,7 @@ void ProjetsViewModel::lancer(const QString &titre, const QString &objectif, con
         {QStringLiteral("reponses"), reponses},
     };
     const QString voieChoisie = m_formulaire.value(QStringLiteral("voie")).toString();
-    if (m_formulaire.value(QStringLiteral("avecExploration")).toBool() && !voieChoisie.isEmpty()) {
+    if (!m_routageAutomatique && m_formulaire.value(QStringLiteral("avecExploration")).toBool() && !voieChoisie.isEmpty()) {
         QJsonObject exploration{{QStringLiteral("voie"), voieChoisie}};
         if (!m_modele.isEmpty()) {
             exploration.insert(QStringLiteral("modele"), m_modele);

@@ -12,16 +12,20 @@ import Acp.Runtime
 QtObject {
     id: bridge
 
+    readonly property string themeFamily: Appearance.themeFamily
     readonly property string activeTheme: Appearance.activeTheme
     readonly property string activeMotionProfile: Appearance.activeMotionProfile
 
     function applyTheme() {
+        Colors.family = bridge.themeFamily;
+        Status.family = bridge.themeFamily;
         Colors.theme = bridge.activeTheme;
         Status.theme = bridge.activeTheme;
         Elevation.theme = bridge.activeTheme;
         Motion.profile = bridge.activeMotionProfile;
     }
 
+    onThemeFamilyChanged: bridge.applyTheme()
     onActiveThemeChanged: bridge.applyTheme()
     onActiveMotionProfileChanged: bridge.applyTheme()
     Component.onCompleted: bridge.applyTheme()

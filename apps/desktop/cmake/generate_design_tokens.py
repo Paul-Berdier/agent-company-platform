@@ -173,6 +173,7 @@ def header(stem: str, document: dict) -> list[str]:
     return [
         "// Fichier généré — NE PAS MODIFIER À LA MAIN.",
         f"// Source    : design/tokens/{stem}.json (version {document.get('$version', 'inconnue')})",
+        *(["// Palettes  : design/tokens/desktop-palettes.json"] if "$desktopPalettes" in document else []),
         "// Générateur : apps/desktop/cmake/generate_design_tokens.py",
         "// Toute correction se fait dans le fichier de jetons, puis par régénération.",
         "",
@@ -185,7 +186,7 @@ def header(stem: str, document: dict) -> list[str]:
 
 def theme_preamble() -> list[str]:
     return [
-        "    // Thème actif. Écrit par la couche C++ (ThemeController) au démarrage et à",
+        "    // Thème actif. Écrit par ThemeBridge au démarrage et à",
         "    // chaque changement de préférence ; jamais deviné par un composant.",
         '    property string theme: "dark"',
         '    readonly property bool isDark: theme !== "light"',
@@ -196,28 +197,59 @@ def theme_preamble() -> list[str]:
 # --- Générateurs par fichier --------------------------------------------------
 
 
-def generate_flat_themed(stem: str, document: dict) -> str:
-    """colors.json : un objet par thème, plus des accesseurs plats de type ``color``."""
+def palette_preamble(document: dict) -> list[str]:
+    """Famille indépendante du thème ; la luminosité suit toujours ThemeBridge."""
+    if "$desktopPalettes" not in document:
+        return []
+    families = document["$desktopPalettes"]
+    label = {key: json.dumps(value["label"], ensure_ascii=False) for key, value in families.items()}
+    variant = {key: {mode: json.dumps(name, ensure_ascii=False) for mode, name in value["variants"].items()}
+               for key, value in families.items()}
+    return [
+        '    property string family: "pixel"',
+        '    readonly property bool isPixel: family !== "studio"',
+        f'    readonly property string familyLabel: root.isPixel ? {label["pixel"]} : {label["studio"]}',
+        '    readonly property string variantLabel: root.isPixel',
+        f'        ? (root.isDark ? {variant["pixel"]["dark"]} : {variant["pixel"]["light"]})',
+        f'        : (root.isDark ? {variant["studio"]["dark"]} : {variant["studio"]["light"]})',
+        '',
+    ]
 
+
+def palette_objects(stem: str, document: dict, tokens: dict) -> list[str]:
+    """Objets de palette opaques, aliases dark/light maintenus pour les consommateurs."""
+    lines = []
+    palettes = document.get("$desktopPalettes")
+    families = palettes.items() if palettes else [("", {stem: tokens})]
+    for family, values in families:
+        for theme in ("dark", "light"):
+            name = family + theme.capitalize() if family else theme
+            lines.append(f"    readonly property QtObject {name}: QtObject {{")
+            for token, payload in values[stem].items():
+                if theme not in payload:
+                    raise GenerationError(f"{stem}.{token} : valeur {theme!r} manquante")
+                lines.append(
+                    f"        readonly property color {camel_case(token)}: "
+                    f"{qml_color(payload[theme], f'{stem}.{token}')}"
+                )
+            lines.extend(["    }", ""])
+    if palettes:
+        lines.extend([
+            '    readonly property QtObject dark: root.isPixel ? root.pixelDark : root.studioDark',
+            '    readonly property QtObject light: root.isPixel ? root.pixelLight : root.studioLight',
+            '',
+        ])
+    return lines
+
+
+def generate_flat_themed(stem: str, document: dict) -> str:
+    """Couleurs par famille et luminosité, avec accesseurs plats pour les composants."""
     tokens = public_tokens(document)
     lines = header(stem, document)
-    lines.append("QtObject {")
-    lines.append("    id: root")
-    lines.append("")
+    lines.extend(["QtObject {", "    id: root", ""])
     lines.extend(theme_preamble())
-
-    for theme in ("dark", "light"):
-        lines.append(f"    readonly property QtObject {theme}: QtObject {{")
-        for token, payload in tokens.items():
-            if theme not in payload:
-                raise GenerationError(f"{stem}.{token} : valeur {theme!r} manquante")
-            lines.append(
-                f"        readonly property color {camel_case(token)}: "
-                f"{qml_color(payload[theme], f'{stem}.{token}')}"
-            )
-        lines.append("    }")
-        lines.append("")
-
+    lines.extend(palette_preamble(document))
+    lines.extend(palette_objects(stem, document, tokens))
     lines.append("    // Accesseurs plats : un composant ne choisit jamais son thème lui-même.")
     for token in tokens:
         name = camel_case(token)
@@ -238,17 +270,8 @@ def generate_status(stem: str, document: dict) -> str:
     lines.append("")
     lines.extend(theme_preamble())
 
-    for theme in ("dark", "light"):
-        lines.append(f"    readonly property QtObject {theme}: QtObject {{")
-        for token, payload in tokens.items():
-            if theme not in payload:
-                raise GenerationError(f"{stem}.{token} : valeur {theme!r} manquante")
-            lines.append(
-                f"        readonly property color {camel_case(token)}: "
-                f"{qml_color(payload[theme], f'{stem}.{token}')}"
-            )
-        lines.append("    }")
-        lines.append("")
+    lines.extend(palette_preamble(document))
+    lines.extend(palette_objects(stem, document, tokens))
 
     for token in tokens:
         name = camel_case(token)
@@ -672,10 +695,56 @@ def qmldir_contents() -> str:
     return "\n".join(lines) + "\n"
 
 
+def load_desktop_palettes(tokens_dir: Path, documents: dict[str, dict]) -> dict:
+    """Valide entièrement les quatre palettes sans modifier les documents du client web."""
+    path = tokens_dir / "desktop-palettes.json"
+    try:
+        document = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise GenerationError(f"{path} : palettes du bureau illisibles ({error})") from error
+    if not isinstance(document, dict) or document.get("$schema") != "acp.desktop-palettes/1":
+        raise GenerationError(f"{path} : schéma de palettes du bureau inconnu")
+    families = document.get("families")
+    if not isinstance(families, dict) or set(families) != {"pixel", "studio"}:
+        raise GenerationError(f"{path} : familles pixel et studio requises")
+    for family, values in families.items():
+        if not isinstance(values, dict) or not isinstance(values.get("label"), str) or not values["label"]:
+            raise GenerationError(f"{path}.{family} : libellé de famille requis")
+        variants = values.get("variants")
+        if (not isinstance(variants, dict) or set(variants) != {"dark", "light"}
+                or not all(isinstance(label, str) and label for label in variants.values())):
+            raise GenerationError(f"{path}.{family} : libellés des variantes requis")
+    for stem in ("colors", "semantic-status"):
+        expected = set(public_tokens(documents[stem]))
+        pixel = families["pixel"].get(stem, {})
+        studio = families["studio"].get(stem, {})
+        if not isinstance(pixel, dict) or not isinstance(studio, dict):
+            raise GenerationError(f"{path} : objet {stem} requis pour chaque famille")
+        if set(pixel) != set(studio) or not expected.issubset(pixel):
+            raise GenerationError(f"{path} : jetons {stem} absents ou différents entre familles")
+        if stem == "semantic-status" and set(pixel) != expected:
+            raise GenerationError(f"{path} : états sémantiques inconnus")
+        for family, values in families.items():
+            for token, payload in values[stem].items():
+                camel_case(token)
+                if not isinstance(payload, dict):
+                    raise GenerationError(f"{path}.{family}.{token} : objet attendu")
+                for theme in ("dark", "light"):
+                    qml_color(payload.get(theme), f"{path}.{family}.{token}.{theme}")
+    return families
+
+
 def render_all(tokens_dir: Path) -> dict[str, str]:
     rendered: dict[str, str] = {}
+    documents = {stem: load_tokens(tokens_dir, stem) for stem in EXPECTED_SINGLETONS}
+    palettes = load_desktop_palettes(tokens_dir, documents)
     for stem, singleton in EXPECTED_SINGLETONS.items():
-        document = load_tokens(tokens_dir, stem)
+        document = documents[stem]
+        if stem in ("colors", "semantic-status"):
+            document["$desktopPalettes"] = palettes
+            # Les rôles propres au workspace sont déclarés dans les palettes natives.
+            for token, payload in palettes["pixel"][stem].items():
+                document["tokens"].setdefault(token, payload)
         rendered[f"{singleton}.qml"] = GENERATORS[stem](stem, document)
     rendered["qmldir"] = qmldir_contents()
     return rendered

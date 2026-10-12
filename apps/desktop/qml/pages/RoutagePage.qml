@@ -14,7 +14,8 @@ import Acp.Controls
 Item {
     id: page
 
-    Component.onCompleted: Routage.pageVisible = true
+    Component.onCompleted: Routage.pageVisible = visible
+    onVisibleChanged: Routage.pageVisible = visible
     Component.onDestruction: Routage.pageVisible = false
 
     component Discret: Text {

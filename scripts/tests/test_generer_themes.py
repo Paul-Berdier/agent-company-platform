@@ -169,13 +169,23 @@ def test_check_rouge_sur_une_sortie_retouchee(tmp_path, capsys):
     assert gt.main(["--check", "--sortie", str(sortie)]) == 0
 
 
-def test_check_rouge_sur_un_jeton_modifie(jetons_copies, capsys):
+def test_check_rouge_sur_un_jeton_web_modifie(jetons_copies, capsys):
     _modifier(jetons_copies, "colors", lambda d: d["tokens"]["accent.primary"].update(dark="#66c6ae"))
-    # La sortie versionnée ET le QML du desktop deviennent périmés : les deux sont signalés.
+    # Les palettes natives ont leur propre source ; cette modification ne périme que Hermes.
     assert gt.main(["--check", "--jetons", str(jetons_copies)]) == 1
     erreur = capsys.readouterr().err
     assert "ne correspond plus aux jetons de design" in erreur
+    assert "Colors.qml : contenu périmé" not in erreur
+
+
+def test_check_rouge_sur_un_jeton_natif_modifie(jetons_copies, capsys):
+    _modifier(jetons_copies, "desktop-palettes", lambda d:
+              d["families"]["pixel"]["colors"]["accent.primary"].update(dark="#aa9aff"))
+    assert gt.main(["--check", "--jetons", str(jetons_copies)]) == 1
+    erreur = capsys.readouterr().err
     assert "Colors.qml : contenu périmé" in erreur
+    assert "ne correspond plus aux jetons de design" not in erreur
+    assert gt.generer(jetons_copies) == gt.generer()
 
 
 def test_check_rouge_sur_un_qml_perime(tmp_path, capsys):

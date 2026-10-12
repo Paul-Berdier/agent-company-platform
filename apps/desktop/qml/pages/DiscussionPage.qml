@@ -15,8 +15,10 @@ import Acp.Controls
 
 Item {
     id: page
+    property bool sessionsExpanded: false
 
-    Component.onCompleted: Discussion.pageVisible = true
+    Component.onCompleted: Discussion.pageVisible = visible
+    onVisibleChanged: Discussion.pageVisible = visible
     Component.onDestruction: Discussion.pageVisible = false
 
     readonly property bool coupee: Compatibility.etat !== CompatibilityStatus.NonVerifiee
@@ -48,13 +50,14 @@ Item {
 
         // --- Sessions ------------------------------------------------------------------------------
         ColumnLayout {
-            Layout.preferredWidth: 300
-            Layout.maximumWidth: 340
+            visible: page.width > 860 || page.sessionsExpanded || Discussion.sessionVivante.length === 0
+            Layout.preferredWidth: page.width > 860 ? 240 : 200
+            Layout.maximumWidth: 280
             Layout.fillHeight: true
             spacing: Space.space4
 
             Text {
-                text: qsTr("Discussions")
+                text: qsTr("Vos discussions")
                 textFormat: Text.PlainText
                 color: Colors.textPrimary
                 font.family: Type.pageTitle.family
@@ -66,17 +69,17 @@ Item {
                 AcpButton {
                     objectName: "discussion-nouvelle"
                     primary: true
-                    label: qsTr("Nouvelle discussion")
+                    label: qsTr("Nouvelle"); iconName: "plus"
                     manualEnabled: Discussion.passerellePrete && !Discussion.ouverture
                     onTriggered: Discussion.nouvelle()
                 }
                 AcpButton {
                     objectName: "discussion-actualiser"
-                    label: qsTr("Actualiser")
+                    label: ""; iconName: "activity"; Accessible.name: qsTr("Actualiser les discussions")
                     onTriggered: Discussion.actualiserSessions()
                 }
             }
-            Discret { text: qsTr("Passerelle : %1").arg(Discussion.etatPasserelle) }
+            Discret { visible: !Discussion.passerellePrete; text: qsTr("Passerelle : %1").arg(Discussion.etatPasserelle) }
             Discret {
                 visible: Discussion.erreurSessions.length > 0
                 text: Discussion.erreurSessions
@@ -105,6 +108,7 @@ Item {
                 ScrollBar.vertical: ScrollBar {}
                 delegate: Rectangle {
                     id: ligneSession
+                    objectName: "discussion-session-" + ligneSession.item.id
                     required property var item
                     width: listeSessions.width - Space.space3
                     implicitHeight: contenuSession.implicitHeight + Space.space4 * 2
@@ -157,6 +161,7 @@ Item {
         }
 
         Rectangle {
+            visible: page.width > 860 || page.sessionsExpanded || Discussion.sessionVivante.length === 0
             Layout.fillHeight: true
             width: Space.layoutBorderWidth
             color: Colors.borderSubtle
@@ -171,6 +176,11 @@ Item {
             RowLayout {
                 Layout.fillWidth: true
                 spacing: Space.space4
+                AcpButton {
+                    visible: page.width <= 860 && Discussion.sessionVivante.length > 0
+                    label: ""; iconName: "chat"; Accessible.name: qsTr("Afficher les discussions")
+                    onTriggered: page.sessionsExpanded = !page.sessionsExpanded
+                }
                 Text {
                     Layout.fillWidth: true
                     text: Discussion.sessionVivante.length === 0 ? qsTr("Aucune discussion ouverte")
@@ -243,10 +253,26 @@ Item {
                 spacing: Space.space3
                 model: Discussion.transcription
                 ScrollBar.vertical: ScrollBar {}
-                onCountChanged: Qt.callLater(transcription.positionViewAtEnd)
+                property bool following: true
+                function suivreLaFin() {
+                    // Une mise en page différée ne doit pas annuler un geste commencé
+                    // depuis sa programmation (molette, glissement ou défilement tactile).
+                    if (following && !moving) positionViewAtEnd();
+                }
+                readonly property string sessionIdentity: Discussion.sessionOuverte || Discussion.sessionVivante
+                // Une nouvelle discussion s'ouvre sur sa fin. Une relecture de la même
+                // session conserve le choix de lire plus haut dans son historique.
+                onSessionIdentityChanged: {
+                    following = true;
+                    Qt.callLater(transcription.suivreLaFin);
+                }
+                onMovementStarted: following = false
+                onMovementEnded: following = atYEnd
+                onCountChanged: if (following) Qt.callLater(transcription.suivreLaFin)
                 delegate: BulleMessage {
                     required property var item
-                    width: transcription.width - Space.space4
+                    width: Math.min(transcription.width - Space.space4, 780)
+                    x: Math.max(0, (transcription.width - width) / 2)
                     auteur: item.auteur
                     texte: item.texte
                     role: item.role
@@ -254,7 +280,7 @@ Item {
                     statut: item.statut
                     avertissement: item.avertissement
                     heure: item.heure
-                    onTexteChanged: if (transcription.atYEnd) Qt.callLater(transcription.positionViewAtEnd)
+                    onTexteChanged: if (transcription.following) Qt.callLater(transcription.suivreLaFin)
                 }
             }
 
@@ -265,46 +291,43 @@ Item {
                 color: Status.statusRunningForeground
             }
 
-            RowLayout {
+            Rectangle {
                 Layout.fillWidth: true
+                implicitHeight: 158
                 visible: Discussion.sessionVivante.length > 0
-                spacing: Space.space4
-                TextArea {
-                    id: saisie
-                    objectName: "discussion-saisie"
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: 84
-                    wrapMode: TextEdit.Wrap
-                    textFormat: TextEdit.PlainText
-                    placeholderText: qsTr("Écrivez à Hermes (Ctrl+Entrée pour envoyer)")
-                    color: Colors.textPrimary
-                    font.family: Type.prose.family
-                    font.pixelSize: Type.prose.pixelSize
-                    background: Rectangle {
-                        color: Colors.surfacePanelRaised
-                        radius: Radius.radiusSm
-                        border.width: Space.layoutBorderWidth
-                        border.color: saisie.activeFocus ? Colors.borderFocus : Colors.borderInteractive
-                    }
-                    Accessible.name: qsTr("Message à Hermes")
-                    Keys.onPressed: function(evenement) {
-                        if ((evenement.key === Qt.Key_Return || evenement.key === Qt.Key_Enter)
-                                && (evenement.modifiers & Qt.ControlModifier)) {
-                            envoyer.activate();
-                            evenement.accepted = true;
+                radius: 8; color: Colors.surfacePanelRaised
+                border.width: 1; border.color: saisie.activeFocus ? Colors.borderFocus : Colors.borderInteractive
+                ColumnLayout {
+                    anchors.fill: parent; anchors.margins: Space.space4; spacing: Space.space3
+                    TextArea {
+                        id: saisie; objectName: "discussion-saisie"
+                        Layout.fillWidth: true; Layout.fillHeight: true
+                        wrapMode: TextEdit.Wrap; textFormat: TextEdit.PlainText; selectByMouse: true
+                        placeholderText: qsTr("Donnez une consigne, posez une question…")
+                        text: Discussion.brouillon
+                        onTextChanged: if (Discussion.brouillon !== text) Discussion.brouillon = text
+                        color: Colors.textPrimary; placeholderTextColor: Colors.textMuted
+                        font.family: Type.prose.family; font.pixelSize: 15
+                        background: Item {}
+                        Accessible.name: qsTr("Message à Hermes")
+                        Keys.onPressed: function(event) {
+                            if ((event.key === Qt.Key_Return || event.key === Qt.Key_Enter) && (event.modifiers & Qt.ControlModifier)) {
+                                envoyer.activate(); event.accepted = true;
+                            }
                         }
                     }
-                }
-                AcpButton {
-                    id: envoyer
-                    objectName: "discussion-envoyer"
-                    primary: true
-                    label: qsTr("Envoyer")
-                    manualEnabled: Discussion.passerellePrete && saisie.text.trim().length > 0
-                    onTriggered: {
-                        // Le texte n'est effacé que s'il est parti : un refus local le garde.
-                        if (Discussion.envoyer(saisie.text))
-                            saisie.text = "";
+                    RowLayout {
+                        Layout.fillWidth: true; spacing: Space.space3
+                        AtelierMark { Layout.preferredWidth: 24; Layout.preferredHeight: 20 }
+                        Text { text: qsTr("Hermes · modèle du profil"); color: Colors.textSecondary; font.family: Type.metadata.family; font.pixelSize: Type.metadata.pixelSize }
+                        Item { Layout.fillWidth: true }
+                        Text { visible: page.width > 900; text: "Ctrl+Entrée"; color: Colors.textMuted; font.family: Type.identifier.family; font.pixelSize: 11 }
+                        AcpButton {
+                            id: envoyer; objectName: "discussion-envoyer"
+                            primary: true; label: qsTr("Envoyer"); iconName: "arrowUp"
+                            manualEnabled: Discussion.passerellePrete && !Discussion.ouverture && saisie.text.trim().length > 0
+                            onTriggered: if (Discussion.envoyer(saisie.text)) Discussion.brouillon = ""
+                        }
                     }
                 }
             }

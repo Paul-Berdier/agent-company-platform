@@ -29,6 +29,7 @@
 #include "models/JsonListModel.h"
 #include "viewmodels/PageViewModel.h"
 
+#include <QHash>
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QJsonValue>
@@ -49,6 +50,7 @@ class DiscussionViewModel : public PageViewModel
     Q_PROPERTY(QString sessionVivante READ sessionVivante NOTIFY sessionChange)
     Q_PROPERTY(QString titreSession READ titreSession NOTIFY sessionChange)
     Q_PROPERTY(bool ouverture READ ouverture NOTIFY sessionChange)
+    Q_PROPERTY(QString brouillon READ brouillon WRITE setBrouillon NOTIFY brouillonChange)
     Q_PROPERTY(JsonListModel *transcription READ transcription CONSTANT)
     Q_PROPERTY(bool tourEnCours READ tourEnCours NOTIFY tourChange)
     Q_PROPERTY(QString ligneEtat READ ligneEtat NOTIFY tourChange)
@@ -83,6 +85,9 @@ public:
     [[nodiscard]] bool passerellePrete() const;
     [[nodiscard]] QString etatPasserelle() const;
 
+    [[nodiscard]] QString brouillon() const;
+    void setBrouillon(const QString &texte);
+
     Q_INVOKABLE void actualiserSessions();
     /*! Ouvre une session par son identifiant STOCKÉ (liste, accueil). */
     Q_INVOKABLE void ouvrir(const QString &identifiantStocke);
@@ -106,6 +111,7 @@ public:
 
 signals:
     void sessionsChange();
+    void brouillonChange();
     void sessionChange();
     void tourChange();
     void passerelleChange();
@@ -133,6 +139,8 @@ private:
     bool m_sessionsLues = false;
     QJsonArray m_lignes; //!< lignes lues de `session.list`, avant marque
     QString m_erreurSessions;
+    // Brouillons en mémoire, isolés par discussion ; oubliés à la déconnexion.
+    QHash<QString, QString> m_brouillons;
     QString m_stockee;
     QString m_vivante;
     QString m_titre;

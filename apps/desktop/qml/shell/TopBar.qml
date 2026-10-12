@@ -12,7 +12,7 @@ Rectangle {
     property bool navigationCompact: false
     signal toggleNavigation()
     color: Colors.surfaceCanvas
-    readonly property string contextLabel: ""
+    readonly property string contextLabel: Navigation.currentRoute === "projects" && Projets.vue === "detail" ? qsTr("Projets") : qsTr("Atelier")
     RowLayout {
         anchors.fill: parent
         anchors.leftMargin: Space.space4
@@ -56,7 +56,7 @@ Rectangle {
         Text {
             objectName: "shell-context-title"
             Layout.fillWidth: true
-            text: Navigation.currentTitle
+            text: Navigation.currentRoute === "projects" && Projets.vue === "detail" ? Projets.detail.titre || qsTr("Projet") : Navigation.currentRoute === "home" ? qsTr("Mon atelier") : Navigation.currentTitle
             textFormat: Text.PlainText
             color: Colors.textPrimary
             elide: Text.ElideRight
