@@ -1,5 +1,47 @@
 # Reprise du travail sur un autre poste
 
+## Priorité de reprise — 12 octobre 2026, ACP 1.1.1
+
+Les sources de **1.1.1** sont fusionnées dans `main` : [PR #30](https://github.com/Paul-Berdier/agent-company-platform/pull/30),
+le 12 octobre à 10:24:15 UTC, commit `9d6eab6883cc117d7fb356d392c1460daf187faf`.
+L'étiquette annotée `v1.1.1` est poussée et pointe sur ce commit. Les quatre workflows
+complets lancés manuellement ont réussi sur `3749d39566c9c31179b2f2d60d9aa16557794c67` ;
+l'arbre de la tête, de la fusion proposée et de la fusion effective est identique
+(`f5dc737998e28b5d8a870be7db44ef96598d386d`). Le workflow
+[Desktop Release 38236135339](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/38236135339)
+a réussi sur ce tag : compilation, **37/37 suites Qt, aucun échec en 114,12 s**,
+empaquetage et création du brouillon. Les trois pièces jointes ont été téléchargées
+et leurs tailles et empreintes vérifiées, sans exécuter les paquets. Le Setup CI
+est non signé (`NotSigned`). La release reste **en brouillon, non publiée**,
+invisible dans le bouton de mise à jour. Le Setup local licencié LimeZu est fourni
+séparément pour la mise à jour ; il est non signé et non installé. Les paquets CI
+utilisent le décor ACP original et leurs empreintes sont différentes.
+
+Lire les [preuves de 1.1.1](refonte/preuves-1.1.1.md) et le
+[guide des connexions et de la mise à jour](refonte/connexions-1.1.1.md).
+Le correctif rend explicite la reprise initiale de session, réouvre la liaison après
+le retour d'un verdict compatible et montre dès l'accueil la configuration Hermes
+et les connexions observées des assistants. Le parcours ChatGPT par code d'appareil
+connecte le coordinateur Hermes ; les comptes Codex et Claude Code de l'exécutant
+restent distincts. Le correctif de fermeture Windows conserve le budget et exige
+les preuves de terminaison de l'arbre de processus.
+
+Les validations locales finales ont réussi : **1 289 tests Python et 464 sous-tests,
+106 ignorés, aucun échec en 1 149,98 s** ; **37/37 suites Qt en 121,92 s**.
+Ces essais isolés ne démontrent aucune connexion effective à un compte personnel.
+La fenêtre personnelle n'a pas pu être observée ; le message exact de l'incident
+reste attendu. L'installation, sa reprise de session et les opérations Railway
+n'ont pas été exécutées pour cette livraison.
+
+Avant fermeture ou mise à jour, sauvegarder ailleurs les brouillons encore utiles :
+ils restent en mémoire et ne sont pas restaurés après fermeture, perte de session
+ou changement de serveur. Si le bureau est accessible, ouvrir
+**Réglages → Diagnostics → Copier le rapport** pour relever le diagnostic avec le
+message exact. Ne pas joindre de mot de passe, jeton ou code d'autorisation.
+Le Setup met à jour le client uniquement ; le serveur et l'exécutant séparé suivent
+leurs propres procédures. Les notes de 1.1.0 ci-dessous restent conservées comme
+historique, notamment les limites du workspace et du brief encore non couvertes.
+
 ## Priorité de reprise — 12 octobre 2026, ACP 1.1.0
 
 Les sources de **1.1.0** sont fusionnées dans `main` : [PR #28](https://github.com/Paul-Berdier/agent-company-platform/pull/28),

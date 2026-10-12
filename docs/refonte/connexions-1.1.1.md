@@ -1,8 +1,15 @@
 # Connexions et reprise de session — correctif 1.1.1
 
-État au 12 octobre 2026 : correctif compilé et paquet local préparé ; validations locales réussies, CI GitHub à terminer.
-Ce document décrit les changements du code et le parcours. La publication GitHub
-et la reprise de l’installation personnelle restent à confirmer.
+État au 12 octobre 2026 : sources fusionnées par la [PR #30](https://github.com/Paul-Berdier/agent-company-platform/pull/30),
+tag annoté `v1.1.1` poussé et quatre workflows complets réussis. Le paquet local
+est préparé. Le workflow [Desktop Release 38236135339](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/38236135339)
+a réussi : 37/37 suites Qt, aucun échec en 114,12 s, trois pièces jointes téléchargées
+et vérifiées sans exécuter les paquets. La release reste **en brouillon, non publiée**.
+Voir les [preuves de 1.1.1](preuves-1.1.1.md).
+
+Aucun environnement personnel réel ni aucune connexion effective à un compte
+fournisseur n'a été testé pour cette validation. La reprise de l'installation
+personnelle reste à vérifier.
 
 ## Ce qui change au démarrage
 
@@ -64,8 +71,11 @@ le code temporaire affiché est destiné au parcours d'autorisation OpenAI.
 ## Mise à jour depuis une ancienne version
 
 L'installateur local **Setup 1.1.1** est compilé et préparé dans ce checkout.
-Il est **non signé et n'a pas été installé**. La validation locale est réussie ; la CI finale
-reste à terminer. Ce paquet local n'atteste pas une publication GitHub.
+Il est **non signé et n'a pas été installé**. Les validations locales et les
+quatre workflows complets sont réussis, ainsi que Desktop Release. La release GitHub
+reste **en brouillon et invisible dans le bouton de mise à jour** ; retenter une
+vérification ne publie pas ce brouillon. Le Setup local ci-dessous est la voie de
+mise à jour fournie au propriétaire.
 
 | Paquet local | Valeur |
 | --- | --- |
@@ -74,9 +84,18 @@ reste à terminer. Ce paquet local n'atteste pas une publication GitHub.
 | SHA-256 | `ef9637ae0b62f7a7221fcafaccd5e6dc97286428fa1d3e9dbe9a5a7c6454dee6` |
 | Fichier de référence local | [`dist/startup-1.1.1/SHA256SUMS.txt`](../../dist/startup-1.1.1/SHA256SUMS.txt) |
 
-Après la validation finale, la mise à jour se fait ainsi :
+Les étapes suivantes concernent le paquet local identifié ci-dessus, avec le décor
+LimeZu importé sous licence. Les paquets CI vérifiés utilisent le décor ACP original
+et ont des empreintes différentes, consignées dans les [preuves](preuves-1.1.1.md).
+Ne pas utiliser l'empreinte du paquet local pour vérifier un paquet CI.
 
-1. Fermer ACP. Cela ne met pas automatiquement les projets Hermes en pause.
+Pour mettre à jour avec ce paquet local :
+
+1. Avant de fermer ACP ou de lancer la mise à jour, enregistrer ailleurs le texte
+   des brouillons encore utiles. Les brouillons conservés pendant la navigation
+   restent en mémoire : ils ne sont pas restaurés après fermeture, perte de session
+   ou changement de serveur. Fermer ensuite ACP. Cela ne met pas automatiquement
+   les projets Hermes en pause.
 2. Vérifier l'empreinte du Setup avec `Get-FileHash -Algorithm SHA256` et la
    comparer à la valeur ci-dessus. Une empreinte correspondante n'est pas une
    signature de l'éditeur.
@@ -94,19 +113,36 @@ séparé. Le [guide de mise à jour et de récupération](../mettre-a-jour-1.1.m
 explique les vérifications des paquets et la récupération du travail. Ces étapes
 n'ont pas été exécutées sur l'installation personnelle.
 
+## Si un problème reste affiché
+
+Lorsque le bureau ACP est accessible, ouvrir **Réglages → Diagnostics → Copier le rapport**.
+Cette action copie le rapport de diagnostic ; elle ne l'envoie pas automatiquement.
+Conserver aussi le texte exact de l'erreur affichée, la version d'ACP et l'étape
+concernée (reprise de session, connexion Hermes ou assistant). Si le bureau n'est
+pas encore accessible, relever le message de l'écran de connexion et le résultat
+d'une nouvelle tentative ; le rapport ne peut pas être ouvert depuis cet écran.
+Ne pas joindre un mot de passe, un jeton ou le code temporaire d'autorisation.
+
+Le rapport aide à distinguer une session expirée, une liaison indisponible et une
+configuration à compléter. Il ne constitue pas une preuve de connexion effective
+à ChatGPT, Codex ou Claude Code. Ne pas effacer les réglages ou réenrôler la
+machine pour contourner un état inconnu : suivre d'abord l'action affichée.
+
 ## Vérifications et limites actuelles
 
 | Vérification | État acquis |
 | --- | --- |
-| Reprise de session, compatibilité de la liaison, préparation Hermes et états des assistants | 37/37 suites Qt réussies sur le client final avec les polices Windows (121,92 s). Les 19 interactions passent aussi en exécution directe ; captures et comptes isolés. |
+| Reprise de session, compatibilité de la liaison, préparation Hermes et états des assistants | 37/37 suites Qt réussies sur le client final avec les polices Windows (121,92 s). Les 19 interactions passent aussi en exécution directe ; tests et captures en environnements isolés, sans compte personnel. |
 | Santé publique du serveur Hermes 0.21.5 | Réponse de santé correcte. Elle ne prouve ni la session personnelle, ni la connexion à un fournisseur, ni l'exécution d'un modèle. |
 | Fenêtre de l'installation personnelle | Non contrôlée : les outils Computer Use ne démarrent pas, avec une erreur `deny-read ACLs`. Aucun état de cet écran n'a été observé. |
 | Erreur personnelle exacte | Encore attendue ; aucun diagnostic de cet incident n'est confirmé. |
 | Setup local 1.1.1 | Paquet préparé ; taille et empreinte relevées dans les métadonnées locales et `SHA256SUMS.txt`. Non signé, non installé. |
 | Validation Python Windows | 1 289 tests et 464 sous-tests réussis, 106 ignorés pour leurs conditions de plateforme ou conteneur ; aucun échec (1 149,98 s). |
-| CI finale | À terminer ; aucune réussite GitHub revendiquée à ce stade. |
+| CI finale avant fusion | CI générale, Desktop CI, Image Hermes et Image exécutant réussies sur `3749d39566c9c31179b2f2d60d9aa16557794c67` ; arbre identique à celui du commit de fusion. |
+| Desktop Release et paquets CI | Workflow 38236135339 réussi sur `v1.1.1` et le commit de fusion : 37/37 suites Qt, aucun échec en 114,12 s. Trois pièces jointes téléchargées et vérifiées ; paquets non exécutés, Setup `NotSigned`. |
+| Publication GitHub | Brouillon non publié (`isDraft=true`, `isPrerelease=false`, `publishedAt=null`), invisible dans le bouton de mise à jour. |
 | Installation et reprise personnelles avec Setup 1.1.1 | Non réalisées. |
 
-La prochaine étape est de terminer les validations et la publication, puis de vérifier
-la reprise réelle après mise à jour à partir du message affiché dans ACP. Aucune
-connexion personnelle ou exécution payante n'est attestée par les tests isolés.
+La reprise réelle après la mise à jour personnelle reste à vérifier à partir du
+message affiché dans ACP. Aucune connexion personnelle ou exécution payante n'est
+attestée par les tests isolés.
