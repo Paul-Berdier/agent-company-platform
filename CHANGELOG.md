@@ -5,6 +5,57 @@ Le projet suit le versionnage sémantique. Tant que la version majeure restait �
 les interfaces pouvaient encore évoluer entre deux versions mineures ; depuis 1.0.0, l'engagement porte sur les
 interfaces que nomme la section 1.0.0 (D130), et une rupture de l'une d'elles appelle une nouvelle version majeure.
 
+## [1.1.1] - 2026-10-12 — reprise de session et connexions visibles
+
+### Ajouté
+
+- Contrôle automatique du compte et du modèle du coordinateur Hermes, visible dans l'accueil et les assistants.
+- Connexion ChatGPT à Hermes depuis ACP : code d'appareil, ouverture de la page officielle, suivi, annulation,
+  expiration et relecture réelle de la configuration après autorisation. Un autre fournisseur existant est conservé.
+- Résumé des connexions observées de la machine dès l'accueil, avec la prochaine étape selon l'état réel :
+  machine à préparer ou confirmer, relevé manquant, assistant à configurer ou modèles autorisés à vérifier.
+
+### Modifié
+
+- Les connexions déjà présentes sont retrouvées sans nouvelle demande automatique d'autorisation.
+  Le résumé se réduit lorsque les connexions sont retrouvées ; le détail reste accessible.
+- Le sondage de la machine suit la visibilité de l'accueil ou de la page Assistants, sans garder de code
+  d'enrôlement ni de guide lorsqu'on quitte cette dernière.
+
+### Corrigé
+
+- La restauration initiale reste sur « Reprise de votre session… » jusqu'à la confirmation de l'identité.
+  Une rotation ultérieure conserve le workspace ; une connexion concurrente est refusée pendant la reprise.
+- La passerelle de discussion attend le verdict de compatibilité et rouvre après le retour d'un verdict valide,
+  sans relancer un refus ni rouvrir après une déconnexion volontaire ou l'arrêt du client.
+- Sous Windows, le Job Object et la vérification de ses descendants partagent leur budget d’arrêt de huit secondes.
+  Un arrêt asynchrone tardif peut ainsi être confirmé sans allonger ce plafond, sans ignorer un handle vivant ni une
+  erreur définitive ; le drainage de la notification asyncio conserve son délai distinct.
+
+### Sécurité
+
+- Défi OAuth conservé en mémoire, adresse OpenAI exacte et données bornées ; réponses obsolètes ignorées après
+  déconnexion ou changement de serveur. Aucun jeton fournisseur reçu ni stocké dans le client.
+- Annulation distante confirmée par Hermes, code expiré effacé, presse-papiers vidé seulement s'il contient
+  encore ce code. Aucun succès d'authentification ou d'inférence déduit d'un état inconnu.
+
+### Vérifié localement
+
+- Compilation Release Qt 6.8.3 / MSVC ; 37/37 suites natives réussies sur le client final avec les polices Windows
+  (121,92 s). Les 19 interactions passent également en exécution directe ; captures relues.
+- 204 tests de l'interface web, 74 tests du moteur gelé, contrôles des versions, thèmes, catalogue et secrets.
+- Suite Python Windows complète : 1 289 réussis, 464 sous-tests réussis, 106 ignorés pour leurs conditions de
+  plateforme ou de conteneur, aucun échec (1 149,98 s). Les 33 tests de fermeture et trois essais réels ciblés passent.
+
+### Limites connues
+
+La connexion native ChatGPT concerne le coordinateur Hermes. Les comptes Codex et Claude Code de l'exécutant
+restent distincts et suivent leurs guides de connexion. Une configuration reconnue n'atteste pas une inférence
+réussie. Le contrôle de la fenêtre personnelle est bloqué par le démarrage des outils Windows ; son erreur
+exacte n'est pas encore connue. Les paquets restent non signés et l'installation personnelle n'a pas été exécutée.
+
+Parcours : [connexions et reprise](docs/refonte/connexions-1.1.1.md).
+
 ## [1.1.0] - 2026-10-12 — Pixel Atelier et parcours de travail
 
 ### Ajouté

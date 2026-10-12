@@ -17,10 +17,13 @@ import Acp.Controls
 Item {
     id: page
     property bool showOperations: false
+    property bool showConnections: false
+    readonly property bool connectionsFound: PreparationHermes.etat === "pret"
+        && Poste.preparation.etat === "connexions_observees"
 
-    Component.onCompleted: Accueil.pageVisible = visible
-    onVisibleChanged: Accueil.pageVisible = visible
-    Component.onDestruction: Accueil.pageVisible = false
+    Component.onCompleted: { Accueil.pageVisible = visible; Poste.resumeVisible = visible; }
+    onVisibleChanged: { Accueil.pageVisible = visible; Poste.resumeVisible = visible; }
+    Component.onDestruction: { Accueil.pageVisible = false; Poste.resumeVisible = false; }
 
     component Discret: Text {
         Layout.fillWidth: true
@@ -77,6 +80,62 @@ Item {
                     }
                 }
                 AtelierScene { visible: page.width > 850 && Appearance.themeFamily === "pixel"; Layout.preferredWidth: 360; Layout.preferredHeight: 240 }
+            }
+            RowLayout {
+                visible: page.connectionsFound
+                Layout.fillWidth: true
+                Text {
+                    Layout.fillWidth: true
+                    text: qsTr("Vos connexions ont été retrouvées")
+                    textFormat: Text.PlainText
+                    color: Colors.textSecondary
+                    font.family: Type.metadata.family
+                    font.pixelSize: Type.metadata.pixelSize
+                }
+                AcpButton {
+                    label: page.showConnections ? qsTr("Réduire") : qsTr("Gérer les connexions")
+                    onTriggered: page.showConnections = !page.showConnections
+                }
+            }
+            // Les comptes déjà présents sont relus ; seules les étapes manquantes sont proposées.
+            GridLayout {
+                objectName: "accueil-preparation"
+                visible: !page.connectionsFound || page.showConnections
+                Layout.fillWidth: true
+                columns: page.width >= 1100 ? 2 : 1
+                columnSpacing: Space.space4
+                rowSpacing: Space.space4
+                HermesConnectionCard {
+                    objectName: "accueil-hermes"
+                    Layout.fillWidth: true
+                    Layout.alignment: Qt.AlignTop
+                    preparation: PreparationHermes
+                }
+                Carte {
+                    objectName: "accueil-assistants"
+                    Layout.fillWidth: true
+                    Layout.alignment: Qt.AlignTop
+                    titre: qsTr("Vos assistants de codage")
+                    cle: Poste.preparation.cle || "unknown"
+                    libelleEtat: Poste.preparation.libelle || qsTr("Vérification en cours")
+                    sousTitre: Poste.preparation.detail || ""
+                    lecture: Poste.lecture
+                    erreurLecture: Poste.erreur
+                    AcpButton {
+                        objectName: "accueil-preparer-assistants"
+                        label: Poste.preparation.actionLibelle || qsTr("Voir les connexions")
+                        iconName: "chevronRight"
+                        onTriggered: {
+                            if (Poste.preparation.action === "routage") {
+                                Navigation.setCurrentRoute("routing");
+                            } else {
+                                Navigation.setCurrentRoute("station");
+                                if (Poste.preparation.action === "configurer" && Poste.preparation.fournisseur)
+                                    Qt.callLater(function() { Poste.ouvrirGuide(Poste.preparation.fournisseur); });
+                            }
+                        }
+                    }
+                }
             }
             Rectangle { Layout.fillWidth: true; implicitHeight: 1; color: Colors.borderSubtle }
             RowLayout {

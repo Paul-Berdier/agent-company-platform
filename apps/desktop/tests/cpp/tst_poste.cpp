@@ -13,6 +13,7 @@
 #include "api/ApiClient.h"
 #include "api/ClientGreffonPoste.h"
 #include "events/EventStreamService.h"
+#include "events/Sondage.h"
 #include "models/JsonListModel.h"
 #include "support/FauxHermes.h"
 #include "support/Fixtures.h"
@@ -119,6 +120,9 @@ private slots:
     void valeursAbsentesInconnues();
     void gestesSelonLEtatServi();
     void pageLueSeulementAffichee();
+    void preparationDistingueMachineConnexionsEtExecution();
+    void preparationNeValidePasUneLectureEnErreur();
+    void resumeSondeSansGarderLesSecretsDePage();
     void codeUneFoisPuisOublie();
     void codeEffaceALaPerteDeSessionEtAExpiration();
     void codeEffaceALaPerteDeSessionFenetreReduite();
@@ -294,6 +298,137 @@ void TestPoste::pageLueSeulementAffichee()
     QVERIFY(banc.poste.lecture().startsWith(QStringLiteral("Lu à ")));
     banc.poste.setPageVisible(false);
     QTRY_VERIFY(!banc.poste.actif());
+}
+
+void TestPoste::preparationDistingueMachineConnexionsEtExecution()
+{
+    const auto preparer = [](const QJsonObject &vue) {
+        return PosteViewModel::construirePreparation(vue, true, {});
+    };
+    QCOMPARE(PosteViewModel::construirePreparation({}, false, {}).value(QStringLiteral("etat")).toString(), QStringLiteral("inconnu"));
+    QCOMPARE(preparer({}).value(QStringLiteral("etat")).toString(), QStringLiteral("inconnu"));
+    QCOMPARE(preparer(fixture(QStringLiteral("poste-non-configure.json"))).value(QStringLiteral("etat")).toString(), QStringLiteral("machine_absente"));
+    QCOMPARE(preparer(fixture(QStringLiteral("poste-a-confirmer.json"))).value(QStringLiteral("action")).toString(), QStringLiteral("confirmer"));
+    QJsonObject vue = fixture(QStringLiteral("poste-en-ligne.json"));
+    QJsonObject poste = vue.value(QStringLiteral("poste")).toObject();
+    poste.insert(QStringLiteral("etat"), QStringLiteral("hors_ligne"));
+    vue.insert(QStringLiteral("poste"), poste);
+    QCOMPARE(preparer(vue).value(QStringLiteral("etat")).toString(), QStringLiteral("hors_ligne"));
+    // Des comptes observés auparavant ne rendent pas la machine en ligne.
+    QVERIFY(preparer(vue).value(QStringLiteral("connectes")).toStringList().isEmpty());
+    poste.insert(QStringLiteral("etat"), QStringLiteral("en_ligne"));
+    poste.insert(QStringLiteral("pause_reclamations"), true);
+    vue.insert(QStringLiteral("poste"), poste);
+    QCOMPARE(preparer(vue).value(QStringLiteral("etat")).toString(), QStringLiteral("bloque"));
+    poste.insert(QStringLiteral("pause_reclamations"), false);
+    vue.insert(QStringLiteral("poste"), poste);
+    QJsonObject inventaire = vue.value(QStringLiteral("inventaire")).toObject();
+    inventaire.insert(QStringLiteral("machine_id"), QStringLiteral("ancienne-machine"));
+    vue.insert(QStringLiteral("inventaire"), inventaire);
+    QCOMPARE(preparer(vue).value(QStringLiteral("etat")).toString(), QStringLiteral("releve_manquant"));
+    QVERIFY(preparer(vue).value(QStringLiteral("connectes")).toStringList().isEmpty());
+    inventaire.insert(QStringLiteral("machine_id"), kMachine);
+    QJsonObject contenu = inventaire.value(QStringLiteral("contenu")).toObject();
+    const auto poserConnexions = [&](const QString &codex, const QString &claude) {
+        contenu.insert(QStringLiteral("connexions"), QJsonObject{{QStringLiteral("codex"), codex}, {QStringLiteral("claude"), claude}});
+        inventaire.insert(QStringLiteral("contenu"), contenu);
+        vue.insert(QStringLiteral("inventaire"), inventaire);
+    };
+    poserConnexions(QStringLiteral("non_connecte"), QStringLiteral("jeton_absent"));
+    QCOMPARE(preparer(vue).value(QStringLiteral("etat")).toString(), QStringLiteral("connexion_manquante"));
+    QCOMPARE(preparer(vue).value(QStringLiteral("manquants")).toStringList(), (QStringList{QStringLiteral("codex"), QStringLiteral("claude")}));
+    poserConnexions(QStringLiteral("inconnu"), QStringLiteral("jeton_present_non_verifie"));
+    QCOMPARE(preparer(vue).value(QStringLiteral("etat")).toString(), QStringLiteral("a_verifier"));
+    QVERIFY(preparer(vue).value(QStringLiteral("manquants")).toStringList().isEmpty());
+    QCOMPARE(preparer(vue).value(QStringLiteral("aVerifier")).toStringList().size(), 2);
+    poserConnexions(QStringLiteral("compte_chatgpt"), QStringLiteral("jeton_absent"));
+    const QVariantMap partiel = preparer(vue);
+    QCOMPARE(partiel.value(QStringLiteral("etat")).toString(), QStringLiteral("connexion_partielle"));
+    QCOMPARE(partiel.value(QStringLiteral("connectes")).toStringList(), QStringList{QStringLiteral("codex")});
+    QCOMPARE(partiel.value(QStringLiteral("fournisseur")).toString(), QStringLiteral("claude"));
+    QCOMPARE(partiel.value(QStringLiteral("action")).toString(), QStringLiteral("assistants"));
+    poserConnexions(QStringLiteral("cle_api"), QStringLiteral("refuse"));
+    QVERIFY(preparer(vue).value(QStringLiteral("connectes")).toStringList().isEmpty());
+    QCOMPARE(preparer(vue).value(QStringLiteral("etat")).toString(), QStringLiteral("connexion_manquante"));
+    poserConnexions(QStringLiteral("compte_chatgpt"), QStringLiteral("jeton_reconnu"));
+    QJsonObject catalogue = vue.value(QStringLiteral("catalogue")).toObject();
+    catalogue.insert(QStringLiteral("routage"), QJsonObject{{QStringLiteral("valide"), false}});
+    vue.insert(QStringLiteral("catalogue"), catalogue);
+    QCOMPARE(preparer(vue).value(QStringLiteral("etat")).toString(), QStringLiteral("routage_a_valider"));
+    QCOMPARE(preparer(vue).value(QStringLiteral("action")).toString(), QStringLiteral("routage"));
+    // Même un routage annoncé valide ne prouve pas une exécution prête.
+    catalogue.insert(QStringLiteral("routage"), QJsonObject{{QStringLiteral("valide"), true}});
+    vue.insert(QStringLiteral("catalogue"), catalogue);
+    QCOMPARE(preparer(vue).value(QStringLiteral("etat")).toString(), QStringLiteral("connexions_observees"));
+    QCOMPARE(preparer(vue).value(QStringLiteral("connectes")).toStringList().size(), 2);
+}
+
+void TestPoste::preparationNeValidePasUneLectureEnErreur()
+{
+    Banc banc;
+    banc.ouvrirLaPage(QStringLiteral("poste-en-ligne.json"));
+    QVERIFY(!banc.poste.preparation().value(QStringLiteral("connectes")).toStringList().isEmpty());
+    QSignalSpy change(&banc.poste, &PosteViewModel::preparationChange);
+    banc.serveur.route("GET", kP + QStringLiteral("/poste"), [](const RequeteRecue &) {
+        return ReponseFaux::json(403, QJsonObject{{QStringLiteral("detail"), QStringLiteral("Accès refusé")}});
+    });
+    banc.poste.actualiser();
+    QTRY_COMPARE(banc.poste.preparation().value(QStringLiteral("etat")).toString(), QStringLiteral("erreur"));
+    QVERIFY(!change.isEmpty());
+    QVERIFY(banc.poste.preparation().value(QStringLiteral("connectes")).toStringList().isEmpty());
+    QVERIFY(!banc.poste.preparation().value(QStringLiteral("detail")).toString().isEmpty());
+    QVERIFY(banc.poste.lue()); // La lecture historique reste datée dans la page.
+}
+
+void TestPoste::resumeSondeSansGarderLesSecretsDePage()
+{
+    Banc banc;
+    auto *sondage = banc.poste.findChild<Sondage *>();
+    QVERIFY(sondage);
+    sondage->setIntervalle(std::chrono::milliseconds(60));
+    banc.poste.setResumeVisible(true);
+    QTest::qWait(100);
+    QCOMPARE(banc.lectures(), 0); // Pas de session : aucune lecture de l'accueil.
+    banc.flux.demarrer();
+    QTRY_VERIFY(banc.poste.lue());
+    QVERIFY(!banc.poste.pageVisible());
+    QVERIFY(!banc.poste.actif());
+    QVERIFY(sondage->actif());
+    banc.poste.setPageVisible(true);
+    QTRY_VERIFY(banc.poste.actif());
+    banc.poste.enroler();
+    QTRY_VERIFY(!banc.poste.code().isEmpty());
+    banc.poste.ouvrirGuide(QStringLiteral("hermes"));
+    QVERIFY(!banc.poste.guide().isEmpty());
+    banc.poste.setPageVisible(false);
+    QTRY_VERIFY(!banc.poste.actif());
+    QVERIFY(banc.poste.code().isEmpty());
+    QVERIFY(banc.poste.guide().isEmpty());
+    QVERIFY(sondage->actif()); // Le résumé conserve sa propre lecture, pas les secrets de page.
+    const int avant = banc.lectures();
+    QTRY_VERIFY(banc.lectures() > avant);
+    QCOMPARE(banc.serveur.compter("POST", kP + QStringLiteral("/poste/enrolement")), 1);
+    QCOMPARE(banc.serveur.compter("POST", kP + QStringLiteral("/poste/releve")), 0);
+    banc.poste.setResumeVisible(false);
+    QTRY_VERIFY(!sondage->actif());
+    int lecturesArretees = banc.lectures();
+    QTest::qWait(180);
+    QCOMPARE(banc.lectures(), lecturesArretees);
+    banc.poste.setResumeVisible(true);
+    QTRY_VERIFY(banc.lectures() > lecturesArretees);
+    banc.flux.setFenetreActive(false);
+    QVERIFY(!sondage->actif());
+    lecturesArretees = banc.lectures();
+    QTest::qWait(180);
+    QCOMPARE(banc.lectures(), lecturesArretees);
+    banc.flux.arreter();
+    banc.poste.oublier();
+    QVERIFY(!banc.poste.lue());
+    QCOMPARE(banc.poste.preparation().value(QStringLiteral("etat")).toString(), QStringLiteral("inconnu"));
+    banc.flux.setFenetreActive(true);
+    QTest::qWait(180);
+    QCOMPARE(banc.lectures(), lecturesArretees);
+    QVERIFY(!sondage->actif());
 }
 
 void TestPoste::codeUneFoisPuisOublie()

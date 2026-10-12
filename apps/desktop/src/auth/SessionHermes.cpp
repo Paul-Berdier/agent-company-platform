@@ -243,8 +243,8 @@ void SessionHermes::seConnecter()
                     QStringLiteral("Aucune adresse de serveur n'est configurée."));
         return;
     }
-    if (m_flux->enCours()) {
-        return;
+    if (estOccupee() || m_flux->enCours()) {
+        return; // Aucun nouveau flux pendant une rotation ou la confirmation de l’identité.
     }
     if (!m_jetons.estVide() || !m_jetons.rafraichissement.isEmpty()) {
         // Reconnexion demandée sur une session existante (par exemple après des 503
@@ -313,6 +313,7 @@ void SessionHermes::lireIdentite()
 void SessionHermes::etablir()
 {
     m_identiteLue = true;
+    m_restaurationInitiale = false;
     m_echecsConsecutifs = 0;
     m_premierEchec = QDateTime();
     m_recul.reset();
@@ -357,6 +358,7 @@ void SessionHermes::restaurer()
     m_jetons.utilisateur = entree.utilisateur;
     entree.effacer();
     m_identiteLue = false;
+    m_restaurationInitiale = true;
     rafraichir();
 }
 
@@ -622,6 +624,7 @@ void SessionHermes::effacerSession()
     m_nomAffiche.clear();
     m_courriel.clear();
     m_identiteLue = false;
+    m_restaurationInitiale = false;
     m_echecsConsecutifs = 0;
     m_premierEchec = QDateTime();
     m_recul.reset();

@@ -109,6 +109,15 @@ Item {
                 font.pixelSize: Type.tableCell.pixelSize
             }
 
+            Carte {
+                objectName: "poste-preparation"
+                Layout.fillWidth: true
+                titre: qsTr("Prochaine étape")
+                cle: Poste.preparation.cle || "unknown"
+                libelleEtat: Poste.preparation.libelle || qsTr("Vérification en cours")
+                sousTitre: Poste.preparation.detail || ""
+            }
+
             // --- État ------------------------------------------------------------------------------
             Carte {
                 objectName: "poste-etat"
@@ -147,13 +156,11 @@ Item {
                     Discret { text: qsTr("Elle est indépendante de vos comptes ChatGPT et Claude Code. Les réglages de connexion ACP ne changent pas les comptes de la machine.") }
                     AcpButton { label: qsTr("Réglages ACP"); onTriggered: Navigation.setCurrentRoute("settings") }
                 }
-                Carte {
+                HermesConnectionCard {
+                    objectName: "assistants-hermes"
                     Layout.fillWidth: true
                     Layout.alignment: Qt.AlignTop
-                    titre: qsTr("Hermes · coordinateur")
-                    sousTitre: qsTr("Son compte fournisseur et son modèle se configurent dans votre tableau de bord Hermes.")
-                    Discret { text: qsTr("L'état de ce compte n'est pas publié par l'inventaire de la machine. Le catalogue des exécutants ne décrit pas le modèle du coordinateur.") }
-                    AcpButton { objectName: "assistants-guide-hermes"; label: qsTr("Configurer Hermes"); onTriggered: Poste.ouvrirGuide("hermes") }
+                    preparation: PreparationHermes
                 }
             }
 

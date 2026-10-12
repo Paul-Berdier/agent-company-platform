@@ -128,6 +128,14 @@ PosteViewModel::PosteViewModel(ClientGreffonPoste *greffon, CompatibiliteHermes 
         emit decompteChange();
     });
     connect(m_sondage, &Sondage::etatChange, this, &PosteViewModel::lectureChange);
+    connect(this, &PosteViewModel::posteChange, this, &PosteViewModel::preparationChange);
+    connect(this, &PosteViewModel::lectureChange, this, &PosteViewModel::preparationChange);
+    connect(flux, &EventStreamService::pagesActivesChange, this, &PosteViewModel::majSondage);
+    connect(flux, &EventStreamService::lienRetabli, this, [this] {
+        if (!actif() && m_resumeVisible && this->flux()->pagesActives()) {
+            actualiser();
+        }
+    });
     connect(m_sondage, &Sondage::lu, this, [this](const ApiResponse &reponse) { lire(reponse.json.object()); });
     if (m_compatibilite) {
         connect(m_compatibilite, &CompatibiliteHermes::change, this, &PosteViewModel::executantChange);
@@ -158,9 +166,28 @@ PosteViewModel::~PosteViewModel()
 QString PosteViewModel::lecture() const { return m_sondage->libelleLuA(); }
 QString PosteViewModel::erreur() const { return m_sondage->derniereErreur(); }
 
-void PosteViewModel::surActivite(bool actif)
+void PosteViewModel::surActivite(bool)
 {
-    m_sondage->setActif(actif);
+    majSondage();
+}
+
+void PosteViewModel::majSondage()
+{
+    m_sondage->setActif(actif() || (m_resumeVisible && flux()->pagesActives()));
+}
+
+void PosteViewModel::setResumeVisible(bool visible)
+{
+    if (m_resumeVisible == visible) return;
+    m_resumeVisible = visible;
+    emit resumeVisibleChange();
+    // Comme pageVisible : la construction de la page précède le départ de sa lecture.
+    QTimer::singleShot(0, this, &PosteViewModel::majSondage);
+}
+
+QVariantMap PosteViewModel::preparation() const
+{
+    return construirePreparation(m_vue, m_lue, erreur());
 }
 
 void PosteViewModel::surLienRetabli()
@@ -353,6 +380,119 @@ void PosteViewModel::ouvrirGuideRecuperation(const QString &projet, const QStrin
                {QStringLiteral("titre"), QStringLiteral("Récupérer %1").arg(resultat.value(QStringLiteral("titre")).toString())},
                {QStringLiteral("etapes"), etapes}};
     emit guideChange();
+}
+
+QVariantMap PosteViewModel::construirePreparation(const QJsonObject &vue, bool lue, const QString &erreur)
+{
+    QVariantMap resultat{{QStringLiteral("connectes"), QStringList{}},
+                         {QStringLiteral("manquants"), QStringList{}},
+                         {QStringLiteral("aVerifier"), QStringList{}},
+                         {QStringLiteral("fournisseur"), QString()}};
+    const auto resumer = [&resultat](const QString &etat, const QString &cle, const QString &libelle,
+                                    const QString &detail, const QString &action, const QString &actionLibelle) {
+        resultat.insert(QStringLiteral("etat"), etat);
+        resultat.insert(QStringLiteral("cle"), cle);
+        resultat.insert(QStringLiteral("libelle"), libelle);
+        resultat.insert(QStringLiteral("detail"), detail);
+        resultat.insert(QStringLiteral("action"), action);
+        resultat.insert(QStringLiteral("actionLibelle"), actionLibelle);
+        return resultat;
+    };
+    if (!erreur.isEmpty()) {
+        return resumer(QStringLiteral("erreur"), QStringLiteral("degraded"), QStringLiteral("Préparation non vérifiable"),
+                       erreur, QStringLiteral("actualiser"), QStringLiteral("Vérifier les assistants"));
+    }
+    if (!lue) {
+        return resumer(QStringLiteral("inconnu"), QStringLiteral("unknown"), QStringLiteral("Lecture des assistants…"),
+                       QStringLiteral("En attente de l'état de votre machine et de ses connexions."),
+                       QStringLiteral("actualiser"), QStringLiteral("Voir les assistants"));
+    }
+    const QJsonObject poste = vue.value(QStringLiteral("poste")).toObject();
+    const QJsonObject machine = machineDe(vue);
+    const QString etat = poste.value(QStringLiteral("etat")).toString();
+    if (etat == QLatin1String("non_configure") || etat == QLatin1String("revoque")) {
+        return resumer(QStringLiteral("machine_absente"), QStringLiteral("notConfigured"), QStringLiteral("Machine à configurer"),
+                       QStringLiteral("Aucune machine active confirmée. Retrouvez l'exécutant prévu avant d'enrôler un nouveau poste."),
+                       QStringLiteral("machine"), QStringLiteral("Préparer la machine"));
+    }
+    if (etat == QLatin1String("a_confirmer")) {
+        return resumer(QStringLiteral("a_confirmer"), QStringLiteral("approvalRequired"), QStringLiteral("Machine à confirmer"),
+                       QStringLiteral("Comparez l'empreinte avec celle affichée sur la machine avant de la confirmer."),
+                       QStringLiteral("confirmer"), QStringLiteral("Vérifier l'empreinte"));
+    }
+    if (etat == QLatin1String("hors_ligne")) {
+        return resumer(QStringLiteral("hors_ligne"), QStringLiteral("offline"), QStringLiteral("Machine hors ligne"),
+                       QStringLiteral("Les connexions déjà relevées ne prouvent pas sa présence actuelle. Vérifiez l'exécutant ; une demande de relevé peut rester en file."),
+                       QStringLiteral("machine"), QStringLiteral("Voir la machine"));
+    }
+    if (etat != QLatin1String("en_ligne") || machine.value(QStringLiteral("etat")) != QJsonValue(QStringLiteral("actif"))
+        || !libelles::estTexte(machine.value(QStringLiteral("id")))) {
+        return resumer(QStringLiteral("inconnu"), QStringLiteral("unknown"), QStringLiteral("État de la machine inconnu"),
+                       QStringLiteral("Le serveur ne fournit pas un état de machine utilisable. Actualisez les observations."),
+                       QStringLiteral("actualiser"), QStringLiteral("Vérifier les assistants"));
+    }
+    if (machine.value(QStringLiteral("politique_valide")) == QJsonValue(false)
+        || poste.value(QStringLiteral("pause_reclamations")) == QJsonValue(true)) {
+        return resumer(QStringLiteral("bloque"), QStringLiteral("blocked"), QStringLiteral("Exécution suspendue"),
+                       machine.value(QStringLiteral("politique_valide")) == QJsonValue(false)
+                           ? QStringLiteral("La politique locale est invalide. Une reconnexion des assistants ne résout pas ce blocage.")
+                           : QStringLiteral("La pause générale empêche les nouvelles exécutions. Les connexions existantes peuvent être conservées."),
+                       QStringLiteral("machine"), QStringLiteral("Voir l'état de la machine"));
+    }
+    const QJsonObject inventaire = vue.value(QStringLiteral("inventaire")).toObject();
+    const QJsonValue connexions = inventaire.value(QStringLiteral("contenu")).toObject().value(QStringLiteral("connexions"));
+    if (inventaire.value(QStringLiteral("machine_id")) != machine.value(QStringLiteral("id")) || !connexions.isObject()) {
+        return resumer(QStringLiteral("releve_manquant"), QStringLiteral("unknown"), QStringLiteral("Connexions à relever"),
+                       QStringLiteral("Aucun relevé de connexions exploitable pour cette machine. Vérifiez ses comptes avant de les reconfigurer."),
+                       QStringLiteral("relever"), QStringLiteral("Vérifier les connexions"));
+    }
+    QStringList connectes, manquants, aVerifier, observations;
+    for (const QString &fournisseur : {QStringLiteral("codex"), QStringLiteral("claude")}) {
+        const QJsonValue valeur = connexions.toObject().value(fournisseur);
+        const bool codex = fournisseur == QLatin1String("codex");
+        const QString nom = codex ? QStringLiteral("Codex") : QStringLiteral("Claude Code");
+        const auto libelle = codex ? libelles::connexionCodex(valeur) : libelles::connexionClaude(valeur);
+        observations.append(nom + QStringLiteral(" : ") + (libelle.connu() ? libelle.texte : libelles::kInconnu));
+        if (valeur == QJsonValue(codex ? QStringLiteral("compte_chatgpt") : QStringLiteral("jeton_reconnu"))) {
+            connectes.append(fournisseur);
+        } else if (valeur == QJsonValue(codex ? QStringLiteral("non_connecte") : QStringLiteral("jeton_absent"))
+                   || valeur == QJsonValue(codex ? QStringLiteral("cle_api") : QStringLiteral("refuse"))) {
+            manquants.append(fournisseur);
+        } else {
+            aVerifier.append(fournisseur);
+        }
+    }
+    resultat.insert(QStringLiteral("connectes"), connectes);
+    resultat.insert(QStringLiteral("manquants"), manquants);
+    resultat.insert(QStringLiteral("aVerifier"), aVerifier);
+    const QString detail = observations.join(QStringLiteral(" · "))
+        + QStringLiteral(". Relevé : %1. Une connexion observée ne garantit pas l'accès aux modèles ni la disponibilité d'exécution.")
+              .arg(libelles::date(inventaire.value(QStringLiteral("releve_le"))));
+    if (connectes.isEmpty()) {
+        if (!aVerifier.isEmpty()) {
+            return resumer(QStringLiteral("a_verifier"), QStringLiteral("unknown"), QStringLiteral("Connexions à vérifier"),
+                           detail, QStringLiteral("relever"), QStringLiteral("Vérifier les connexions"));
+        }
+        resultat.insert(QStringLiteral("fournisseur"), manquants.size() == 1 ? manquants.first() : QString());
+        return resumer(QStringLiteral("connexion_manquante"), QStringLiteral("notConfigured"), QStringLiteral("Assistant à configurer"),
+                       detail, QStringLiteral("configurer"), QStringLiteral("Configurer un assistant"));
+    }
+    if (!manquants.isEmpty() || !aVerifier.isEmpty()) {
+        resultat.insert(QStringLiteral("fournisseur"), manquants.size() == 1 ? manquants.first() : QString());
+        return resumer(QStringLiteral("connexion_partielle"), QStringLiteral("pending"), QStringLiteral("Connexion existante repérée"),
+                       detail + QStringLiteral(" Conservez cet accès ; configurez l'autre assistant seulement si votre travail le demande."),
+                       QStringLiteral("assistants"), QStringLiteral("Voir les connexions existantes"));
+    }
+    const QJsonValue tableValide = vue.value(QStringLiteral("catalogue")).toObject()
+                                      .value(QStringLiteral("routage")).toObject().value(QStringLiteral("valide"));
+    if (tableValide == QJsonValue(false)) {
+        return resumer(QStringLiteral("routage_a_valider"), QStringLiteral("pending"), QStringLiteral("Connexions observées, routage à vérifier"),
+                       detail + QStringLiteral(" Relisez les suggestions dans Modèles d'exécution, puis validez les entrées que vous autorisez."),
+                       QStringLiteral("routage"), QStringLiteral("Vérifier les modèles autorisés"));
+    }
+    return resumer(QStringLiteral("connexions_observees"), QStringLiteral("succeeded"), QStringLiteral("Connexions existantes repérées"),
+                   detail + QStringLiteral(" Inutile de les reconnecter pour ouvrir votre projet. Hermes contrôlera le routage, les quotas et le dépôt au lancement."),
+                   QStringLiteral("assistants"), QStringLiteral("Voir les assistants"));
 }
 
 QVariantMap PosteViewModel::construireEtat(const QJsonObject &vue)

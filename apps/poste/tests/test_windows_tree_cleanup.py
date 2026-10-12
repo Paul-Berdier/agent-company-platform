@@ -1,14 +1,17 @@
 """Preuves d'arrêt Toolhelp simulées, sans agir sur des processus de la machine, puis un témoin réel sous Windows
 (sur les seuls processus du test) : un processus plus ancien que la racine n'est jamais tenu pour son descendant."""
 
+import asyncio
 import ctypes
 import os
 import subprocess
 import sys
 import time
+from types import SimpleNamespace
 
 import pytest
 
+import acp_poste.local_runner as local_runner
 from acp_poste.local_runner import _windows_force_terminate_tree
 
 RACINE_NEE = 1_000
@@ -201,6 +204,130 @@ async def test_tree_cleanup_uses_pinned_handle_proof(monkeypatch, scenario, expe
         assert 2 in api.opened and api.terminated == []
     elif scenario == "reused_root_genuine":
         assert api.terminated == [2]
+
+
+class HorlogeNettoyage:
+    def __init__(self, maintenant):
+        self.maintenant = maintenant
+
+    def monotonic(self):
+        return self.maintenant
+
+
+class ArretDiffereApi(ProcessSnapshotApi):
+    """Le job peut être vide alors que l'arrêt du processus attend encore ses I/O."""
+
+    def __init__(self, horloge, signale_a):
+        super().__init__("still_active")
+        self.horloge = horloge
+        self.signale_a = signale_a
+        self.attentes = []
+
+    def WaitForSingleObject(self, handle, timeout):
+        assert handle - 100 in self.opened
+        if self.signale_a is not None and self.horloge.maintenant >= self.signale_a:
+            return 0
+        if timeout:
+            debut = self.horloge.maintenant
+            self.attentes.append((debut, timeout))
+            self.horloge.maintenant += timeout / 1000
+            if self.signale_a is not None and self.horloge.maintenant >= self.signale_a:
+                self.horloge.maintenant = self.signale_a
+                return 0
+        return 0x102
+
+
+@pytest.mark.parametrize(
+    ("duree_job", "signale_a", "attendu"),
+    [(0, 103.5, True), (4.5, 107.5, True), (5, None, False),
+     (8, None, False), (0, 108.001, False)],
+)
+async def test_reliquat_partage_sans_depasser_echeance(monkeypatch, duree_job, signale_a, attendu):
+    # Début du nettoyage à t=100 : son plafond reste 5 + 3 secondes,
+    # indépendamment du temps déjà consommé par le Job Object.
+    horloge = HorlogeNettoyage(100 + duree_job)
+    api = ArretDiffereApi(horloge, signale_a)
+    monkeypatch.setattr(local_runner, "monotonic", horloge.monotonic)
+    monkeypatch.setattr(ctypes, "WinDLL", lambda *args, **kwargs: api, raising=False)
+    monkeypatch.setattr(ctypes, "set_last_error", lambda value: setattr(api, "last_error", value), raising=False)
+    monkeypatch.setattr(ctypes, "get_last_error", lambda: api.last_error, raising=False)
+
+    assert await _windows_force_terminate_tree(
+        1, include_root=False, root_birth=RACINE_NEE, cleanup_deadline=108,
+    ) is attendu
+
+    assert api.snapshots == 5, "la preuve exige le snapshot après la dernière attente"
+    assert horloge.maintenant <= 108
+    assert all(debut + timeout / 1000 <= 108 for debut, timeout in api.attentes)
+    assert api.closed.count(102) == 1
+    if signale_a is None or signale_a > 108:
+        assert attendu is False, "un handle non signalé interdit toujours le succès"
+
+
+@pytest.mark.parametrize(("duree_job", "job_vide"), [(0, True), (5, True), (5, False)])
+async def test_nettoyage_transmet_une_seule_echeance(monkeypatch, duree_job, job_vide):
+    horloge = HorlogeNettoyage(100)
+    appels = []
+
+    class Job:
+        def terminate_and_drain(self, budget):
+            appels.append(("job", budget))
+            horloge.maintenant += duree_job
+            return job_vide
+
+    class Processus:
+        pid = 1
+        returncode = 1
+
+    async def arbre(pid, *, include_root, root_birth, cleanup_deadline):
+        assert pid == 1 and include_root is False
+        appels.append(("arbre", cleanup_deadline, cleanup_deadline - horloge.maintenant))
+        return True
+
+    monkeypatch.setattr(local_runner, "os", SimpleNamespace(name="nt"))
+    monkeypatch.setattr(local_runner, "monotonic", horloge.monotonic)
+    monkeypatch.setattr(local_runner, "_fence_job_for", lambda process: Job())
+    monkeypatch.setattr(local_runner, "_windows_force_terminate_tree", arbre)
+
+    assert await local_runner._terminate_process(Processus(), 0) is job_vide
+    assert appels == [("job", 5), ("arbre", 108, 8 - duree_job)]
+
+
+async def test_notification_asyncio_apres_la_preuve_native_a_echeance(monkeypatch):
+    horloge = HorlogeNettoyage(100)
+    transports_fermes = []
+
+    class Job:
+        def terminate_and_drain(self, budget):
+            return True
+
+    class Processus:
+        pid = 1
+        returncode = None
+
+        def kill(self):
+            pass  # La preuve native dit déjà le processus terminé.
+
+    processus = Processus()
+
+    async def arbre(pid, *, include_root, root_birth, cleanup_deadline):
+        horloge.maintenant = cleanup_deadline
+        return True
+
+    async def notification(process):
+        await asyncio.sleep(0)  # Notification Proactor livrée au tour suivant.
+        process.returncode = 1
+        return process.returncode
+
+    monkeypatch.setattr(local_runner, "os", SimpleNamespace(name="nt"))
+    monkeypatch.setattr(local_runner, "monotonic", horloge.monotonic)
+    monkeypatch.setattr(local_runner, "_fence_job_for", lambda process: Job())
+    monkeypatch.setattr(local_runner, "_windows_force_terminate_tree", arbre)
+    monkeypatch.setattr(local_runner, "_wait_for_process_exit", notification)
+    monkeypatch.setattr(local_runner, "_close_process_transport", transports_fermes.append)
+
+    assert await local_runner._terminate_process(processus, 0) is True
+    assert processus.returncode == 1 and transports_fermes == []
 
 
 async def test_racine_de_naissance_inconnue_ne_tue_aucun_descendant(monkeypatch):

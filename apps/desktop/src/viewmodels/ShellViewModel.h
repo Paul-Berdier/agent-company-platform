@@ -55,7 +55,7 @@ public:
     */
     [[nodiscard]] bool isConnectionRequired() const;
     [[nodiscard]] static bool connectionRequired(bool serverConfigured,
-                                                 SessionStatus::State session);
+                                                 SessionStatus::State session, bool identiteConfirmee);
 
     [[nodiscard]] bool allowsInsecureLoopback() const;
     [[nodiscard]] bool isAuthenticated() const;

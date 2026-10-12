@@ -51,6 +51,10 @@ MAX_TIMEOUT_SECONDS = 24 * 60 * 60
 # d'exécuter la moindre instruction du programme.
 CREATE_SUSPENDED = 0x00000004
 JOB_DRAIN_TIMEOUT_SECONDS = 5.0
+WINDOWS_TREE_DRAIN_TIMEOUT_SECONDS = 3.0
+# Même plafond qu’avant (5 s pour le job + quatre attentes de 0,75 s),
+# désormais partagé : un job vide peut encore avoir des handles non signalés.
+WINDOWS_CLEANUP_TIMEOUT_SECONDS = JOB_DRAIN_TIMEOUT_SECONDS + WINDOWS_TREE_DRAIN_TIMEOUT_SECONDS
 
 _RUN_COMPONENT = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
 _ENVIRONMENT_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
@@ -1059,7 +1063,8 @@ async def _wait_for_process_exit(process: asyncio.subprocess.Process) -> int:
 
 
 async def _windows_force_terminate_tree(
-    process_id: int, *, include_root: bool, root_birth: int | None = None
+    process_id: int, *, include_root: bool, root_birth: int | None = None,
+    cleanup_deadline: float | None = None,
 ) -> bool:
     """Termine les descendants **prouvés** de la racine, puis la racine si demandé.
 
@@ -1072,7 +1077,8 @@ async def _windows_force_terminate_tree(
     la racine sortie a été réattribué, **avant** son nouveau propriétaire. Un
     processus étranger est refermé sans être terminé ; un candidat invérifiable
     n'est jamais tué et interdit de conclure à l'arrêt. Le Job Object du spawn
-    reste la preuve principale ; cette passe en est le repli.
+    reste la preuve principale ; cette passe en est le repli. L’échéance monotone
+    de l’appelant partage le budget restant avec le job sans repousser son terme.
     """
 
     def terminate_tree() -> bool:
@@ -1243,6 +1249,8 @@ async def _windows_force_terminate_tree(
             }
             return True, targets
 
+        deadline = (monotonic() + WINDOWS_TREE_DRAIN_TIMEOUT_SECONDS
+                    if cleanup_deadline is None else cleanup_deadline)
         all_stopped = True
         converged = False
         # Les passes suivantes attrapent un descendant créé entre un snapshot et
@@ -1330,11 +1338,15 @@ async def _windows_force_terminate_tree(
                                 all_stopped = False
                     elif state != wait_object_0:
                         all_stopped = False
-                wait_deadline = monotonic() + 0.75
+                # Les premières passes recherchent vite les descendants tardifs.
+                # La dernière consomme le reliquat avant le snapshot final :
+                # ActiveProcesses=0 ne garantit pas encore des handles signalés.
+                wait_deadline = (deadline if iteration == 3
+                                 else min(deadline, monotonic() + 0.75))
                 for _, handle in handles:
                     remaining_ms = max(
                         0,
-                        round((wait_deadline - monotonic()) * 1000),
+                        int((wait_deadline - monotonic()) * 1000),
                     )
                     state = kernel32.WaitForSingleObject(handle, remaining_ms)
                     # WAIT_TIMEOUT n’est pas une erreur définitive : une passe
@@ -1409,10 +1421,13 @@ async def _terminate_process(
             except TimeoutError:
                 pass
 
+        cleanup_deadline = monotonic() + WINDOWS_CLEANUP_TIMEOUT_SECONDS
         job_drained = True
         if job is not None:
             job_drained = await _await_critical_section(
-                lambda: job.terminate_and_drain(JOB_DRAIN_TIMEOUT_SECONDS)
+                lambda: job.terminate_and_drain(
+                    min(JOB_DRAIN_TIMEOUT_SECONDS, max(0.0, cleanup_deadline - monotonic()))
+                )
             )
 
         # L'énumération native retrouve les descendants même lorsque la racine
@@ -1425,6 +1440,7 @@ async def _terminate_process(
             process_id,
             include_root=process.returncode is None,
             root_birth=_FENCE_BIRTHS.get(process),
+            cleanup_deadline=cleanup_deadline,
         )
         if process.returncode is None:
             try:
@@ -1432,6 +1448,9 @@ async def _terminate_process(
             except ProcessLookupError:
                 pass
             try:
+                # La preuve native peut précéder la notification Proactor.
+                # Garder son délai de drainage antérieur, distinct du budget
+                # partagé du job et des handles ; aucun succès sans returncode.
                 await asyncio.wait_for(_wait_for_process_exit(process), timeout=5.0)
             except TimeoutError:
                 _close_process_transport(process)
