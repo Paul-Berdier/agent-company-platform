@@ -127,6 +127,15 @@ private slots:
     void releveMessageDuGreffon();
     void executantSeulementSiPublie();
     void depotsMesuresParLExecutant();
+    void assistantsSeparentLaMachineEtLesComptes();
+    void guidesCopientSeulementDesCommandesConnues();
+    void resultatsRefusentDesIdentifiantsEtCommandesArbitraires();
+    void recuperationGuideLeResultatReelEtSeFermeSurChangement();
+    void recuperationDistingueInconnuVideEtIncomplet();
+    void verificationAttendUnNouvelInventaireDeLaMemeMachine();
+    void verificationDistingueRetardEtReponseIllisible();
+    void verificationInterrompueSurChangementDeMachine();
+    void verificationOublieUneReponseTardive();
 };
 
 void TestPoste::bandeauSelonLEtat()
@@ -436,6 +445,8 @@ void TestPoste::releveMessageDuGreffon()
     QCOMPARE(banc.poste.messageGeste(),
              QStringLiteral("Ordre de relevé mis en file : le poste le reçoit à sa prochaine attente."));
 
+    banc.maintenant += 181; // Le suivi local expire ; un nouvel essai devient possible.
+    banc.poste.actualiser();
     banc.reponseReleve = ReponseFaux::json(409, QJsonObject{{QStringLiteral("detail"), QJsonObject{
         {QStringLiteral("code"), QStringLiteral("aucun_poste_actif")},
         {QStringLiteral("message"), QStringLiteral("Refusé par ACP : aucun poste actif.")}}}});
@@ -583,5 +594,323 @@ void TestPoste::depotsMesuresParLExecutant()
     QCOMPARE(banc.poste.property("depots").toList().at(0).toMap().value(QStringLiteral("alias")).toString(), QStringLiteral("demo"));
 }
 
+void TestPoste::assistantsSeparentLaMachineEtLesComptes()
+{
+    Banc banc;
+    banc.ouvrirLaPage(QStringLiteral("poste-assistants-railway.json"));
+    QCOMPARE(banc.poste.assistantMachine().value(QStringLiteral("type")).toString(), QStringLiteral("Exécutant Railway"));
+    QCOMPARE(banc.poste.assistantMachine().value(QStringLiteral("plateforme")).toString(), QStringLiteral("linux"));
+    QCOMPARE(banc.poste.assistants().size(), 2);
+    QCOMPARE(banc.poste.assistants().at(0).toMap().value(QStringLiteral("cle")).toString(), QStringLiteral("pending"));
+    QCOMPARE(banc.poste.assistants().at(0).toMap().value(QStringLiteral("offre")).toString(), QStringLiteral("Inconnu"));
+    QVERIFY(banc.poste.assistants().at(1).toMap().value(QStringLiteral("detail")).toString().contains(QStringLiteral("pas une garantie")));
+
+    // Un ancien inventaire d'une autre machine ne fournit ni compte, ni plateforme, ni état actuel.
+    QJsonObject ancien = banc.vue.value(QStringLiteral("inventaire")).toObject();
+    ancien.insert(QStringLiteral("machine_id"), QStringLiteral("ancienne-machine"));
+    banc.vue.insert(QStringLiteral("inventaire"), ancien);
+    banc.relire();
+    QCOMPARE(banc.poste.assistants().at(0).toMap().value(QStringLiteral("etat")).toString(), QStringLiteral("Inconnu"));
+    QCOMPARE(banc.poste.assistantMachine().value(QStringLiteral("releve")).toString(), QStringLiteral("Inconnu"));
+    QVERIFY(banc.poste.assistantMachine().value(QStringLiteral("compte")).toString().isEmpty());
+
+    banc.vue = fixture(QStringLiteral("poste-non-configure.json"));
+    banc.relire();
+    QVERIFY(!banc.poste.assistantMachine().value(QStringLiteral("guideDisponible")).toBool());
+    banc.poste.ouvrirGuide(QStringLiteral("codex"));
+    QVERIFY(banc.poste.guide().isEmpty());
+    banc.poste.relever();
+    QCOMPARE(banc.serveur.compter("POST", kP + QStringLiteral("/poste/releve")), 0);
+}
+
+void TestPoste::guidesCopientSeulementDesCommandesConnues()
+{
+    Banc banc;
+    banc.ouvrirLaPage(QStringLiteral("poste-en-ligne.json"));
+    banc.poste.ouvrirGuide(QStringLiteral("codex"));
+    const QVariantList windows = banc.poste.guide().value(QStringLiteral("etapes")).toList();
+    for (const QVariant &etape : windows) {
+        QVERIFY(!etape.toMap().value(QStringLiteral("texte")).toString().contains(QStringLiteral("railway"), Qt::CaseInsensitive));
+    }
+    QCOMPARE(windows.at(0).toMap().value(QStringLiteral("commande")).toString(),
+             QStringLiteral("runas /user:acp-poste \"powershell -NoProfile\""));
+    banc.poste.copierEtape(1);
+    QCOMPARE(banc.copies, QStringList{QStringLiteral("& \"$env:ProgramFiles\\ACP\\poste\\acp-poste.cmd\" connexion codex")});
+    banc.poste.copierEtape(-1);
+    banc.poste.copierEtape(100);
+    QCOMPARE(banc.copies.size(), 1);
+    banc.poste.ouvrirGuide(QStringLiteral("claude"));
+    QCOMPARE(banc.poste.guide().value(QStringLiteral("etapes")).toList().first().toMap()
+                 .value(QStringLiteral("commande")).toString(), QStringLiteral("claude setup-token"));
+    for (const QVariant &etape : banc.poste.guide().value(QStringLiteral("etapes")).toList()) {
+        QVERIFY(!etape.toMap().value(QStringLiteral("texte")).toString().contains(QStringLiteral("railway"), Qt::CaseInsensitive));
+    }
+
+    banc.vue = fixture(QStringLiteral("poste-assistants-railway.json"));
+    banc.relire();
+    QVERIFY(banc.poste.guide().isEmpty());
+    banc.poste.ouvrirGuide(QStringLiteral("codex"));
+    QStringList commandes;
+    const QVariantList railway = banc.poste.guide().value(QStringLiteral("etapes")).toList();
+    const QVariantMap cloture = railway.last().toMap();
+    QCOMPARE(cloture.value(QStringLiteral("titre")).toString(), QStringLiteral("Clore l'accès Railway"));
+    const QString instructions = cloture.value(QStringLiteral("texte")).toString();
+    QVERIFY(instructions.contains(QStringLiteral("railway ssh keys remove --2fa-code <code>")));
+    QVERIFY(instructions.contains(QStringLiteral("railway ssh keys est vide")));
+    QVERIFY(instructions.contains(QStringLiteral("railway logout")));
+    QVERIFY(cloture.value(QStringLiteral("commande")).toString().isEmpty());
+    const auto copiesAvantCloture = banc.copies.size();
+    banc.poste.copierEtape(static_cast<int>(railway.size()) - 1);
+    QCOMPARE(banc.copies.size(), copiesAvantCloture);
+    for (const QVariant &etape : railway) {
+        const QString commande = etape.toMap().value(QStringLiteral("commande")).toString();
+        if (!commande.isEmpty()) {
+            commandes.append(commande);
+        }
+    }
+    QCOMPARE(commandes, (QStringList{QStringLiteral("railway ssh -i \"<chemin-cle-SSH>\" --service executant"), QStringLiteral("acp-poste pause"),
+                                     QStringLiteral("acp-poste connexion codex"), QStringLiteral("acp-poste reprise"),
+                                     QStringLiteral("acp-poste diagnostic")}));
+    QVERIFY(banc.poste.guide().value(QStringLiteral("etapes")).toList().first().toMap()
+                .value(QStringLiteral("aCompleter")).toBool());
+    banc.poste.copierEtape(0);
+    QCOMPARE(banc.copies.last(), commandes.first());
+    QVERIFY(banc.poste.copieGuide().contains(QStringLiteral("complétez")));
+    banc.poste.ouvrirGuide(QStringLiteral("claude"));
+    QCOMPARE(banc.poste.guide().value(QStringLiteral("etapes")).toList().last().toMap(), cloture);
+    banc.poste.ouvrirGuide(QStringLiteral("hermes"));
+    for (const QVariant &etape : banc.poste.guide().value(QStringLiteral("etapes")).toList()) {
+        QVERIFY(etape.toMap().value(QStringLiteral("commande")).toString().isEmpty());
+    }
+    // Un hôte Linux non identifié comme Railway ne reçoit aucun geste de compte Railway.
+    QJsonObject machine = banc.vue.value(QStringLiteral("machine")).toObject();
+    QJsonObject identite = machine.value(QStringLiteral("machine")).toObject();
+    identite.remove(QStringLiteral("hote"));
+    machine.insert(QStringLiteral("machine"), identite);
+    banc.vue.insert(QStringLiteral("machine"), machine);
+    QJsonObject executant = banc.vue.value(QStringLiteral("executant")).toObject();
+    executant.remove(QStringLiteral("hote"));
+    banc.vue.insert(QStringLiteral("executant"), executant);
+    banc.relire();
+    for (const QString &fournisseur : {QStringLiteral("codex"), QStringLiteral("claude")}) {
+        banc.poste.ouvrirGuide(fournisseur);
+        const QVariantList horsRailway = banc.poste.guide().value(QStringLiteral("etapes")).toList();
+        QVERIFY(!horsRailway.isEmpty());
+        for (const QVariant &etape : horsRailway) {
+            QVERIFY(!etape.toMap().value(QStringLiteral("texte")).toString().contains(QStringLiteral("railway"), Qt::CaseInsensitive));
+            QVERIFY(!etape.toMap().value(QStringLiteral("commande")).toString().contains(QStringLiteral("railway"), Qt::CaseInsensitive));
+        }
+    }
+    banc.poste.ouvrirGuide(QStringLiteral("codex; commande-arbitraire"));
+    QVERIFY(banc.poste.guide().isEmpty());
+    banc.poste.ouvrirGuide(QStringLiteral("codex"));
+    banc.poste.setPageVisible(false);
+    QVERIFY(banc.poste.guide().isEmpty());
+    QCOMPARE(banc.serveur.compter("POST", kP + QStringLiteral("/poste/releve")), 0);
+}
+
+namespace {
+QJsonObject branchePrete()
+{
+    return {{QStringLiteral("projet"), QStringLiteral("p_0123456789ab")},
+            {QStringLiteral("projet_titre"), QStringLiteral("Un projet réel")},
+            {QStringLiteral("depot"), QStringLiteral("jetable")},
+            {QStringLiteral("branche"), QStringLiteral("hermes/projet-demo")},
+            {QStringLiteral("tete"), QString(40, QLatin1Char('a'))},
+            {QStringLiteral("termine_le"), 1790451600},
+            {QStringLiteral("commande"), QStringLiteral("commande arbitraire qui ne doit pas être copiée")}};
+}
+void poserBranches(QJsonObject &vue, const QJsonArray &branches)
+{
+    QJsonObject executant = vue.value(QStringLiteral("executant")).toObject();
+    executant.insert(QStringLiteral("branches_pretes"), branches);
+    vue.insert(QStringLiteral("executant"), executant);
+}
+} // namespace
+
+void TestPoste::resultatsRefusentDesIdentifiantsEtCommandesArbitraires()
+{
+    const QJsonObject branche = branchePrete();
+    QJsonObject vue;
+    poserBranches(vue, QJsonArray{branche});
+    const QVariantList valides = PosteViewModel::construireResultats(vue);
+    QCOMPARE(valides.size(), 1);
+    QVERIFY(!valides.first().toMap().contains(QStringLiteral("commande")));
+    for (const QString &cle : {QStringLiteral("projet"), QStringLiteral("depot"), QStringLiteral("branche"), QStringLiteral("tete")}) {
+        QJsonObject mauvaise = branche;
+        mauvaise.insert(cle, branche.value(cle).toString() + QStringLiteral("; commande"));
+        poserBranches(vue, QJsonArray{mauvaise});
+        QVERIFY(PosteViewModel::construireResultats(vue).isEmpty());
+        mauvaise.insert(cle, branche.value(cle).toString() + QStringLiteral("\n"));
+        poserBranches(vue, QJsonArray{mauvaise});
+        QVERIFY(PosteViewModel::construireResultats(vue).isEmpty());
+    }
+    QJsonArray nombreuses;
+    for (int i = 0; i < 25; ++i) nombreuses.append(branche);
+    poserBranches(vue, nombreuses);
+    QCOMPARE(PosteViewModel::construireResultats(vue).size(), 20);
+}
+
+void TestPoste::recuperationGuideLeResultatReelEtSeFermeSurChangement()
+{
+    Banc banc;
+    banc.ouvrirLaPage(QStringLiteral("poste-assistants-railway.json"));
+    QJsonObject branche = branchePrete();
+    poserBranches(banc.vue, QJsonArray{branche});
+    banc.relire();
+    const auto ouvrir = [&] {
+        banc.poste.ouvrirGuideRecuperation(branche.value(QStringLiteral("projet")).toString(),
+            branche.value(QStringLiteral("branche")).toString(), branche.value(QStringLiteral("tete")).toString());
+    };
+    ouvrir();
+    const QVariantList etapes = banc.poste.guide().value(QStringLiteral("etapes")).toList();
+    QCOMPARE(etapes.size(), 6);
+    QCOMPARE(etapes.at(1).toMap().value(QStringLiteral("aCompleter")).toBool(), true);
+    const QString commande = QStringLiteral("railway ssh -i \"<chemin-cle-SSH>\" --service executant -- acp-poste bundle jetable hermes/projet-demo");
+    QCOMPARE(etapes.at(1).toMap().value(QStringLiteral("commande")).toString(), commande);
+    QVERIFY(etapes.at(4).toMap().value(QStringLiteral("texte")).toString().contains(QString(40, QLatin1Char('a'))));
+    const QString cloture = etapes.last().toMap().value(QStringLiteral("texte")).toString();
+    QVERIFY(cloture.contains(QStringLiteral("railway ssh keys remove --2fa-code <code>")));
+    QVERIFY(cloture.contains(QStringLiteral("railway ssh keys est vide")));
+    QVERIFY(cloture.contains(QStringLiteral("railway logout")));
+    QVERIFY(etapes.last().toMap().value(QStringLiteral("commande")).toString().isEmpty());
+    banc.poste.copierEtape(0); // Le fichier et l'instance sont inconnus : pas de commande fabriquée.
+    banc.poste.copierEtape(2);
+    banc.poste.copierEtape(5); // Le rappel de clôture n'ajoute aucune commande de compte copiable.
+    QVERIFY(banc.copies.isEmpty());
+    banc.poste.copierEtape(1);
+    QCOMPARE(banc.copies, QStringList{commande});
+    QVERIFY(banc.poste.copieGuide().contains(QStringLiteral("complétez")));
+    QCOMPARE(banc.serveur.compter("POST", kP + QStringLiteral("/poste/releve")), 0);
+    banc.relire();
+    QVERIFY(!banc.poste.guide().isEmpty()); // Un même relevé ne ferme pas les instructions en cours.
+    branche.insert(QStringLiteral("tete"), QString(40, QLatin1Char('b')));
+    poserBranches(banc.vue, QJsonArray{branche});
+    banc.relire();
+    QVERIFY(banc.poste.guide().isEmpty());
+    ouvrir();
+    QVERIFY(!banc.poste.guide().isEmpty());
+    banc.poste.setPageVisible(false);
+    QVERIFY(banc.poste.guide().isEmpty());
+    ouvrir();
+    QVERIFY(banc.poste.guide().isEmpty());
+    banc.poste.setPageVisible(true);
+    ouvrir();
+    banc.flux.arreter();
+    QVERIFY(banc.poste.guide().isEmpty());
+    banc.poste.oublier(); // Application efface les pages après avoir arrêté le flux à la déconnexion.
+    QVERIFY(banc.poste.resultats().isEmpty());
+}
+
+void TestPoste::recuperationDistingueInconnuVideEtIncomplet()
+{
+    Banc banc;
+    banc.ouvrirLaPage(QStringLiteral("poste-en-ligne.json"));
+    QVERIFY(banc.poste.resultatsMessage().contains(QStringLiteral("ne publie pas")));
+    poserBranches(banc.vue, {});
+    banc.relire();
+    QVERIFY(banc.poste.resultatsMessage().contains(QStringLiteral("Aucune branche")));
+    poserBranches(banc.vue, QJsonArray{QJsonObject{{QStringLiteral("branche"), QStringLiteral("hermes/projet-demo")}}});
+    banc.relire();
+    QVERIFY(banc.poste.resultatsMessage().contains(QStringLiteral("incomplètes")));
+    QVERIFY(banc.poste.resultats().isEmpty());
+    banc.poste.ouvrirGuideRecuperation(QStringLiteral("p_0123456789ab"), QStringLiteral("hermes/projet-demo"), QString(40, QLatin1Char('a')));
+    QVERIFY(banc.poste.guide().isEmpty());
+}
+
+void TestPoste::verificationAttendUnNouvelInventaireDeLaMemeMachine()
+{
+    Banc banc;
+    banc.ouvrirLaPage(QStringLiteral("poste-en-ligne.json"));
+    banc.poste.relever();
+    QTRY_COMPARE(banc.poste.verificationEtat(), QStringLiteral("attente"));
+    QVERIFY(banc.poste.verificationEnCours());
+    banc.poste.relever(); // Pas de doublon pendant le suivi.
+    QCOMPARE(banc.serveur.compter("POST", kP + QStringLiteral("/poste/releve")), 1);
+    banc.relire();
+    QCOMPARE(banc.poste.verificationEtat(), QStringLiteral("attente"));
+
+    // Même date de sonde malgré un nouvel identifiant : aucune observation fraîche.
+    QJsonObject inventaire = banc.vue.value(QStringLiteral("inventaire")).toObject();
+    inventaire.insert(QStringLiteral("id"), 2);
+    banc.vue.insert(QStringLiteral("inventaire"), inventaire);
+    banc.relire();
+    QCOMPARE(banc.poste.verificationEtat(), QStringLiteral("attente"));
+    inventaire.insert(QStringLiteral("releve_le"), 1790451621);
+    inventaire.insert(QStringLiteral("machine_id"), QStringLiteral("autre-machine"));
+    banc.vue.insert(QStringLiteral("inventaire"), inventaire);
+    banc.relire();
+    QCOMPARE(banc.poste.verificationEtat(), QStringLiteral("attente"));
+
+    // Un relevé fraîchement reçu peut révéler des comptes absents ou refusés : pas de faux « connecté ».
+    inventaire.insert(QStringLiteral("machine_id"), kMachine);
+    QJsonObject contenu = inventaire.value(QStringLiteral("contenu")).toObject();
+    contenu.insert(QStringLiteral("connexions"), QJsonObject{{QStringLiteral("codex"), QStringLiteral("non_connecte")},
+                                                            {QStringLiteral("claude"), QStringLiteral("refuse")}});
+    inventaire.insert(QStringLiteral("contenu"), contenu);
+    banc.vue.insert(QStringLiteral("inventaire"), inventaire);
+    banc.relire();
+    QCOMPARE(banc.poste.verificationEtat(), QStringLiteral("recu"));
+    QVERIFY(!banc.poste.verificationEnCours());
+    QCOMPARE(banc.poste.assistants().at(0).toMap().value(QStringLiteral("etat")).toString(), QStringLiteral("Non connecté"));
+    QCOMPARE(banc.poste.assistants().at(1).toMap().value(QStringLiteral("etat")).toString(), QStringLiteral("Refusé"));
+}
+
+void TestPoste::verificationDistingueRetardEtReponseIllisible()
+{
+    Banc banc;
+    banc.ouvrirLaPage(QStringLiteral("poste-en-ligne.json"));
+    QJsonObject attente = fixture(QStringLiteral("releve-demande.json"));
+    attente.insert(QStringLiteral("en_attente_du_poste"), true);
+    banc.reponseReleve = ReponseFaux::json(202, attente);
+    banc.poste.relever();
+    QTRY_COMPARE(banc.poste.verificationEtat(), QStringLiteral("attente"));
+    QVERIFY(banc.poste.verificationMessage().contains(QStringLiteral("hors ligne")));
+    banc.maintenant += 181;
+    banc.poste.actualiser();
+    QCOMPARE(banc.poste.verificationEtat(), QStringLiteral("retard"));
+    QVERIFY(!banc.poste.verificationEnCours());
+    QVERIFY(banc.poste.verificationMessage().contains(QStringLiteral("peut rester en file")));
+    banc.reponseReleve = ReponseFaux::json(202, QJsonObject{});
+    banc.poste.relever();
+    QTRY_COMPARE(banc.poste.verificationEtat(), QStringLiteral("echec"));
+    QVERIFY(banc.poste.erreurGeste().contains(QStringLiteral("illisible")));
+}
+
+void TestPoste::verificationInterrompueSurChangementDeMachine()
+{
+    Banc banc;
+    banc.ouvrirLaPage(QStringLiteral("poste-en-ligne.json"));
+    banc.poste.relever();
+    QTRY_COMPARE(banc.poste.verificationEtat(), QStringLiteral("attente"));
+    auto enveloppe = banc.vue.value(QStringLiteral("machine")).toObject();
+    auto machine = enveloppe.value(QStringLiteral("machine")).toObject();
+    machine.insert(QStringLiteral("id"), QStringLiteral("machine-remplacee"));
+    enveloppe.insert(QStringLiteral("machine"), machine);
+    banc.vue.insert(QStringLiteral("machine"), enveloppe);
+    banc.relire();
+    QTRY_COMPARE(banc.poste.verificationEtat(), QStringLiteral("interrompue"));
+    QVERIFY(!banc.poste.verificationEnCours());
+    QCOMPARE(banc.poste.assistants().at(0).toMap().value(QStringLiteral("etat")).toString(), QStringLiteral("Inconnu"));
+}
+
+void TestPoste::verificationOublieUneReponseTardive()
+{
+    Banc banc;
+    banc.ouvrirLaPage(QStringLiteral("poste-en-ligne.json"));
+    banc.reponseReleve.delaiMs = 250;
+    banc.poste.ouvrirGuide(QStringLiteral("codex"));
+    banc.poste.relever();
+    QTRY_COMPARE(banc.serveur.compter("POST", kP + QStringLiteral("/poste/releve")), 1);
+    banc.flux.setFenetreActive(false);
+    banc.flux.arreter();
+    QCOMPARE(banc.poste.verificationEtat(), QStringLiteral("repos"));
+    QVERIFY(banc.poste.guide().isEmpty());
+    QTest::qWait(350);
+    QCOMPARE(banc.poste.verificationEtat(), QStringLiteral("repos"));
+    QVERIFY(!banc.poste.gesteEnCours());
+    QVERIFY(banc.poste.messageGeste().isEmpty());
+    QVERIFY(banc.poste.verificationMessage().isEmpty());
+}
 QTEST_MAIN(TestPoste)
 #include "tst_poste.moc"

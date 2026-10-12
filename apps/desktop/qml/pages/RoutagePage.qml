@@ -14,7 +14,8 @@ import Acp.Controls
 Item {
     id: page
 
-    Component.onCompleted: Routage.pageVisible = true
+    Component.onCompleted: Routage.pageVisible = visible
+    onVisibleChanged: Routage.pageVisible = visible
     Component.onDestruction: Routage.pageVisible = false
 
     component Discret: Text {
@@ -74,14 +75,12 @@ Item {
             }
 
             Discret {
-                text: qsTr("Une étape d'un projet suit, dans cet ordre : la surcharge active du projet ou de la "
-                           + "carte ; sinon le choix explicite (exécutant et modèle de l'exploration choisis dans "
-                           + "« Nouveau projet », ou fixés par Hermes dans son plan) ; sinon la première entrée admise "
-                           + "de sa classe dans cette table, Hermes faisant lui-même les étapes d'un projet sans dépôt "
-                           + "qui l'admettent. Les listes viennent du relevé du poste ; rien n'est deviné, et ce que le "
-                           + "poste interdit reste interdit. La station applique les suggestions et valide la table ; "
-                           + "l'édition libre, les nouvelles surcharges et les interdits côté Hermes se modifient dans "
-                           + "le navigateur.")
+                text: qsTr("Les verrous actifs du propriétaire restent prioritaires. Le choix manuel d'exploration "
+                           + "est explicite ; les préférences du plan de Hermes départagent uniquement les entrées "
+                           + "autorisées de la classe. Auto respecte les capacités disponibles et les interdits. "
+                           + "Les listes viennent du relevé du poste. Relisez les suggestions, appliquez celles que "
+                           + "vous autorisez, puis « Valider la table ». L'édition libre, les nouvelles surcharges "
+                           + "et les interdits côté Hermes se modifient dans le navigateur.")
             }
             EtatLecture {
                 Layout.fillWidth: true

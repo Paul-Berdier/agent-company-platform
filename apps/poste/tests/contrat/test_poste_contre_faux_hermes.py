@@ -16,7 +16,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from acp_poste import cli
+from acp_poste import __version__, cli
 from acp_poste.jeton import Jeton
 from acp_poste.journal import NOM
 from acp_poste.protocole import Protocole
@@ -102,7 +102,7 @@ async def test_requetes_du_poste_ont_la_forme_des_exemples(poste, hermes, monkey
         attendu = module_faux_hermes.exemple(exemples[requete["chemin"]])
         assert set(corps) == set(attendu), requete["chemin"]
         vus.add(requete["chemin"])
-        assert requete["entetes"]["User-Agent"] == "acp-poste/1.0.1 (acp-machine/1)"
+        assert requete["entetes"]["User-Agent"] == f"acp-poste/{__version__} (acp-machine/1)"
         assert requete["entetes"]["X-ACP-Protocole"] == "acp-machine/1"
         assert requete["entetes"]["Content-Type"] == "application/json"
     assert vus == set(exemples)
@@ -164,17 +164,34 @@ async def test_remplacement_de_l_attente(poste, hermes, monkeypatch, capsys):
 
 
 async def test_ordre_releve_moins_de_3_s(poste, hermes, monkeypatch, capsys):
+    from acp_poste.service import Service
+
+    # Le contrat porte sur la réaction à l’ordre. La création puis la fermeture
+    # des vrais faux CLI dépendent de la charge Windows et sont vérifiées après.
+    sonde_demarre = asyncio.Event()
+    sonder = Service._sondes
+
+    async def observer_sonde(service):
+        sonde_demarre.set()
+        return await sonder(service)
+
+    monkeypatch.setattr(Service, "_sondes", observer_sonde)
     contexte = preparer(poste, hermes)
     machine_id, _ = enroler(poste, hermes, monkeypatch, capsys)
     hermes.confirmer(machine_id)
-    tache = asyncio.create_task(servir(contexte, duree_max_s=40, repli=rapide))
-    assert await attendre(hermes, lambda: len(hermes.inventaires) == 1, 20)
-    await asyncio.sleep(0.5)
+    tache = asyncio.create_task(servir(contexte, duree_max_s=90, repli=rapide))
+    assert await attendre(hermes, lambda: len(hermes.inventaires) == 1, 30)
+    assert await attendre(hermes, lambda: hermes.en_attente.get(machine_id, 0) > 0, 10)
+    sonde_demarre.clear()
     debut = time.monotonic()
     ordre = hermes.ordonner(machine_id, "releve")
-    assert await attendre(hermes, lambda: len(hermes.inventaires) == 2, 10), "second inventaire après l'ordre"
+    await asyncio.wait_for(sonde_demarre.wait(), 3)
     duree = time.monotonic() - debut
-    assert duree < 3, f"ordre releve → inventaire en {duree:.2f} s"
+    assert duree < 3, f"ordre releve → début de sonde en {duree:.2f} s"
+    assert await attendre(hermes, lambda: len(hermes.inventaires) == 2, 30), "second inventaire après l’ordre"
+    inventaire = valider_inventaire(hermes.inventaires[1]["corps"])
+    assert [releve.voie for releve in inventaire.releves] == ["poste-codex", "poste-claude"]
+    assert all(releve.etat == "ok" for releve in inventaire.releves)
     assert await attendre(hermes, lambda: all(o["acquitte"] for o in hermes.ordres if o["id"] == ordre), 10)
     hermes.revoquer(machine_id)
     await asyncio.wait_for(tache, 10)

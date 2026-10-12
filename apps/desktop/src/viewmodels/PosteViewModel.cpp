@@ -12,6 +12,7 @@
 #include <QClipboard>
 #include <QDateTime>
 #include <QGuiApplication>
+#include <QRegularExpression>
 #include <QTimer>
 
 #include <algorithm>
@@ -23,6 +24,11 @@ namespace {
 QString texteOuVide(const QJsonValue &valeur)
 {
     return libelles::estTexte(valeur) ? valeur.toString() : QString();
+}
+
+QString clotureRailway()
+{
+    return QStringLiteral("À la fin de l'opération, même si elle a échoué, quittez la session SSH. Dans votre console d'administration Railway, retirez la clé dédiée avec railway ssh keys remove --2fa-code <code> (remplacez <code> par votre code de second facteur). Vérifiez que railway ssh keys est vide, puis exécutez railway logout. Une déconnexion seule ne retire pas la clé. Ces gestes restent les vôtres, selon le guide Railway (§ 11).");
 }
 
 QJsonObject machineDe(const QJsonObject &vue)
@@ -108,6 +114,9 @@ PosteViewModel::PosteViewModel(ClientGreffonPoste *greffon, CompatibiliteHermes 
     m_machine = construireMachine({});
     m_inventaire = construireInventaire({});
     m_depots = construireDepots({});
+    m_verificationTimer = new QTimer(this);
+    m_verificationTimer->setInterval(1000);
+    connect(m_verificationTimer, &QTimer::timeout, this, &PosteViewModel::evaluerVerification);
     m_decompte->setInterval(1000);
     connect(m_decompte, &QTimer::timeout, this, [this] {
         if (!m_code.isEmpty() && m_expireLe > 0 && secondesRestantes() == 0) {
@@ -126,6 +135,7 @@ PosteViewModel::PosteViewModel(ClientGreffonPoste *greffon, CompatibiliteHermes 
     // Le code d'enrôlement ne survit ni à la page quittée ni à la session perdue.
     connect(this, &PageViewModel::pageVisibleChange, this, [this] {
         if (!pageVisible()) {
+            fermerGuide();
             oublierCode();
         }
     });
@@ -133,6 +143,8 @@ PosteViewModel::PosteViewModel(ClientGreffonPoste *greffon, CompatibiliteHermes 
     // (où `pagesActivesChange` ne l'est plus : les pages sont déjà inactives).
     connect(flux, &EventStreamService::sourcesChange, this, [this] {
         if (!this->flux()->sessionOuverte()) {
+            oublierVerification();
+            fermerGuide();
             oublierCode();
         }
     });
@@ -159,6 +171,8 @@ void PosteViewModel::surLienRetabli()
 void PosteViewModel::surOubli()
 {
     m_sondage->oublier();
+    oublierVerification();
+    fermerGuide();
     oublierCode();
     m_vue = {};
     m_etat = construireEtat({});
@@ -173,11 +187,30 @@ void PosteViewModel::surOubli()
 
 void PosteViewModel::actualiser()
 {
+    evaluerVerification();
     m_sondage->lireMaintenant();
 }
 
 void PosteViewModel::lire(const QJsonObject &vue)
 {
+    if (machineId() != texteOuVide(machineDe(vue).value(QStringLiteral("id")))
+        || m_vue.value(QStringLiteral("executant")).toObject().value(QStringLiteral("plateforme"))
+            != vue.value(QStringLiteral("executant")).toObject().value(QStringLiteral("plateforme"))) {
+        fermerGuide();
+    }
+    if (!m_machineVerifiee.isEmpty() && m_machineVerifiee != texteOuVide(machineDe(vue).value(QStringLiteral("id")))
+        && m_verificationEtat != QLatin1String("repos")) {
+        ++m_generationVerification;
+        if (m_verificationEtat == QLatin1String("envoi")) {
+            terminerGeste({});
+        }
+        poserVerification(QStringLiteral("interrompue"), QStringLiteral("La machine active a changé. Relancez la vérification."));
+        m_machineVerifiee.clear();
+    }
+    if (m_guide.value(QStringLiteral("type")).toString() == QLatin1String("recuperation")
+        && !construireResultats(vue).contains(m_guide.value(QStringLiteral("resultat")))) {
+        fermerGuide();
+    }
     m_vue = vue;
     m_etat = construireEtat(vue);
     m_machine = construireMachine(vue);
@@ -189,6 +222,7 @@ void PosteViewModel::lire(const QJsonObject &vue)
     }
     m_ordres->setItems(construireOrdres(vue));
     m_lue = true;
+    evaluerVerification();
     emit posteChange();
 }
 
@@ -235,6 +269,90 @@ QVariantMap PosteViewModel::executant() const
         return construireExecutant(QStringLiteral("inconnu"), {});
     }
     return construireExecutant(m_compatibilite->etatExecutant(), m_compatibilite->executant());
+}
+
+QVariantList PosteViewModel::construireResultats(const QJsonObject &vue)
+{
+    const QJsonArray branches = vue.value(QStringLiteral("executant")).toObject()
+                                   .value(QStringLiteral("branches_pretes")).toArray();
+    // Identifiants fermés du contrat partagé. Le texte « commande » distant n'est jamais copié.
+    static const QRegularExpression projetValide(QStringLiteral("\\Ap_[0-9a-f]{12}\\z"));
+    static const QRegularExpression aliasValide(QStringLiteral("\\A[a-z0-9][a-z0-9-]{0,31}\\z"));
+    static const QRegularExpression brancheValide(QStringLiteral("\\Ahermes/projet-[a-z0-9][a-z0-9-]{0,62}\\z"));
+    static const QRegularExpression teteValide(QStringLiteral("\\A[0-9a-f]{40}\\z"));
+    QVariantList resultat;
+    for (const QJsonValue &element : branches) {
+        const QJsonObject b = element.toObject();
+        const QString projet = texteOuVide(b.value(QStringLiteral("projet")));
+        const QString alias = texteOuVide(b.value(QStringLiteral("depot")));
+        const QString branche = texteOuVide(b.value(QStringLiteral("branche")));
+        const QString tete = texteOuVide(b.value(QStringLiteral("tete")));
+        if (!projetValide.match(projet).hasMatch() || !aliasValide.match(alias).hasMatch()
+            || !brancheValide.match(branche).hasMatch() || !teteValide.match(tete).hasMatch()) {
+            continue;
+        }
+        resultat.append(QVariantMap{{QStringLiteral("projet"), projet},
+            {QStringLiteral("titre"), libelles::texte(b.value(QStringLiteral("projet_titre"))).left(200)},
+            {QStringLiteral("depot"), alias}, {QStringLiteral("branche"), branche}, {QStringLiteral("tete"), tete},
+            {QStringLiteral("termineLe"), libelles::date(b.value(QStringLiteral("termine_le")))}});
+        if (resultat.size() == 20) break; // Même borne que la projection du greffon.
+    }
+    return resultat;
+}
+
+QVariantList PosteViewModel::resultats() const
+{
+    return construireResultats(m_vue);
+}
+
+QString PosteViewModel::resultatsMessage() const
+{
+    const QJsonValue branches = m_vue.value(QStringLiteral("executant")).toObject().value(QStringLiteral("branches_pretes"));
+    if (!branches.isArray()) return QStringLiteral("Hermes ne publie pas de liste de branches terminées pour cet exécutant.");
+    if (branches.toArray().isEmpty()) return QStringLiteral("Aucune branche signalée terminée pour le moment.");
+    if (resultats().size() < branches.toArray().size())
+        return QStringLiteral("Certaines branches publiées sont incomplètes ou illisibles ; leur récupération ne peut pas être préparée.");
+    return {};
+}
+
+void PosteViewModel::ouvrirGuideRecuperation(const QString &projet, const QString &branche, const QString &tete)
+{
+    fermerGuide();
+    if (!m_lue || !pageVisible() || !flux()->sessionOuverte() || !erreur().isEmpty()) return;
+    QVariantMap resultat;
+    for (const QVariant &candidat : resultats()) {
+        const QVariantMap b = candidat.toMap();
+        if (b.value(QStringLiteral("projet")).toString() == projet
+            && b.value(QStringLiteral("branche")).toString() == branche
+            && b.value(QStringLiteral("tete")).toString() == tete) {
+            resultat = b;
+            break;
+        }
+    }
+    if (resultat.isEmpty()) return;
+    QVariantList etapes;
+    const auto ajouter = [&etapes](const QString &titre, const QString &texte, const QString &commande = {}, bool aCompleter = false) {
+        etapes.append(QVariantMap{{QStringLiteral("titre"), titre}, {QStringLiteral("texte"), texte},
+                                 {QStringLiteral("commande"), commande}, {QStringLiteral("aCompleter"), aCompleter}});
+    };
+    ajouter(QStringLiteral("Retrouver l'exécutant qui porte la branche"),
+            QStringLiteral("Hermes a enregistré cette branche comme terminée. Ce relevé ne prouve pas qu'elle est encore présente sur la machine actuelle. Dans votre session Railway, vérifiez le projet ACP, l'environnement et le service executant qui ont produit ce résultat. Gardez votre clé SSH dédiée dans votre console."));
+    ajouter(QStringLiteral("Générer le bundle de cette branche"),
+            QStringLiteral("Depuis votre PC, remplacez <chemin-cle-SSH> par le chemin réel de votre clé. Cette commande vérifie la branche et balaie les secrets avant de créer le bundle sur l'exécutant. Relevez le nom de fichier, le SHA-256 et la tête réellement affichés ; aucun téléchargement n'a encore eu lieu."),
+            QStringLiteral("railway ssh -i \"<chemin-cle-SSH>\" --service executant -- acp-poste bundle %1 %2")
+                .arg(resultat.value(QStringLiteral("depot")).toString(), branche), true);
+    ajouter(QStringLiteral("Transférer le fichier indiqué"),
+            QStringLiteral("Copiez l'identifiant réel de l'instance depuis Railway (« Copy Service Instance ID »). Utilisez scp avec votre clé dédiée pour rapatrier le fichier exact annoncé, dans /donnees/acp/bundles/. Le nom du bundle et l'identifiant d'instance ne sont pas transmis à ACP : suivez le guide d'exploitation Railway, § 13.7, avec ces valeurs réelles."));
+    ajouter(QStringLiteral("Vérifier le fichier et son historique"),
+            QStringLiteral("Sur votre PC, calculez le SHA-256 du fichier et comparez-le à celui affiché par l'exécutant. Dans votre dépôt local, lancez git bundle verify avec le chemin réel du bundle. Si l'empreinte ou la vérification ne concorde pas, ne récupérez pas la branche."));
+    ajouter(QStringLiteral("Importer puis comparer le commit"),
+            QStringLiteral("Dans votre dépôt local, git fetch suivi du chemin du bundle et de %1:%1 importe la branche sans la fusionner. Vérifiez avec git rev-parse %1 que la tête importée est exactement %2. La revue et une éventuelle publication restent vos actions explicites.").arg(branche, tete));
+    // Ce parcours récupère une branche sur Railway, même si la machine active a changé depuis.
+    ajouter(QStringLiteral("Clore l'accès Railway"), clotureRailway());
+    m_guide = {{QStringLiteral("type"), QStringLiteral("recuperation")}, {QStringLiteral("resultat"), resultat},
+               {QStringLiteral("titre"), QStringLiteral("Récupérer %1").arg(resultat.value(QStringLiteral("titre")).toString())},
+               {QStringLiteral("etapes"), etapes}};
+    emit guideChange();
 }
 
 QVariantMap PosteViewModel::construireEtat(const QJsonObject &vue)
@@ -367,6 +485,7 @@ QVariantMap PosteViewModel::construireInventaire(const QJsonObject &vue)
         {QStringLiteral("versionPoste"), libelles::texte(contenu.value(QStringLiteral("version_poste")))},
         {QStringLiteral("compte"), compte},
         {QStringLiteral("windows"), libelles::texte(poste.value(QStringLiteral("windows")))},
+        {QStringLiteral("noyau"), libelles::texte(poste.value(QStringLiteral("noyau")))},
         {QStringLiteral("python"), libelles::texte(poste.value(QStringLiteral("python")))},
         {QStringLiteral("empreintePolitique"), libelles::texte(poste.value(QStringLiteral("politique_empreinte")))},
         {QStringLiteral("versions"),
@@ -582,22 +701,277 @@ void PosteViewModel::revoquer(const QString &motif)
 
 void PosteViewModel::relever()
 {
-    if (gesteEnCours()) {
+    if (gesteEnCours() || verificationEnCours()) {
         return;
     }
+    if (!flux()->sessionOuverte() || !peutRelever() || machineId().isEmpty()) {
+        echouerGeste(QStringLiteral("Aucune machine active à vérifier : actualisez son état."));
+        return;
+    }
+    const auto generation = ++m_generationVerification;
+    m_machineVerifiee = machineId();
+    m_verificationDebut = m_horloge();
+    poserVerification(QStringLiteral("envoi"), QStringLiteral("Demande de vérification en cours…"));
     debuterGeste();
     ApiCall *appel = m_greffon->releverPoste();
-    connect(appel, &ApiCall::succeeded, this, [this](const ApiResponse &reponse) {
-        // « Ordre de relevé mis en file… » ou « … hors ligne : il sera livré dans N min » :
-        // le message du greffon tel quel.
-        const QJsonValue message = reponse.json.object().value(QStringLiteral("message"));
+    connect(appel, &ApiCall::succeeded, this, [this, generation](const ApiResponse &reponse) {
+        if (generation != m_generationVerification) {
+            return; // Session ou serveur changés : une réponse tardive ne recrée aucun état.
+        }
+        if (machineId() != m_machineVerifiee || !peutRelever()) {
+            poserVerification(QStringLiteral("interrompue"), QStringLiteral("La machine active a changé. Relancez la vérification."));
+            terminerGeste(QStringLiteral("Demande reçue pour la machine précédente."), true);
+            return;
+        }
+        const QJsonObject corps = reponse.json.object();
+        if (reponse.httpStatus != 202 || !corps.value(QStringLiteral("ordre")).isDouble()
+            || corps.value(QStringLiteral("ordre")).toDouble() <= 0) {
+            poserVerification(QStringLiteral("echec"), QStringLiteral("Réponse de vérification illisible. Actualisez avant de réessayer."));
+            echouerGeste(m_verificationMessage);
+            return;
+        }
+        // Borne prise APRÈS le 202 : ni un ancien inventaire ni la disparition de l'ordre
+        // ne valent vérification. Le protocole ne relie pas directement ordre et inventaire.
+        const QJsonObject inventaire = m_vue.value(QStringLiteral("inventaire")).toObject();
+        m_inventaireAvant = inventaire.value(QStringLiteral("id")).toInteger();
+        m_releveAvant = inventaire.value(QStringLiteral("releve_le")).toInteger();
+        m_verificationDebut = m_horloge();
+        const QJsonValue message = corps.value(QStringLiteral("message"));
         terminerGeste(libelles::estTexte(message) ? message.toString() : QStringLiteral("Ordre de relevé envoyé au poste."));
+        poserVerification(QStringLiteral("attente"), corps.value(QStringLiteral("en_attente_du_poste")) == QJsonValue(true)
+            ? QStringLiteral("Machine hors ligne : demande en file. Aucun nouveau relevé reçu pour l'instant.")
+            : QStringLiteral("Demande acceptée. En attente d'un nouveau relevé de cette machine…"));
+        m_verificationTimer->start();
         apresGeste();
     });
-    connect(appel, &ApiCall::failed, this, [this](const ApiError &erreur) {
+    connect(appel, &ApiCall::failed, this, [this, generation](const ApiError &erreur) {
+        if (generation != m_generationVerification) {
+            return;
+        }
+        poserVerification(QStringLiteral("echec"), messageDuRefus(erreur));
         echouerGeste(erreur);
         apresGeste();
     });
 }
 
+bool PosteViewModel::verificationEnCours() const
+{
+    return m_verificationEtat == QLatin1String("envoi") || m_verificationEtat == QLatin1String("attente");
+}
+
+void PosteViewModel::poserVerification(const QString &etat, const QString &message)
+{
+    m_verificationEtat = etat;
+    m_verificationMessage = message;
+    if (etat != QLatin1String("attente")) {
+        m_verificationTimer->stop();
+    }
+    emit verificationChange();
+}
+
+void PosteViewModel::oublierVerification()
+{
+    ++m_generationVerification;
+    m_machineVerifiee.clear();
+    // Termine aussi le geste local si sa réponse a été invalidée par la perte de session.
+    if (m_verificationEtat == QLatin1String("envoi")) {
+        terminerGeste({});
+    }
+    poserVerification(QStringLiteral("repos"), {});
+}
+
+void PosteViewModel::evaluerVerification()
+{
+    if (m_verificationEtat != QLatin1String("attente") && m_verificationEtat != QLatin1String("retard")) {
+        return;
+    }
+    if (machineId() != m_machineVerifiee || !peutRelever()) {
+        poserVerification(QStringLiteral("interrompue"), QStringLiteral("La machine active a changé ou a été révoquée. Relancez la vérification."));
+        return;
+    }
+    const QJsonObject inventaire = m_vue.value(QStringLiteral("inventaire")).toObject();
+    const QJsonObject connexions = inventaire.value(QStringLiteral("contenu")).toObject()
+                                      .value(QStringLiteral("connexions")).toObject();
+    if (inventaire.value(QStringLiteral("machine_id")).toString() == m_machineVerifiee
+        && inventaire.value(QStringLiteral("id")).toInteger() > m_inventaireAvant
+        && inventaire.value(QStringLiteral("releve_le")).toInteger() > m_releveAvant
+        && !connexions.isEmpty()) {
+        poserVerification(QStringLiteral("recu"), QStringLiteral("Nouveau relevé reçu. Consultez les états Codex et Claude des cartes : ils peuvent encore indiquer une connexion absente ou refusée."));
+    } else if (m_horloge() - m_verificationDebut >= 180) {
+        poserVerification(QStringLiteral("retard"), QStringLiteral("Aucun nouveau relevé reçu après trois minutes. La demande peut rester en file sur le serveur. Vérifiez la présence et la pause de la machine, puis actualisez."));
+    }
+}
+
+QVariantMap PosteViewModel::assistantMachine() const
+{
+    const QJsonObject executant = m_vue.value(QStringLiteral("executant")).toObject();
+    const QJsonObject inventaire = m_vue.value(QStringLiteral("inventaire")).toObject();
+    const bool correspond = !machineId().isEmpty()
+        && inventaire.value(QStringLiteral("machine_id")).toString() == machineId();
+    const QJsonObject contenu = correspond ? inventaire.value(QStringLiteral("contenu")).toObject() : QJsonObject{};
+    const QJsonObject poste = contenu.value(QStringLiteral("poste")).toObject();
+    QString plateforme = texteOuVide(machineDe(m_vue).value(QStringLiteral("plateforme")));
+    if (plateforme.isEmpty()) {
+        plateforme = texteOuVide(executant.value(QStringLiteral("plateforme")));
+    }
+    if (plateforme.isEmpty()) {
+        plateforme = texteOuVide(poste.value(QStringLiteral("plateforme")));
+    }
+    if (plateforme.isEmpty() && libelles::estTexte(poste.value(QStringLiteral("windows")))) {
+        plateforme = QStringLiteral("windows"); // Champ effectivement publié par un ancien poste Windows.
+    }
+    QString hote = texteOuVide(machineDe(m_vue).value(QStringLiteral("hote")));
+    if (hote.isEmpty()) {
+        hote = texteOuVide(executant.value(QStringLiteral("hote")));
+    }
+    const QString type = plateforme == QLatin1String("windows") ? QStringLiteral("Poste Windows")
+                         : plateforme == QLatin1String("linux") && hote == QLatin1String("railway")
+                             ? QStringLiteral("Exécutant Railway")
+                         : plateforme == QLatin1String("linux") ? QStringLiteral("Exécutant Linux")
+                                                                 : QStringLiteral("Plateforme inconnue");
+    return {{QStringLiteral("id"), machineId()},
+            {QStringLiteral("nom"), libelles::texte(machineDe(m_vue).value(QStringLiteral("nom")))},
+            {QStringLiteral("type"), type}, {QStringLiteral("plateforme"), plateforme},
+            {QStringLiteral("hote"), hote}, {QStringLiteral("compte"), texteOuVide(poste.value(QStringLiteral("compte")))},
+            {QStringLiteral("guideDisponible"), peutRelever() && (plateforme == QLatin1String("windows") || plateforme == QLatin1String("linux"))},
+            {QStringLiteral("releve"), correspond ? libelles::date(inventaire.value(QStringLiteral("releve_le"))) : libelles::kInconnu}};
+}
+
+QVariantList PosteViewModel::assistants() const
+{
+    const QJsonObject inventaire = m_vue.value(QStringLiteral("inventaire")).toObject();
+    // Un inventaire d'une ancienne machine ne devient pas celui du nouvel enrôlement.
+    const bool correspond = !machineId().isEmpty()
+        && inventaire.value(QStringLiteral("machine_id")).toString() == machineId();
+    const QJsonObject contenu = correspond ? inventaire.value(QStringLiteral("contenu")).toObject() : QJsonObject{};
+    const QJsonObject connexions = contenu.value(QStringLiteral("connexions")).toObject();
+    const QJsonObject versions = contenu.value(QStringLiteral("versions")).toObject();
+    QVariantList resultat;
+    for (const QString &fournisseur : {QStringLiteral("codex"), QStringLiteral("claude")}) {
+        const bool codex = fournisseur == QLatin1String("codex");
+        const auto valeur = connexions.value(fournisseur);
+        const auto libelle = codex ? libelles::connexionCodex(valeur) : libelles::connexionClaude(valeur);
+        QString mode = libelles::kInconnu;
+        if (codex && valeur == QJsonValue(QStringLiteral("compte_chatgpt"))) {
+            mode = QStringLiteral("Compte ChatGPT via Codex CLI");
+        } else if (codex && valeur == QJsonValue(QStringLiteral("cle_api"))) {
+            mode = QStringLiteral("Clé API détectée — voie non prise en charge");
+        } else if (!codex && (valeur == QJsonValue(QStringLiteral("jeton_reconnu"))
+                             || valeur == QJsonValue(QStringLiteral("jeton_present_non_verifie"))
+                             || valeur == QJsonValue(QStringLiteral("refuse")))) {
+            mode = QStringLiteral("Jeton Claude Code du coffre de la machine");
+        }
+        resultat.append(QVariantMap{
+            {QStringLiteral("fournisseur"), fournisseur},
+            {QStringLiteral("nom"), codex ? QStringLiteral("Codex") : QStringLiteral("Claude Code")},
+            {QStringLiteral("etat"), libelle.connu() ? libelle.texte : libelles::texte(valeur)},
+            {QStringLiteral("cle"), libelle.connu() ? libelle.cle : QStringLiteral("unknown")},
+            {QStringLiteral("mode"), mode},
+            {QStringLiteral("version"), libelles::texte(versions.value(fournisseur).toObject().value(QStringLiteral("lue")))},
+            {QStringLiteral("offre"), codex ? libelles::texte(connexions.value(QStringLiteral("plan_codex"))) : libelles::kInconnu},
+            {QStringLiteral("detail"), codex
+                ? QStringLiteral("État déclaré par le CLI sur cette machine. L'identité personnelle du compte n'est pas transmise à ACP.")
+                : QStringLiteral("« Jeton reconnu » décrit le résultat de auth status, pas une garantie de validité distante. Le dépôt d'un jeton ne suffit pas à confirmer la connexion.")}});
+    }
+    return resultat;
+}
+
+void PosteViewModel::ouvrirGuide(const QString &fournisseur)
+{
+    fermerGuide();
+    QVariantList etapes;
+    const auto ajouter = [&etapes](const QString &titre, const QString &texte, const QString &commande = {}, bool aCompleter = false) {
+        etapes.append(QVariantMap{{QStringLiteral("titre"), titre}, {QStringLiteral("texte"), texte},
+                                 {QStringLiteral("commande"), commande}, {QStringLiteral("aCompleter"), aCompleter}});
+    };
+    if (fournisseur == QLatin1String("hermes")) {
+        ajouter(QStringLiteral("Ouvrir votre Hermes"), QStringLiteral("Dans votre navigateur, ouvrez l'adresse Hermes enregistrée dans Réglages et connectez-vous avec votre identité ACP."));
+        ajouter(QStringLiteral("Connecter le coordinateur"), QStringLiteral("Dans le tableau de bord : Clés → Connexions fournisseurs (OAuth) → openai-codex → Connexion. Ouvrez l'adresse officielle affichée et saisissez le code d'appareil avec votre compte ChatGPT."));
+        ajouter(QStringLiteral("Choisir le modèle"), QStringLiteral("Dans Modèles, choisissez le modèle par défaut de Hermes. Revenez ensuite dans Discussion pour lui parler. Les comptes de Codex et Claude sur la machine d'exécution sont configurés séparément."));
+        ajouter(QStringLiteral("Gérer cette connexion"), QStringLiteral("La reconnexion et la déconnexion du coordinateur se font dans ce même tableau de bord. Une déconnexion empêche ses prochaines réponses ; elle ne déconnecte pas les assistants de la machine."));
+        m_guide = {{QStringLiteral("titre"), QStringLiteral("Configurer Hermes coordinateur")}, {QStringLiteral("etapes"), etapes}};
+        emit guideChange();
+        return;
+    }
+    if (fournisseur != QLatin1String("codex") && fournisseur != QLatin1String("claude")) {
+        return;
+    }
+    const QVariantMap machine = assistantMachine();
+    if (!machine.value(QStringLiteral("guideDisponible")).toBool()) {
+        return;
+    }
+    const bool codex = fournisseur == QLatin1String("codex");
+    const bool windows = machine.value(QStringLiteral("plateforme")).toString() == QLatin1String("windows");
+    const QString prefixe = windows ? QStringLiteral("& \"$env:ProgramFiles\\ACP\\poste\\acp-poste.cmd\" ") : QStringLiteral("acp-poste ");
+    if (!codex) {
+        ajouter(QStringLiteral("Préparer Claude Code dans votre session"), QStringLiteral("Sur votre PC, lancez le binaire officiel connecté à votre compte autorisé. Le jeton reste dans votre terminal : ne le collez pas dans ACP ni dans une discussion."), QStringLiteral("claude setup-token"));
+    }
+    if (windows) {
+        const QString compte = machine.value(QStringLiteral("compte")).toString();
+        if (compte == QLatin1String("dedie")) {
+            ajouter(QStringLiteral("Ouvrir la console du compte dédié"), QStringLiteral("Sur le PC affiché ci-dessus, depuis votre session Windows. La connexion de votre compte utilisateur habituel n'est pas celle du poste ACP."), QStringLiteral("runas /user:acp-poste \"powershell -NoProfile\""));
+        } else {
+            ajouter(QStringLiteral("Ouvrir la console du compte d'exécution"), compte == QLatin1String("proprietaire")
+                ? QStringLiteral("Ce poste publie un fonctionnement dans le compte du propriétaire. Utilisez sa console PowerShell sur le PC indiqué.")
+                : QStringLiteral("Le compte Windows d'exécution est inconnu. Vérifiez le compte de la tâche Poste ACP avant de poursuivre ; n'utilisez pas une autre session par défaut."));
+        }
+    } else {
+        ajouter(QStringLiteral("Ouvrir la console de l'exécutant"), machine.value(QStringLiteral("hote")).toString() == QLatin1String("railway")
+            ? QStringLiteral("Depuis votre session d'administration Railway déjà reliée au bon projet ACP, ouvrez le service executant. L'accès Railway et sa clé SSH restent réservés au propriétaire ; vérifiez le projet et l'environnement avant de continuer. Utilisez votre clé SSH dédiée selon le guide Railway (§ 13.4) ; n'ajoutez pas --session.")
+            : QStringLiteral("Ouvrez votre console d'administration sur la machine Linux affichée. N'exécutez pas ces commandes dans le conteneur Hermes."),
+            machine.value(QStringLiteral("hote")).toString() == QLatin1String("railway") ? QStringLiteral("railway ssh -i \"<chemin-cle-SSH>\" --service executant") : QString(), machine.value(QStringLiteral("hote")).toString() == QLatin1String("railway"));
+        ajouter(QStringLiteral("Suspendre les travaux"), QStringLiteral("La pause ferme les nouvelles cartes et les sondes. Attendez que la carte en cours s'arrête proprement avant de connecter le compte."), QStringLiteral("acp-poste pause"));
+    }
+    ajouter(codex ? QStringLiteral("Connecter ou reconnecter Codex") : QStringLiteral("Déposer le jeton dans le coffre"), codex
+        ? QStringLiteral("Dans cette console, le CLI officiel affiche l'adresse et le code d'appareil. Autorisez la connexion dans votre navigateur. Si nécessaire, activez l'authentification par code d'appareil dans les paramètres de sécurité ChatGPT. Attendez le résultat du CLI.")
+        : QStringLiteral("Collez le jeton uniquement dans la saisie masquée de cette commande. Le message de dépôt confirme son stockage, pas sa validité. Videz ensuite le presse-papiers et son historique Windows (Win+V)."),
+        prefixe + QStringLiteral("connexion ") + fournisseur);
+    if (codex && windows) {
+        ajouter(QStringLiteral("Préparer le bac à sable si nécessaire"), QStringLiteral("Si le diagnostic indique que le bac à sable n'est pas prêt, exécutez cette commande dans la même console. La demande UAC nécessite les droits administrateur."), prefixe + QStringLiteral("connexion bac-a-sable"));
+    }
+    if (!windows) {
+        ajouter(QStringLiteral("Reprendre les travaux"), QStringLiteral("Une fois la connexion terminée, reprenez l'exécutant pour réautoriser les sondes et les nouvelles cartes."), QStringLiteral("acp-poste reprise"));
+    }
+    ajouter(QStringLiteral("Contrôler la machine"), QStringLiteral("Lisez le diagnostic, puis revenez ici et choisissez Vérifier maintenant. Un nouveau relevé peut demander une à deux minutes ; les états refusé ou inconnu restent affichés tels quels."), prefixe + QStringLiteral("diagnostic"));
+    ajouter(QStringLiteral("Comprendre les effets"), QStringLiteral("Reconnecter remplace l'accès de cet assistant sur cette machine et peut interrompre les prochaines missions qui l'utilisent. ACP ne propose pas encore de déconnexion distante du compte. Révoquer la machine dans les diagnostics coupe son lien avec ACP, sans déconnecter son compte fournisseur."));
+    if (!windows && machine.value(QStringLiteral("hote")).toString() == QLatin1String("railway")) {
+        ajouter(QStringLiteral("Clore l'accès Railway"), clotureRailway());
+    }
+    m_guide = {{QStringLiteral("titre"), QStringLiteral("Configurer %1 · %2").arg(codex ? QStringLiteral("Codex") : QStringLiteral("Claude Code"), machine.value(QStringLiteral("nom")).toString())},
+               {QStringLiteral("etapes"), etapes}};
+    emit guideChange();
+}
+
+void PosteViewModel::fermerGuide()
+{
+    if (m_guide.isEmpty() && m_copieGuide.isEmpty()) {
+        return;
+    }
+    m_guide.clear();
+    m_copieGuide.clear();
+    emit guideChange();
+}
+
+void PosteViewModel::copierEtape(int index)
+{
+    if (m_guide.value(QStringLiteral("type")).toString() == QLatin1String("recuperation")
+        && (!pageVisible() || !flux()->sessionOuverte() || !erreur().isEmpty())) {
+        fermerGuide();
+        return;
+    }
+    const QVariantList etapes = m_guide.value(QStringLiteral("etapes")).toList();
+    if (index < 0 || index >= etapes.size()) {
+        return;
+    }
+    const QString commande = etapes.at(index).toMap().value(QStringLiteral("commande")).toString();
+    if (commande.isEmpty()) {
+        return;
+    }
+    const bool aCompleter = etapes.at(index).toMap().value(QStringLiteral("aCompleter")).toBool();
+    m_copieGuide = m_presse && m_presse(commande)
+        ? (aCompleter ? QStringLiteral("Commande copiée : complétez le chemin de votre clé SSH avant de l'exécuter.")
+                     : QStringLiteral("Commande copiée. Exécutez-la dans la console indiquée à cette étape."))
+        : QStringLiteral("Copie impossible : sélectionnez la commande à la main.");
+    emit guideChange();
+}
 } // namespace acp

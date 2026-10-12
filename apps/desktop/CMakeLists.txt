@@ -282,6 +282,9 @@ endif()
 add_subdirectory(qml)
 
 qt_add_executable(acp_desktop WIN32 src/main.cpp)
+if(WIN32)
+    target_sources(acp_desktop PRIVATE resources/icons/atelier.rc)
+endif()
 
 target_link_libraries(acp_desktop PRIVATE
     acp_core

@@ -4,11 +4,16 @@ contre le relevé du poste (étape P4, plan d'autonomie § 3 ; cahier P4 § 7).
 Ordre de résolution :
 
 1. surcharge du propriétaire (carte, puis projet, puis globale ; table ``surcharges``) ;
-2. choix explicite (étape du plan ou triplet ``exploration``), s'il est au relevé et admis par la
+2. choix explicite du propriétaire (par exemple le triplet ``exploration``), au relevé et admis par la
    classe ;
 3. première entrée de la table ``routage`` admissible (modèle au relevé, effort pris en charge et non
    interdit, palier admis, quota connu sous le seuil ou inconnu — mentionné —, voie admise) ;
 4. sinon refus « Aucun modèle disponible… ». Aucun repli silencieux.
+
+Les indications d'un plan Hermes sont des PRÉFÉRENCES (``preference_plan=True``) : après les surcharges,
+elles ne départagent que les entrées autorisées de la table qui satisfont encore toutes les gardes.
+Elles ne créent aucune entrée ni aucun effort. Les classes réservées à Hermes gardent son profil ;
+l'intégration reste déterministe, sans modèle. Les appels manuels conservent leur comportement.
 
 Voie ``hermes`` : aucun ``model_override`` par défaut (modèle du profil) ; un modèle n'est admis que
 s'il figure dans le dernier relevé ``poste-codex`` (abonnement ChatGPT du cerveau). Jamais de
@@ -511,8 +516,74 @@ def valider_choix(conn, *, classe: str, projet: Dict[str, Any], voie: str, model
                       mention=", ".join(mentions) or None)
 
 
+def _resoudre_table_plan(conn, *, classe: str, projet: Dict[str, Any], voie: Optional[str] = None,
+                         modele: Optional[str] = None, effort: Optional[str] = None, ref: Optional[str] = None,
+                         voie_requise: Optional[str] = None, modele_exclu: Optional[str] = None) -> Resolution:
+    """Le plan classe les seuls candidats autorisés ET valides. Aucune valeur du plan ne remplace
+    celle d'une entrée. À égalité (ou si aucun indice ne correspond), l'ordre de la table fait foi."""
+    candidats: List[Resolution] = []
+    raisons: List[RefusACP] = []
+    for entree in entrees_routage(conn, classe):
+        if voie_requise is not None and entree.get("voie") != voie_requise:
+            continue
+        try:
+            candidat = valider_choix(conn, classe=classe, projet=projet, voie=entree.get("voie"),
+                                     modele=entree.get("modele"), effort=entree.get("effort"),
+                                     palier=entree.get("palier"), source="table", ref=ref)
+            # Vérification APRÈS résolution du défaut du relevé : un modèle absent dans l'entrée
+            # peut résoudre vers celui de l'implémentation et ne permet pas de contourner D91.
+            if modele_exclu is not None and candidat.modele == modele_exclu:
+                raise refus("relecture_impossible", T.REPLI_MEME_MODELE.format(m=modele_exclu))
+            candidats.append(candidat)
+        except RefusACP as exc:
+            raisons.append(exc)
+    if candidats:
+        def score(candidat: Resolution) -> int:
+            return sum(bool(indice) and indice == valeur for indice, valeur in
+                       ((voie, candidat.voie), (modele, candidat.modele), (effort, candidat.effort)))
+        return max(candidats, key=score)  # max garde la première entrée à égalité.
+    if raisons:
+        raise next((r for r in raisons if "quota à" in r.message), raisons[0])
+    if not projet.get("depot_alias") and HERMES not in VOIES_PAR_CLASSE.get(classe, ()):
+        raise refus("sans_depot", T.SANS_DEPOT.format(titre=projet.get("titre"), ref=ref or classe))
+    raise RefusACP("aucun_modele", T.AUCUN_MODELE.format(
+        c=classe, raison="aucune entrée autorisée de la table pour ce plan"))
+
+
+def _resoudre_relecture_plan(conn, *, projet: Dict[str, Any], voie_relue: str, ref: str,
+                             modele: Optional[str], carte: Optional[str], modele_relu: Optional[str]) -> Resolution:
+    """Même frontière de table pour la relecture du plan, sans affaiblir la relecture croisée ni D91.
+    Une surcharge du propriétaire est un verrou : si elle ne satisfait pas ces règles, on refuse."""
+    autre = autre_voie(voie_relue)
+    fermee = voies_fermees(conn, depot_alias=projet.get("depot_alias")).get(autre)
+    repli = bool(fermee and base.reglage(conn, "relecture_repli_meme_voie"))
+    voie_requise = voie_relue if repli else autre
+    try:
+        surcharge = surcharge_applicable(conn, "relecture", projet.get("id"), carte)
+        if surcharge is not None:
+            if surcharge["voie"] != voie_requise:
+                raise refus("relecture_impossible", "la surcharge du propriétaire ne satisfait pas la voie de relecture requise")
+            r = valider_choix(conn, classe="relecture", projet=projet, voie=surcharge["voie"],
+                              modele=surcharge["modele"], effort=surcharge["effort"], palier=surcharge["palier"],
+                              source="surcharge_" + surcharge["portee"], ref=ref)
+            if repli and r.modele == modele_relu:
+                raise refus("relecture_impossible", T.REPLI_MEME_MODELE.format(m=modele_relu or T.INCONNU))
+        else:
+            r = _resoudre_table_plan(conn, classe="relecture", projet=projet, modele=modele, ref=ref,
+                                     voie_requise=voie_requise, modele_exclu=modele_relu if repli else None)
+        if not repli:
+            return r
+        mention = T.MENTION_REPLI_MEME_VOIE.format(raison=fermee)
+        return Resolution(voie=r.voie, modele=r.modele, effort=r.effort, effort_carte=r.effort_carte,
+                          palier=r.palier, source_routage=r.source_routage, releve_id=r.releve_id,
+                          mention=", ".join(m for m in (r.mention, mention) if m))
+    except RefusACP as exc:
+        raison = exc.message.removeprefix(T.PREFIXE_REFUS).rstrip(".")
+        raise refus("relecture_impossible", T.RELECTURE_IMPOSSIBLE.format(ref=ref, raison=raison)) from None
+
 def resoudre(conn, *, classe: str, projet: Dict[str, Any], voie: Optional[str] = None, modele: Optional[str] = None,
-             effort: Optional[str] = None, carte: Optional[str] = None, ref: Optional[str] = None) -> Resolution:
+             effort: Optional[str] = None, carte: Optional[str] = None, ref: Optional[str] = None,
+             preference_plan: bool = False) -> Resolution:
     """Résolution déterministe d'une étape de ``classe`` (voir l'en-tête du module)."""
     if classe == "integration":
         # Étape P6 : déterministe, sans modèle ; aucune surcharge ni table ne s'y applique.
@@ -527,6 +598,12 @@ def resoudre(conn, *, classe: str, projet: Dict[str, Any], voie: Optional[str] =
                              effort=surcharge["effort"], palier=surcharge["palier"],
                              source="surcharge_" + surcharge["portee"], ref=ref)
     hermes_par_defaut = admises == (HERMES,) or (HERMES in admises and not projet.get("depot_alias"))
+    if preference_plan:
+        if hermes_par_defaut:
+            return valider_choix(conn, classe=classe, projet=projet, voie=HERMES, modele=None, effort=None,
+                                 palier=None, source="profil", ref=ref)
+        return _resoudre_table_plan(conn, classe=classe, projet=projet, voie=voie, modele=modele,
+                                    effort=effort, ref=ref)
     if voie or modele or effort:
         if not voie and modele:
             candidates = [v for v in admises if v != HERMES and (d := dernier_releve(conn, v)) and d[1].modele(modele)]
@@ -597,13 +674,17 @@ def _relecture_de_repli(conn, *, projet: Dict[str, Any], voie_relue: str, modele
 
 
 def resoudre_relecture(conn, *, projet: Dict[str, Any], voie_relue: str, ref: str, modele: Optional[str] = None,
-                       carte: Optional[str] = None, modele_relu: Optional[str] = None) -> Resolution:
+                       carte: Optional[str] = None, modele_relu: Optional[str] = None,
+                       preference_plan: bool = False) -> Resolution:
     """Relecture CROISÉE : toujours l'autre voie du poste (décision D27 : refus plutôt qu'une relecture
     par la même voie). Modèle : surcharge, choix explicite (``relecture_modele``), table, sinon le modèle
     par défaut du relevé de l'autre voie et son effort par défaut (lus, jamais inventés).
 
     Étape P6 (D91, appliqué) : l'autre voie FERMÉE d'après le dernier inventaire, et le réglage
     ``relecture_repli_meme_voie`` levé : :func:`_relecture_de_repli`, jamais silencieux (mention)."""
+    if preference_plan:
+        return _resoudre_relecture_plan(conn, projet=projet, voie_relue=voie_relue, ref=ref, modele=modele,
+                                        carte=carte, modele_relu=modele_relu)
     autre = autre_voie(voie_relue)
     fermee = voies_fermees(conn, depot_alias=projet.get("depot_alias")).get(autre)
     if fermee and base.reglage(conn, "relecture_repli_meme_voie"):

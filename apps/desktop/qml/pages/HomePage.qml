@@ -16,8 +16,10 @@ import Acp.Controls
 
 Item {
     id: page
+    property bool showOperations: false
 
-    Component.onCompleted: Accueil.pageVisible = true
+    Component.onCompleted: Accueil.pageVisible = visible
+    onVisibleChanged: Accueil.pageVisible = visible
     Component.onDestruction: Accueil.pageVisible = false
 
     component Discret: Text {
@@ -54,38 +56,98 @@ Item {
             Item { Layout.preferredHeight: Space.space4 }
 
             RowLayout {
-                Layout.fillWidth: true
-                spacing: Space.space5
-                Text {
-                    Layout.fillWidth: true
-                    text: qsTr("Accueil")
-                    textFormat: Text.PlainText
-                    color: Colors.textPrimary
-                    font.family: Type.pageTitle.family
-                    font.pixelSize: Type.pageTitle.pixelSize
-                    font.weight: Type.pageTitle.weight
+                Layout.fillWidth: true; spacing: Space.space8
+                ColumnLayout {
+                    Layout.fillWidth: true; spacing: Space.space5
+                    Text { textFormat: Text.PlainText; text: qsTr("VOTRE ESPACE DE TRAVAIL"); color: Colors.accentPrimary; font.family: Type.metadata.family; font.pixelSize: 11; font.letterSpacing: 1.8 }
+                    Text { textFormat: Text.PlainText;
+                        Layout.fillWidth: true; text: qsTr("Qu'allons-nous construire ?")
+                        wrapMode: Text.WordWrap; color: Colors.textPrimary
+                        font.family: Type.pageTitle.family; font.pixelSize: 32; font.weight: Font.DemiBold; font.letterSpacing: -0.8
+                    }
+                    Text { textFormat: Text.PlainText;
+                        Layout.fillWidth: true; text: qsTr("Un projet à retrouver. Une idée à faire avancer.\nVotre travail reprend ici.")
+                        wrapMode: Text.WordWrap; color: Colors.textSecondary
+                        font.family: Type.prose.family; font.pixelSize: 15; lineHeight: 1.5
+                    }
+                    RowLayout {
+                        Layout.topMargin: Space.space3; spacing: Space.space3
+                        AcpButton { objectName: "accueil-nouveau-projet"; label: qsTr("Nouveau projet"); iconName: "plus"; primary: true; onTriggered: { Projets.afficherNouveau(); Navigation.setCurrentRoute("projects"); } }
+                        AcpButton { label: qsTr("Parler à Hermes"); iconName: "chat"; onTriggered: Navigation.setCurrentRoute("chat") }
+                    }
                 }
-                AcpButton {
-                    objectName: "accueil-actualiser"
-                    label: qsTr("Actualiser")
-                    onTriggered: Accueil.actualiser()
+                AtelierScene { visible: page.width > 850 && Appearance.themeFamily === "pixel"; Layout.preferredWidth: 360; Layout.preferredHeight: 240 }
+            }
+            Rectangle { Layout.fillWidth: true; implicitHeight: 1; color: Colors.borderSubtle }
+            RowLayout {
+                Layout.fillWidth: true
+                Text { textFormat: Text.PlainText; text: qsTr("Reprendre un projet"); color: Colors.textPrimary; font.family: Type.panelTitle.family; font.pixelSize: 17; font.weight: Font.DemiBold; Layout.fillWidth: true }
+                AcpButton { label: qsTr("Tous les projets"); iconName: "chevronRight"; onTriggered: { Projets.afficherListe(); Navigation.setCurrentRoute("projects"); } }
+            }
+            Illisible {
+                visible: Accueil.carteProjets.lisible === false
+                raison: Accueil.carteProjets.raison || qsTr("Le relevé des projets est indisponible.")
+            }
+            Text { textFormat: Text.PlainText;
+                visible: !Accueil.lue; Layout.fillWidth: true
+                text: qsTr("En attente du relevé des projets.")
+                color: Colors.textMuted; font.family: Type.metadata.family; font.pixelSize: Type.metadata.pixelSize
+            }
+            Text { textFormat: Text.PlainText;
+                visible: Accueil.carteProjets.aucunOuvert === true; Layout.fillWidth: true
+                text: qsTr("Aucun projet en cours. Créez votre premier projet pour commencer.")
+                color: Colors.textMuted; font.family: Type.prose.family; font.pixelSize: Type.prose.pixelSize; wrapMode: Text.WordWrap
+            }
+            Repeater {
+                model: Accueil.projetsEnCours
+                delegate: Rectangle {
+                    id: recent
+                    required property var item
+                    Layout.fillWidth: true; implicitHeight: 86
+                    color: recentHover.hovered ? Colors.stateHover : Colors.surfacePanel; radius: Radius.radiusMd
+                    border.color: recent.activeFocus ? Colors.borderFocus : Colors.borderSubtle; activeFocusOnTab: true
+                    RowLayout {
+                        anchors.fill: parent; anchors.margins: Space.space5; spacing: Space.space5
+                        Rectangle { Layout.preferredWidth: 40; Layout.preferredHeight: 40; color: Colors.accentMuted; radius: 4
+                            AcpIcon { anchors.centerIn: parent; name: "folder"; color: Colors.accentPrimary; size: 20 }
+                        }
+                        ColumnLayout { Layout.fillWidth: true; spacing: Space.space2
+                            Text { textFormat: Text.PlainText; text: recent.item.titre; color: Colors.textPrimary; font.family: Type.tableCell.family; font.pixelSize: 15; font.weight: Font.DemiBold; elide: Text.ElideRight; Layout.fillWidth: true }
+                            Text { textFormat: Text.PlainText; text: recent.item.avancement; color: Colors.textMuted; font.family: Type.metadata.family; font.pixelSize: Type.metadata.pixelSize }
+                        }
+                        StatusChip { statusKey: recent.item.etatCle; label: recent.item.etatLibelle }
+                        AcpIcon { name: "chevronRight"; size: 16 }
+                    }
+                    function open() { Projets.ouvrirProjet(item.id); Navigation.setCurrentRoute("projects"); }
+                    HoverHandler { id: recentHover; cursorShape: Qt.PointingHandCursor }
+                    TapHandler { onTapped: recent.open() }
+                    Keys.onReturnPressed: open(); Keys.onSpacePressed: open()
+                    Accessible.role: Accessible.Button; Accessible.name: qsTr("Reprendre %1").arg(item.titre); Accessible.onPressAction: open()
                 }
             }
-
-            Text {
-                Layout.fillWidth: true
-                text: qsTr("Ce qui attend votre décision, vos projets, l'exécutant et Hermes : le même Accueil que dans "
-                           + "le navigateur.")
-                textFormat: Text.PlainText
-                wrapMode: Text.WordWrap
-                color: Colors.textSecondary
-                font.family: Type.prose.family
-                font.pixelSize: Type.prose.pixelSize
+            RowLayout {
+                Layout.fillWidth: true; Layout.topMargin: Space.space5
+                ColumnLayout { Layout.fillWidth: true
+                    Text { textFormat: Text.PlainText; text: qsTr("À votre attention"); color: Colors.textPrimary; font.family: Type.panelTitle.family; font.pixelSize: 16; font.weight: Font.DemiBold }
+                    Text { textFormat: Text.PlainText;
+                        Layout.fillWidth: true; wrapMode: Text.WordWrap
+                        text: Accueil.carteATraiter.lisible ? qsTr("%1 élément(s) à traiter · %2 question(s)").arg(Accueil.carteATraiter.total).arg(Accueil.carteATraiter.questions) : (Accueil.carteATraiter.lisible === false ? qsTr("Relevé indisponible : %1").arg(Accueil.carteATraiter.raison || qsTr("Inconnu")) : qsTr("En attente du relevé de Hermes."))
+                        color: Colors.textSecondary; font.family: Type.metadata.family; font.pixelSize: Type.metadata.pixelSize
+                    }
+                }
+                AcpButton { label: qsTr("Voir les décisions"); onTriggered: Navigation.setCurrentRoute("questions") }
             }
-
+            Rectangle { Layout.fillWidth: true; implicitHeight: 1; color: Colors.borderSubtle }
+            RowLayout {
+                Layout.fillWidth: true
+                AcpButton { objectName: "accueil-afficher-operations"; label: page.showOperations ? qsTr("Masquer l'état de la plateforme") : qsTr("État de la plateforme"); iconName: "activity"; onTriggered: page.showOperations = !page.showOperations }
+                Item { Layout.fillWidth: true }
+                AcpButton { objectName: "accueil-actualiser"; label: qsTr("Actualiser"); onTriggered: Accueil.actualiser() }
+            }
             // Cadence RÉELLE (temps réel ou sondage), jamais écrite en dur (relecture de P8b, constat desktop-4).
             Discret {
                 objectName: "accueil-cadence"
+                visible: page.showOperations
                 Layout.fillWidth: true
                 text: Accueil.cadence
             }
@@ -119,6 +181,7 @@ Item {
             }
 
             GridLayout {
+                visible: page.showOperations
                 Layout.fillWidth: true
                 columns: width > 820 ? 2 : 1
                 columnSpacing: Space.space6

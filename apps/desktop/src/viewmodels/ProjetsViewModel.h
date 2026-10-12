@@ -118,6 +118,7 @@ public:
     Q_INVOKABLE bool ouvrirKanban();
 
     // --- Formulaire « Nouveau projet » -----------------------------------------------------
+    Q_INVOKABLE void choisirRoutageAutomatique(bool automatique);
     Q_INVOKABLE void choisirDepot(const QString &depot);
     Q_INVOKABLE void choisirVoie(const QString &voie);
     Q_INVOKABLE void choisirModele(const QString &modele);
@@ -203,16 +204,18 @@ private:
     QJsonObject m_dernierProjet; //!< projet lu, pour refaire le détail quand l'étape P7 change
     QVariantMap m_detail;
     QVariantMap m_carteLue;
-    quint64 m_generationDetail = 0;
+    quint64 m_generationCarte = 0; //!< invalide un résumé fermé, remplacé ou quitté pendant sa lecture
 
     // Formulaire
     QString m_cle;
+    quint64 m_generationFormulaire = 0; //!< ignore une lecture remplacée ou abandonnée
     QJsonObject m_catalogue;
     QJsonObject m_poste;
     bool m_catalogueLu = false;
     bool m_posteLu = false;
     QString m_erreurCatalogue;
     QString m_erreurPoste;
+    bool m_routageAutomatique = true;
     QString m_depot;
     QString m_voie;
     QString m_modele;

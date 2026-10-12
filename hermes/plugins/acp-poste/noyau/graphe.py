@@ -161,7 +161,7 @@ def composer(conn, fiche: Dict[str, Any], tour: int, plan: Dict[str, Any]) -> Li
     decisions = _decisions_texte(plan["decisions"])
     for e in plan["etapes"]:
         r = routage.resoudre(conn, classe=e["classe"], projet=fiche, voie=e["voie"], modele=e["modele"],
-                             effort=e["effort"], ref=e["ref"])
+                             effort=e["effort"], ref=e["ref"], preference_plan=True)
         parents = [c for dep in e["depend_de"] for c in terminales[dep]]
         commun = dict(projet_id=fiche["id"], tableau=fiche["tableau"], classe=e["classe"], tour=tour, ref=e["ref"],
                       depot_alias=fiche["depot_alias"], consigne=e["consigne"])
@@ -199,7 +199,7 @@ def composer(conn, fiche: Dict[str, Any], tour: int, plan: Dict[str, Any]) -> Li
         terminales[e["ref"]] = [cle_impl]
         if e["relecture"]:
             rr = routage.resoudre_relecture(conn, projet=fiche, voie_relue=r.voie, ref=e["ref"],
-                                            modele=e["relecture_modele"], modele_relu=r.modele)
+                                            modele=e["relecture_modele"], modele_relu=r.modele, preference_plan=True)
             cle_rel = _cle(fiche["id"], tour, f"{e['ref']}:relecture")
             demandes.append(dict(
                 commun, cle=cle_rel, role="relecture", classe="relecture", voie=rr.voie,

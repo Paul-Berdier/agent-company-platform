@@ -1,7 +1,7 @@
 # Fichier généré par scripts/generer_themes.py depuis design/tokens ; ne pas modifier à la main.
 # Toute correction se fait dans les jetons, puis : python scripts/generer_themes.py
 # Jetons : colors 1.1.0, semantic-status 1.0.0, typography 1.0.0, radius 1.0.0, spacing 1.1.0, motion 1.0.0 (thème dark).
-# Empreinte des jetons lus (JSON canonique) : sha256:c177fa8407e0130c3ae29a1f09a68364cf4a7af7bc9735987b62e96c1ed55c23
+# Empreinte des jetons lus (JSON canonique) : sha256:4df6d98f259f3bcfd5ff39d8194d4546570dc1c148c42ddefe09524b7c6aa411
 # Même source que le QML du desktop (apps/desktop/qml/theme/generated), vérifié par --check.
 # Format : _normalise_theme_definition de Hermes (hermes_cli/web_server_dashboard.py:317-411).
 # Contrastes recalculés (WCAG 2.1) :

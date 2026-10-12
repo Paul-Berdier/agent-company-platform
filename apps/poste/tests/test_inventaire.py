@@ -6,6 +6,7 @@ import copy
 
 import pytest
 
+from acp_poste import __version__
 from acp_poste.inventaire import InventaireRetenu, construire, relever
 from acp_poste.politique import charger
 from acp_poste_contrat.inventaire import valider_inventaire
@@ -31,7 +32,7 @@ async def test_conforme_au_contrat(poste):
     politique, codex, claude = await _resultats(poste)
     inventaire = construire(politique, codex, claude, windows="10.0.19045", valeurs_exactes=[])
     valide = valider_inventaire(inventaire)
-    assert valide.protocole == "acp-machine/1" and valide.version_poste == "1.0.1"
+    assert valide.protocole == "acp-machine/1" and valide.version_poste == __version__
     assert valide.poste.windows == "10.0.19045" and valide.poste.politique_empreinte == politique.empreinte
     assert valide.versions["codex"].conforme is True and valide.versions["claude"].conforme is True
     assert valide.bac_a_sable_codex.ecriture_admise is True

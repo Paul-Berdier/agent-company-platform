@@ -57,11 +57,12 @@ python apps/desktop/cmake/check_layout.py
 python apps/desktop/cmake/generate_design_tokens.py --tokens design/tokens --out apps/desktop/qml/theme/generated --check
 ```
 
-`check_layout.py` (hors CI) signale aujourd'hui **13 constats**, tous connus : chemins
-côté serveur ou conteneur (`/opt/…`) et conversion d'un chemin Windows dans des tests,
-l'origine GitHub d'`UpdateService` (héritée) et les URL des tests de mise à jour et du flux
-natif. Les noms de la pile de test (`*.test`, domaine réservé comme `.invalid`) ne sont
-plus signalés.
+`check_layout.py` (hors CI) signale encore **un constat connu** : l’origine
+`api.github.com` d’`UpdateService`, déjà présente avant Pixel Atelier. Le contrôle
+ne masque pas cette adresse réelle. Les chemins et URL de fixtures sont exemptés
+par valeur et fichier exacts ; les URL avec userinfo et les expressions de bouclage
+sont analysées sans confondre identifiant et nom d’hôte. Les contrôles négatifs sont
+couverts par `scripts/tests/test_check_desktop_layout.py`.
 
 Les jetons de `design/tokens` alimentent les singletons QML versionnés ; la cible
 `acp_check_design_tokens` contrôle leur fraîcheur. Garder les fichiers en UTF-8/LF.
@@ -70,6 +71,7 @@ Documents : [construction](../../docs/desktop-build.md),
 [architecture](../../docs/native-desktop-architecture.md),
 [sécurité](../../docs/desktop-security.md),
 [étape P8](../../docs/refonte/desktop.md),
+[Pixel Atelier](../../docs/refonte/pixel-atelier.md),
 [publication](../../docs/desktop-release-process.md),
 [mises à jour](../../docs/desktop-update-process.md),
 [reprise](../../docs/reprise-poste.md).

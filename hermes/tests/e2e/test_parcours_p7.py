@@ -257,6 +257,16 @@ def test_parcours_telephone_question_bureau_projet_termine(playwright_sync, pile
                                                                      "empreinte": enrole["empreinte"]})
         assert confirme["code"] == 200, confirme
         assert outil(hermes, FAUX, "inventaire", "--regime", "B")["statut"] == 200
+        # Le propriétaire autorise le modèle du plan via sa session navigateur, après cet inventaire.
+        entrees = [{"voie": "poste-claude", "modele": "opus", "effort": "low"}]
+        routage = api(page_tel, "GET", "/v1/routage")
+        assert routage["code"] == 200, routage
+        valide = api(page_tel, "POST", "/v1/routage", {
+            "releves": routage["corps"]["releves"], "classes": {"implementation": entrees}})
+        assert valide["code"] == 200, valide
+        table = valide["corps"]["classes"]["implementation"]
+        assert table["source"] == "proprietaire" and table["etat"] == "validee", table
+        assert [{k: e[k] for k in ("voie", "modele", "effort")} for e in table["entrees"]] == entrees
         page_tel.goto(f"{URL_HERMES}/projets?vue=nouveau")
         attendre_page_acp(page_tel, "projets")
         page_tel.wait_for_selector("#acp-projet-depot:not([disabled])")

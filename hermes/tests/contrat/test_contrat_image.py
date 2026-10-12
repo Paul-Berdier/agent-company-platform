@@ -28,6 +28,7 @@ from conftest import (
     lancer, lire_version_epinglee, options_env)
 
 EPINGLE = lire_version_epinglee()
+VERSION_ACP = (RACINE_HERMES.parent / "VERSION").read_text(encoding="utf-8").strip()
 
 
 def _texte_json(valeur: object) -> str:
@@ -497,7 +498,7 @@ def test_la_meta_repond_avec_une_session_oidc(pile):
     afficher(f"GET /api/plugins/acp-poste/v1/meta avec session OIDC : {code}", _texte_json(meta))
     assert code == 200
     assert meta["contrat"] == "acp-poste/1"
-    assert meta["greffon"] == {"nom": "acp-poste", "version": "1.0.1"}
+    assert meta["greffon"] == {"nom": "acp-poste", "version": VERSION_ACP}
     assert meta["hermes"]["version"] == meta["hermes"]["version_testee"] == EPINGLE["HERMES_VERSION"]
     assert meta["hermes"]["conforme"] is True
     assert meta["openrpc"]["identique"] is True and meta["openrpc"]["info_version"] == EPINGLE["OPENRPC_INFO_VERSION"]

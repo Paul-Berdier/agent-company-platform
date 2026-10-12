@@ -8,6 +8,7 @@ import subprocess
 
 import pytest
 
+from acp_poste import __version__
 from acp_poste.cli import main
 from acp_poste.diagnostic import diagnostic
 from acp_poste.inventaire import construire, relever
@@ -72,7 +73,7 @@ def test_commande_diagnostic(poste, capsys):
     poste.ecrire_politique()
     assert main(["diagnostic"], contexte=poste.contexte()) == 0
     rapport = json.loads(capsys.readouterr().out)
-    assert rapport["version_poste"] == "1.0.1" and rapport["protocole"] == "acp-machine/1"
+    assert rapport["version_poste"] == __version__ and rapport["protocole"] == "acp-machine/1"
     assert rapport["service"]["verrou"] == "libre"
 
 

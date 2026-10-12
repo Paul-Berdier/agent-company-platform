@@ -23,6 +23,7 @@ import pytest
 from conftest import ENV_VALIDE, RACINE_HERMES, afficher, attendre_modele_factice, demarrer_jusqu_a_l_arret, docker, lancer
 
 VERROU = json.loads((RACINE_HERMES / "catalogue" / "catalogue.lock.json").read_text(encoding="utf-8"))
+VERSION_ACP = (RACINE_HERMES.parent / "VERSION").read_text(encoding="utf-8").strip()
 NOMS_ACP = sorted(s["nom"] for s in VERROU["skills"] if s["cible"] == "hermes")
 DESACTIVEES = sorted(e["nom"] for e in VERROU["livrees"]["desactivees_par_acp"])
 MACOS = set(VERROU["livrees"]["macos_seulement"])
@@ -128,9 +129,9 @@ def test_la_route_catalogue_exige_une_session_et_decrit_le_catalogue(pile):
     assert catalogue["collisions"] == [] and catalogue["alertes"] == []
     code, meta = pile.json("/api/plugins/acp-poste/v1/meta", jeton=jeton(pile))
     assert meta["catalogue"]["skills_actives"] == meta["catalogue"]["skills_attendues"] == len(NOMS_ACP)
-    assert meta["interface"] == {"greffons": {"acp-interface": "1.0.1", "acp-catalogue": "1.0.1",
-                                              "acp-projets": "1.0.1", "acp-poste-vues": "1.0.1",
-                                              "acp-discussion": "1.0.1"},
+    assert meta["interface"] == {"greffons": {"acp-interface": VERSION_ACP, "acp-catalogue": VERSION_ACP,
+                                              "acp-projets": VERSION_ACP, "acp-poste-vues": VERSION_ACP,
+                                              "acp-discussion": VERSION_ACP},
                                  "sdk_attendu": "1.x"}
 
 

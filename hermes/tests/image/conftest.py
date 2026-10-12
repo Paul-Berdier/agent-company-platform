@@ -414,9 +414,24 @@ def lancer_sans_depot(noyau, conn, titre: str = "Veille LLM", **options):
     return resultat["projet"]
 
 
-def lancer_sur_depot(noyau, conn, titre: str = "Outil jetable", *, voies=("poste-codex", "poste-claude"), **options):
+def lancer_sur_depot(noyau, conn, titre: str = "Outil jetable", *, voies=("poste-codex", "poste-claude"),
+                     routage_valide: bool = True, **options):
     for voie in voies:
         noyau.routage.enregistrer_releve(conn, releve_factice(voie))
+    # Plans Auto : autorisation explicite de la fixture propriétaire, distincte des hints du plan.
+    # Les tests de table absente utilisent routage_valide=False ; les tables déjà posées restent intactes.
+    if routage_valide:
+        for classe in ("architecture", "implementation", "debogage_tests", "petite_tache", "documentation", "relecture"):
+            if noyau.routage.entrees_routage(conn, classe):
+                continue
+            entrees = []
+            for voie in voies:
+                suffixe = "codex" if voie == "poste-codex" else "claude"
+                entrees.extend({"voie": voie, "modele": f"factice-{suffixe}-1", "effort": effort}
+                               for effort in ("medium", "high", "low"))
+                entrees.append({"voie": voie, "modele": f"factice-{suffixe}-2", "effort": "low"})
+            noyau.routage.enregistrer_routage(conn, classe, entrees, source="releve_factice",
+                                              valide_par="proprietaire:test")
     options.setdefault("exploration", {"voie": "poste-claude", "modele": "factice-claude-1", "effort": "low"})
     resultat = noyau.projets.lancer(conn, titre=titre, objectif="Écrire un outil dans le dépôt jetable.",
                                     profil="base", depot="jetable", origine="tableau_de_bord",

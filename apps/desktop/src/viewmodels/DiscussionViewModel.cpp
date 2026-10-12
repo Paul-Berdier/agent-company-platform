@@ -34,6 +34,7 @@ DiscussionViewModel::DiscussionViewModel(GatewayClient *passerelle, EventStreamS
 {
     // Liste des sessions relue par identifiant : elle garde son défilement et sa sélection.
     m_sessions->setCle({QStringLiteral("id")});
+    connect(this, &DiscussionViewModel::sessionChange, this, &DiscussionViewModel::brouillonChange);
     connect(m_passerelle, &GatewayClient::evenement, this, &DiscussionViewModel::surEvenement);
     connect(m_passerelle, &GatewayClient::etatChange, this, &DiscussionViewModel::passerelleChange);
     connect(m_passerelle, &GatewayClient::relectureRequise, this, [this](const QString &sessionId, const QString &raison) {
@@ -65,6 +66,20 @@ DiscussionViewModel::DiscussionViewModel(GatewayClient *passerelle, EventStreamS
 
 DiscussionViewModel::~DiscussionViewModel() = default;
 
+QString DiscussionViewModel::brouillon() const
+{
+    return m_brouillons.value(m_stockee.isEmpty() ? m_vivante : m_stockee);
+}
+
+void DiscussionViewModel::setBrouillon(const QString &texte)
+{
+    const QString cle = m_stockee.isEmpty() ? m_vivante : m_stockee;
+    if (cle.isEmpty() || m_brouillons.value(cle) == texte) return;
+    if (texte.isEmpty()) m_brouillons.remove(cle);
+    else m_brouillons.insert(cle, texte);
+    emit brouillonChange();
+}
+
 bool DiscussionViewModel::passerellePrete() const
 {
     return m_passerelle->etat() == GatewayClient::Etat::Pret;
@@ -85,6 +100,7 @@ void DiscussionViewModel::surActivite(bool actif)
 
 void DiscussionViewModel::surOubli()
 {
+    m_brouillons.clear();
     quitter();
     m_sessions->clear();
     m_lignes = {};

@@ -195,6 +195,16 @@ def test_redeploiement_pendant_une_question_puis_projet_termine(pile, ressources
                                                                      "empreinte": enrole["empreinte"]})
     assert code == 200, confirme
     assert outil(hermes, FAUX, "inventaire", "--regime", "B")["statut"] == 200
+    # Autorisation du propriétaire, conservée sur le volume au redéploiement : le plan n'est qu'une préférence.
+    entrees = [{"voie": "poste-claude", "modele": "opus", "effort": "low"}]
+    code, routage = api(hermes, "GET", "/v1/routage")
+    assert code == 200, routage
+    code, valide = api(hermes, "POST", "/v1/routage", {
+        "releves": routage["releves"], "classes": {"implementation": entrees}})
+    assert code == 200, valide
+    table = valide["classes"]["implementation"]
+    assert table["source"] == "proprietaire" and table["etat"] == "validee", table
+    assert [{k: e[k] for k in ("voie", "modele", "effort")} for e in table["entrees"]] == entrees
     code, lance = api(hermes, "POST", "/v1/projets", {
         "titre": TITRE, "objectif": "Écrire outil.py dans le dépôt jetable.", "depot": "jetable",
         "reponses": "proprietaire", "exploration": {"voie": "poste-claude", "modele": "opus", "effort": "low"}})

@@ -3,7 +3,7 @@ Codex et faux Claude pilotés par scénario.
 
 Aucun test ne touche les vrais emplacements d'une installation (``C:\\ProgramData\\ACP``, le coffre, le profil Codex
 ou Claude du propriétaire) : tout vit sous ``tmp_path`` (:meth:`Emplacements.de_test`), et les CLI sont de faux
-processus locaux lancés par ``sys.executable -I``.
+processus locaux lancés par l’interpréteur Python isolé (``-I``).
 """
 
 from __future__ import annotations
@@ -19,7 +19,11 @@ import pytest
 from acp_poste.chemins import Emplacements
 
 ICI = Path(__file__).resolve().parent
-PYTHON = str(Path(sys.executable).resolve())
+# Les faux CLI n’utilisent que la bibliothèque standard. Sous Windows, le
+# python.exe d’un venv est un redirecteur qui crée un second processus ; son
+# démarrage peut fausser les mesures du protocole. Les tests dédiés au runner
+# continuent de couvrir les lanceurs et leurs descendants avec sys.executable.
+PYTHON = str(Path(getattr(sys, "_base_executable", sys.executable)).resolve())
 FAUX_CODEX = str(ICI / "faux_codex.py")
 FAUX_CLAUDE = str(ICI / "faux_claude.py")
 WINDOWS_SEULEMENT = pytest.mark.skipif(os.name != "nt", reason="propre à Windows (exécuté sur windows-2022)")

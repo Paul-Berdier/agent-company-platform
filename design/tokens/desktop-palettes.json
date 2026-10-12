@@ -1,0 +1,523 @@
+{
+  "$schema": "acp.desktop-palettes/1",
+  "$version": "1.0.0",
+  "$description": "Familles du client natif exclusivement. Pixel Atelier est la famille par défaut ; Studio conserve une alternative graphite/papier. La luminosité reste indépendante et suit la préférence système. Aucun effet néon ni police pixellisée dans les textes de travail.",
+  "$defaultFamily": "pixel",
+  "$contrast": {
+    "textMinimum": 4.5,
+    "interactiveMinimum": 3.0,
+    "note": "Mesurés par test_desktop_palettes.py pour les quatre variantes, y compris pastilles et actions."
+  },
+  "families": {
+    "pixel": {
+      "label": "Pixel Atelier",
+      "variants": {
+        "dark": "Pixel Atelier Nuit",
+        "light": "Pixel Atelier Jour"
+      },
+      "colors": {
+        "surface.canvas": {
+          "dark": "#151923",
+          "light": "#F7F5EF"
+        },
+        "surface.sidebar": {
+          "dark": "#11151E",
+          "light": "#EFEEE8"
+        },
+        "surface.panel": {
+          "dark": "#1A202C",
+          "light": "#FFFEFA"
+        },
+        "surface.panelRaised": {
+          "dark": "#232A39",
+          "light": "#EEEFF5"
+        },
+        "surface.sunken": {
+          "dark": "#10141D",
+          "light": "#E8E9F0"
+        },
+        "surface.overlay": {
+          "dark": "#252D3C",
+          "light": "#FFFDF8"
+        },
+        "surface.scrimless": {
+          "dark": "#0C0F16",
+          "light": "#C5C5CF"
+        },
+        "text.primary": {
+          "dark": "#F3EEE4",
+          "light": "#27283B"
+        },
+        "text.secondary": {
+          "dark": "#C1C3D2",
+          "light": "#55576B"
+        },
+        "text.muted": {
+          "dark": "#ABB1C4",
+          "light": "#595C70"
+        },
+        "text.onAccent": {
+          "dark": "#171327",
+          "light": "#FFFFFF"
+        },
+        "accent.primary": {
+          "dark": "#A99AFF",
+          "light": "#6654AF"
+        },
+        "accent.hover": {
+          "dark": "#BCAFFF",
+          "light": "#564398"
+        },
+        "accent.pressed": {
+          "dark": "#9D8CEF",
+          "light": "#493582"
+        },
+        "accent.muted": {
+          "dark": "#2E2B48",
+          "light": "#EAE4F7"
+        },
+        "border.subtle": {
+          "dark": "#2A3142",
+          "light": "#E0DEE7"
+        },
+        "border.default": {
+          "dark": "#3B4356",
+          "light": "#C9C6D3"
+        },
+        "border.interactive": {
+          "dark": "#8791AA",
+          "light": "#77748A"
+        },
+        "border.focus": {
+          "dark": "#BEB0FF",
+          "light": "#6750A4"
+        },
+        "state.hover": {
+          "dark": "#272E40",
+          "light": "#EAE8F1"
+        },
+        "state.pressed": {
+          "dark": "#30384A",
+          "light": "#DDD9EB"
+        },
+        "state.selected": {
+          "dark": "#343049",
+          "light": "#E7DFF3"
+        },
+        "state.disabled": {
+          "dark": "#1F2634",
+          "light": "#EBE9EF"
+        },
+        "accent.secondary": {
+          "dark": "#7ADBC3",
+          "light": "#286F61"
+        },
+        "accent.warm": {
+          "dark": "#E5BA79",
+          "light": "#875923"
+        },
+        "text.onSecondary": {
+          "dark": "#122920",
+          "light": "#FFFFFF"
+        },
+        "surface.code": {
+          "dark": "#111620",
+          "light": "#F1F0EA"
+        },
+        "surface.titlebar": {
+          "dark": "#10141D",
+          "light": "#F8F6F0"
+        },
+        "surface.activity": {
+          "dark": "#171C28",
+          "light": "#F2F0EA"
+        },
+        "surface.selection": {
+          "dark": "#342F4A",
+          "light": "#E7DFF3"
+        },
+        "workspace.grid": {
+          "dark": "#292F40",
+          "light": "#DEDCE5"
+        }
+      },
+      "semantic-status": {
+        "status.unknown.foreground": {
+          "dark": "#B1B8CA",
+          "light": "#535B71"
+        },
+        "status.unknown.tint": {
+          "dark": "#2C3343",
+          "light": "#ECECF2"
+        },
+        "status.unknown.border": {
+          "dark": "#8E99AE",
+          "light": "#767D91"
+        },
+        "status.notConfigured.foreground": {
+          "dark": "#B1B8CA",
+          "light": "#535B71"
+        },
+        "status.notConfigured.tint": {
+          "dark": "#2C3343",
+          "light": "#ECECF2"
+        },
+        "status.notConfigured.border": {
+          "dark": "#8E99AE",
+          "light": "#767D91"
+        },
+        "status.offline.foreground": {
+          "dark": "#B5BDCE",
+          "light": "#505D70"
+        },
+        "status.offline.tint": {
+          "dark": "#2C3343",
+          "light": "#E9EDF1"
+        },
+        "status.offline.border": {
+          "dark": "#8E99AE",
+          "light": "#758192"
+        },
+        "status.pending.foreground": {
+          "dark": "#E5BA79",
+          "light": "#82551F"
+        },
+        "status.pending.tint": {
+          "dark": "#393226",
+          "light": "#F6EDE0"
+        },
+        "status.pending.border": {
+          "dark": "#BD9861",
+          "light": "#9B7544"
+        },
+        "status.running.foreground": {
+          "dark": "#7ADBC3",
+          "light": "#226D5E"
+        },
+        "status.running.tint": {
+          "dark": "#213A36",
+          "light": "#E4F1EB"
+        },
+        "status.running.border": {
+          "dark": "#70BBA9",
+          "light": "#478D7D"
+        },
+        "status.blocked.foreground": {
+          "dark": "#EAB18D",
+          "light": "#964923"
+        },
+        "status.blocked.tint": {
+          "dark": "#3A302C",
+          "light": "#F6EAE2"
+        },
+        "status.blocked.border": {
+          "dark": "#BE9279",
+          "light": "#B7795A"
+        },
+        "status.failed.foreground": {
+          "dark": "#EDA1A2",
+          "light": "#A13D49"
+        },
+        "status.failed.tint": {
+          "dark": "#3D2B34",
+          "light": "#F8E8E9"
+        },
+        "status.failed.border": {
+          "dark": "#C0868D",
+          "light": "#B46C74"
+        },
+        "status.succeeded.foreground": {
+          "dark": "#98D2AE",
+          "light": "#316C49"
+        },
+        "status.succeeded.tint": {
+          "dark": "#25382F",
+          "light": "#E6F0E8"
+        },
+        "status.succeeded.border": {
+          "dark": "#7FB18E",
+          "light": "#638D71"
+        },
+        "status.degraded.foreground": {
+          "dark": "#DDC386",
+          "light": "#786024"
+        },
+        "status.degraded.tint": {
+          "dark": "#373428",
+          "light": "#F1EEDE"
+        },
+        "status.degraded.border": {
+          "dark": "#B4A269",
+          "light": "#978552"
+        },
+        "status.approvalRequired.foreground": {
+          "dark": "#F0C58B",
+          "light": "#865520"
+        },
+        "status.approvalRequired.tint": {
+          "dark": "#3D3228",
+          "light": "#F7EDDC"
+        },
+        "status.approvalRequired.border": {
+          "dark": "#C39D6D",
+          "light": "#A17840"
+        }
+      }
+    },
+    "studio": {
+      "label": "Studio",
+      "variants": {
+        "dark": "Studio Graphite",
+        "light": "Studio Papier"
+      },
+      "colors": {
+        "surface.canvas": {
+          "dark": "#191c1a",
+          "light": "#f7f6f0"
+        },
+        "surface.sidebar": {
+          "dark": "#131714",
+          "light": "#eeefe7"
+        },
+        "surface.panel": {
+          "dark": "#1e2420",
+          "light": "#ffffff"
+        },
+        "surface.panelRaised": {
+          "dark": "#272e29",
+          "light": "#f2f3eb"
+        },
+        "surface.sunken": {
+          "dark": "#111612",
+          "light": "#e8ebe2"
+        },
+        "surface.overlay": {
+          "dark": "#282f2a",
+          "light": "#fffef8"
+        },
+        "surface.scrimless": {
+          "dark": "#090d0a",
+          "light": "#c9cfc3"
+        },
+        "text.primary": {
+          "dark": "#eef2e9",
+          "light": "#1f2b23"
+        },
+        "text.secondary": {
+          "dark": "#b1bcb2",
+          "light": "#506154"
+        },
+        "text.muted": {
+          "dark": "#a1afa3",
+          "light": "#536657"
+        },
+        "text.onAccent": {
+          "dark": "#07271c",
+          "light": "#ffffff"
+        },
+        "accent.primary": {
+          "dark": "#65c6ae",
+          "light": "#0a6d60"
+        },
+        "accent.hover": {
+          "dark": "#86dcc5",
+          "light": "#085748"
+        },
+        "accent.pressed": {
+          "dark": "#4eb298",
+          "light": "#064637"
+        },
+        "accent.muted": {
+          "dark": "#233e32",
+          "light": "#e0ede4"
+        },
+        "border.subtle": {
+          "dark": "#2b332d",
+          "light": "#dfe3d7"
+        },
+        "border.default": {
+          "dark": "#3a453c",
+          "light": "#cdd5c7"
+        },
+        "border.interactive": {
+          "dark": "#7e8e80",
+          "light": "#748771"
+        },
+        "border.focus": {
+          "dark": "#95e4c9",
+          "light": "#0a6654"
+        },
+        "state.hover": {
+          "dark": "#2b332d",
+          "light": "#e6ebdf"
+        },
+        "state.pressed": {
+          "dark": "#343f36",
+          "light": "#dce4d4"
+        },
+        "state.selected": {
+          "dark": "#2b4435",
+          "light": "#dceadb"
+        },
+        "state.disabled": {
+          "dark": "#202722",
+          "light": "#e5e9df"
+        },
+        "accent.secondary": {
+          "dark": "#B1B8DD",
+          "light": "#566088"
+        },
+        "accent.warm": {
+          "dark": "#DCB67D",
+          "light": "#805620"
+        },
+        "text.onSecondary": {
+          "dark": "#202333",
+          "light": "#FFFFFF"
+        },
+        "surface.code": {
+          "dark": "#111612",
+          "light": "#F0F0E9"
+        },
+        "surface.titlebar": {
+          "dark": "#101410",
+          "light": "#F8F7F1"
+        },
+        "surface.activity": {
+          "dark": "#191F1A",
+          "light": "#F0F1EA"
+        },
+        "surface.selection": {
+          "dark": "#2B4435",
+          "light": "#DCEADB"
+        },
+        "workspace.grid": {
+          "dark": "#2B332D",
+          "light": "#DDE1D5"
+        }
+      },
+      "semantic-status": {
+        "status.unknown.foreground": {
+          "dark": "#B1B8CA",
+          "light": "#535B71"
+        },
+        "status.unknown.tint": {
+          "dark": "#2C3343",
+          "light": "#ECECF2"
+        },
+        "status.unknown.border": {
+          "dark": "#8E99AE",
+          "light": "#767D91"
+        },
+        "status.notConfigured.foreground": {
+          "dark": "#B1B8CA",
+          "light": "#535B71"
+        },
+        "status.notConfigured.tint": {
+          "dark": "#2C3343",
+          "light": "#ECECF2"
+        },
+        "status.notConfigured.border": {
+          "dark": "#8E99AE",
+          "light": "#767D91"
+        },
+        "status.offline.foreground": {
+          "dark": "#B5BDCE",
+          "light": "#505D70"
+        },
+        "status.offline.tint": {
+          "dark": "#2C3343",
+          "light": "#E9EDF1"
+        },
+        "status.offline.border": {
+          "dark": "#8E99AE",
+          "light": "#758192"
+        },
+        "status.pending.foreground": {
+          "dark": "#E5BA79",
+          "light": "#82551F"
+        },
+        "status.pending.tint": {
+          "dark": "#393226",
+          "light": "#F6EDE0"
+        },
+        "status.pending.border": {
+          "dark": "#BD9861",
+          "light": "#9B7544"
+        },
+        "status.running.foreground": {
+          "dark": "#7ADBC3",
+          "light": "#226D5E"
+        },
+        "status.running.tint": {
+          "dark": "#213A36",
+          "light": "#E4F1EB"
+        },
+        "status.running.border": {
+          "dark": "#70BBA9",
+          "light": "#478D7D"
+        },
+        "status.blocked.foreground": {
+          "dark": "#EAB18D",
+          "light": "#964923"
+        },
+        "status.blocked.tint": {
+          "dark": "#3A302C",
+          "light": "#F6EAE2"
+        },
+        "status.blocked.border": {
+          "dark": "#BE9279",
+          "light": "#B7795A"
+        },
+        "status.failed.foreground": {
+          "dark": "#EDA1A2",
+          "light": "#A13D49"
+        },
+        "status.failed.tint": {
+          "dark": "#3D2B34",
+          "light": "#F8E8E9"
+        },
+        "status.failed.border": {
+          "dark": "#C0868D",
+          "light": "#B46C74"
+        },
+        "status.succeeded.foreground": {
+          "dark": "#98D2AE",
+          "light": "#316C49"
+        },
+        "status.succeeded.tint": {
+          "dark": "#25382F",
+          "light": "#E6F0E8"
+        },
+        "status.succeeded.border": {
+          "dark": "#7FB18E",
+          "light": "#638D71"
+        },
+        "status.degraded.foreground": {
+          "dark": "#DDC386",
+          "light": "#786024"
+        },
+        "status.degraded.tint": {
+          "dark": "#373428",
+          "light": "#F1EEDE"
+        },
+        "status.degraded.border": {
+          "dark": "#B4A269",
+          "light": "#978552"
+        },
+        "status.approvalRequired.foreground": {
+          "dark": "#F0C58B",
+          "light": "#865520"
+        },
+        "status.approvalRequired.tint": {
+          "dark": "#3D3228",
+          "light": "#F7EDDC"
+        },
+        "status.approvalRequired.border": {
+          "dark": "#C39D6D",
+          "light": "#A17840"
+        }
+      }
+    }
+  }
+}

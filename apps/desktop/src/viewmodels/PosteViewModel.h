@@ -48,6 +48,8 @@ class PosteViewModel : public PageViewModel
     Q_PROPERTY(QVariantMap machine READ machine NOTIFY posteChange)
     Q_PROPERTY(QVariantMap inventaire READ inventaire NOTIFY posteChange)
     Q_PROPERTY(QVariantList depots READ depots NOTIFY posteChange)
+    Q_PROPERTY(QVariantList resultats READ resultats NOTIFY posteChange)
+    Q_PROPERTY(QString resultatsMessage READ resultatsMessage NOTIFY posteChange)
     Q_PROPERTY(QStringList alertes READ alertes NOTIFY posteChange)
     Q_PROPERTY(JsonListModel *ordres READ ordres CONSTANT)
     Q_PROPERTY(bool peutEnroler READ peutEnroler NOTIFY posteChange)
@@ -55,6 +57,13 @@ class PosteViewModel : public PageViewModel
     Q_PROPERTY(bool peutRelever READ peutRelever NOTIFY posteChange)
     Q_PROPERTY(bool peutRevoquer READ peutRevoquer NOTIFY posteChange)
     Q_PROPERTY(QVariantMap executant READ executant NOTIFY executantChange)
+    Q_PROPERTY(QVariantMap assistantMachine READ assistantMachine NOTIFY posteChange)
+    Q_PROPERTY(QVariantList assistants READ assistants NOTIFY posteChange)
+    Q_PROPERTY(QString verificationEtat READ verificationEtat NOTIFY verificationChange)
+    Q_PROPERTY(QString verificationMessage READ verificationMessage NOTIFY verificationChange)
+    Q_PROPERTY(bool verificationEnCours READ verificationEnCours NOTIFY verificationChange)
+    Q_PROPERTY(QVariantMap guide READ guide NOTIFY guideChange)
+    Q_PROPERTY(QString copieGuide READ copieGuide NOTIFY guideChange)
     // Code d'enrôlement : la seule valeur sensible exposée, assumée (cahier P8 § 8).
     Q_PROPERTY(QString code READ code NOTIFY codeChange)
     Q_PROPERTY(QString commande READ commande NOTIFY codeChange)
@@ -81,6 +90,9 @@ public:
     [[nodiscard]] const QVariantMap &machine() const { return m_machine; }
     [[nodiscard]] const QVariantMap &inventaire() const { return m_inventaire; }
     [[nodiscard]] const QVariantList &depots() const { return m_depots; }
+    [[nodiscard]] QVariantList resultats() const;
+    [[nodiscard]] QString resultatsMessage() const;
+    [[nodiscard]] static QVariantList construireResultats(const QJsonObject &vue);
     [[nodiscard]] const QStringList &alertes() const { return m_alertes; }
     [[nodiscard]] JsonListModel *ordres() const { return m_ordres; }
     [[nodiscard]] bool peutEnroler() const;
@@ -96,6 +108,18 @@ public:
     [[nodiscard]] QString lecture() const;
     [[nodiscard]] QString erreur() const;
 
+    [[nodiscard]] QVariantMap assistantMachine() const;
+    [[nodiscard]] QVariantList assistants() const;
+    [[nodiscard]] const QString &verificationEtat() const { return m_verificationEtat; }
+    [[nodiscard]] const QString &verificationMessage() const { return m_verificationMessage; }
+    [[nodiscard]] bool verificationEnCours() const;
+    [[nodiscard]] const QVariantMap &guide() const { return m_guide; }
+    [[nodiscard]] const QString &copieGuide() const { return m_copieGuide; }
+    Q_INVOKABLE void ouvrirGuide(const QString &fournisseur);
+    Q_INVOKABLE void ouvrirGuideRecuperation(const QString &projet, const QString &branche, const QString &tete);
+    Q_INVOKABLE void fermerGuide();
+    //! Copie uniquement une commande statique du guide ; aucun processus n'est lancé.
+    Q_INVOKABLE void copierEtape(int index);
     Q_INVOKABLE void actualiser();
     Q_INVOKABLE void enroler();
     Q_INVOKABLE void confirmer(const QString &empreinte);
@@ -127,6 +151,8 @@ signals:
     void codeChange();
     void decompteChange();
     void lectureChange();
+    void verificationChange();
+    void guideChange();
 
 protected:
     void surActivite(bool actif) override;
@@ -136,6 +162,9 @@ protected:
 private:
     void lire(const QJsonObject &vue);
     void apresGeste();
+    void evaluerVerification();
+    void oublierVerification();
+    void poserVerification(const QString &etat, const QString &message);
     [[nodiscard]] QString etatBrut() const;
     [[nodiscard]] QString etatMachine() const;
     [[nodiscard]] QString machineId() const;
@@ -159,6 +188,16 @@ private:
     qint64 m_expireLe = 0;
     bool m_codeExpire = false;
     QString m_messageCopie;
+    QTimer *m_verificationTimer = nullptr;
+    QString m_verificationEtat = QStringLiteral("repos");
+    QString m_verificationMessage;
+    QString m_machineVerifiee;
+    qint64 m_inventaireAvant = 0;
+    qint64 m_releveAvant = 0;
+    qint64 m_verificationDebut = 0;
+    quint64 m_generationVerification = 0;
+    QVariantMap m_guide;
+    QString m_copieGuide;
 };
 
 } // namespace acp

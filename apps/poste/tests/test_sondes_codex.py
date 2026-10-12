@@ -413,8 +413,11 @@ async def test_agents_md_dans_le_profil_refuse(poste):
 
 async def test_arret_d_arbre_confirme(poste, tmp_path):
     pid = tmp_path / "pid.txt"
-    resultat = await sonder(poste, delai=3, bloquer="initialize", pid=str(pid))
-    assert resultat.releve["etat"] == "indisponible" and "délai de 3 s" in resultat.releve["detail"]
+    # Laisser démarrer --version puis app-server avant le blocage volontaire :
+    # une échéance de 3 s peut expirer avant initialize sur un Windows chargé.
+    delai = 10
+    resultat = await sonder(poste, delai=delai, bloquer="initialize", pid=str(pid))
+    assert resultat.releve["etat"] == "indisponible" and f"délai de {delai} s" in resultat.releve["detail"]
     numero = int(pid.read_text(encoding="ascii"))
     for _ in range(50):
         if not processus_vivant(numero):

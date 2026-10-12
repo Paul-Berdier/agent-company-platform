@@ -362,6 +362,22 @@ def _releves(pile):
         simule(pile, "releve-factice", json.dumps(releve))
 
 
+def _valider_routage_du_plan(pile, *, effort: str) -> None:
+    """Seuls les trois parcours positifs de planification autorisent ici leurs modèles et efforts."""
+    classes = {
+        classe: [{"voie": voie, "modele": f"factice-{voie[6:]}-1", "effort": valeur}
+                 for voie in ("poste-codex", "poste-claude")]
+        for classe, valeur in (("implementation", effort), ("relecture", "low"))}
+    code, routage = api(pile, "GET", "/v1/routage")
+    assert code == 200, routage
+    code, valide = api(pile, "POST", "/v1/routage", {"releves": routage["releves"], "classes": classes})
+    assert code == 200, valide
+    for classe, entrees in classes.items():
+        table = valide["classes"][classe]
+        assert table["source"] == "proprietaire" and table["etat"] == "validee", table
+        assert [{k: e[k] for k in ("voie", "modele", "effort")} for e in table["entrees"]] == entrees
+
+
 def _plan_impl(effort: str = "extreme") -> Dict[str, Any]:
     return {"resume": "Écrire l'outil.", "decisions": ["Python 3.12"], "etapes": [
         {"ref": "e1", "titre": "Écrire outil.py", "classe": "implementation", "consigne": "Écrire outil.py.",
@@ -377,6 +393,7 @@ def _finir_cartes_du_poste(pile, tableau: str, identifiants: List[str]) -> None:
 def test_projet_sur_depot_exploration_par_le_poste_simule(pile):
     titre = "Outil sur depot"
     _releves(pile)
+    _valider_routage_du_plan(pile, effort="extreme")
     ajouter_scenarios(pile, {
         "_marqueurs": [MARQUEUR_EXPLORATION],
         f"rôle « planification » — projet « {titre} »": scenario(
@@ -439,6 +456,7 @@ def test_projet_sur_depot_exploration_par_le_poste_simule(pile):
 def test_graphe_complet_relecture_et_synthese_gardee(pile):
     titre = "Graphe complet"
     _releves(pile)
+    _valider_routage_du_plan(pile, effort="low")
     ajouter_scenarios(pile, {
         f"rôle « planification » — projet « {titre} »": scenario([appel("projet_planifier", _plan_impl("low"))],
                                                                  "Plan posé."),
@@ -485,6 +503,7 @@ def test_deux_reclamations_distantes_n_empechent_pas_un_autre_projet(pile):
         f"rôle « planification » — projet « {titre_b} »": scenario([appel("projet_etat")], "Rien à faire."),
     })
     _releves(pile)
+    _valider_routage_du_plan(pile, effort="low")
     a = lancer_projet(pile, titre=titre_a, objectif="Occuper le poste.", depot="jetable",
                       exploration={"voie": "poste-claude"})
     _finir_cartes_du_poste(pile, a["tableau"], [a["cartes"]["exploration"]])

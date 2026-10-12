@@ -1,12 +1,3 @@
-// Écran de connexion.
-//
-// Il sert à la première ouverture ET à chaque retour sans session. Trois étapes :
-//   1. l'adresse du serveur Hermes, saisie ; aucune valeur par défaut n'est proposée ;
-//   2. le test du lien, qui montre l'état réel mesuré par `/api/health` ;
-//   3. la connexion par le navigateur du système (RFC 8252) : Hermes mène la connexion chez
-//      son fournisseur d'identité, puis renvoie le navigateur vers la station. Aucun mot de
-//      passe n'est jamais saisi dans la station, et aucun jeton n'atteint cet écran.
-
 import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Layouts
@@ -17,307 +8,100 @@ import Acp.Controls
 
 Rectangle {
     id: page
-
     color: Colors.surfaceCanvas
-
     property string urlError: ""
+    property bool showDetails: false
+    property bool development: Shell.allowsInsecureLoopback
+    readonly property bool wide: width >= 1050
+    readonly property bool lienUtilisable: Health.linkStatus === LinkStatus.Online || Health.linkStatus === LinkStatus.Degraded
+    readonly property bool enAttente: Session.etat === SessionStatus.AttenteNavigateur || Session.etat === SessionStatus.Echange
 
-    readonly property bool lienUtilisable: Health.linkStatus === LinkStatus.Online
-        || Health.linkStatus === LinkStatus.Degraded
-    readonly property bool enAttente: Session.etat === SessionStatus.AttenteNavigateur
-        || Session.etat === SessionStatus.Echange
-
-    Flickable {
-        anchors.fill: parent
-        contentWidth: width
-        contentHeight: column.implicitHeight + Space.space10 * 2
-        clip: true
-
+    Rectangle {
+        visible: page.wide
+        width: parent.width * 0.45; height: parent.height
+        color: Colors.surfaceSidebar
         ColumnLayout {
-            id: column
-            x: Math.max(Space.space8, (page.width - width) / 2)
-            y: Space.space10
-            width: Math.min(page.width - Space.space8 * 2, Type.measureProse)
-            spacing: Space.space8
-
-            Text {
-                textFormat: Text.PlainText
-                Layout.fillWidth: true
-                text: qsTr("Station de travail")
-                color: Colors.textPrimary
-                font.family: Type.pageTitle.family
-                font.pixelSize: Type.pageTitle.pixelSize
-                font.weight: Type.pageTitle.weight
-                font.letterSpacing: Type.pageTitle.letterSpacing
-            }
-
-            Text {
-                textFormat: Text.PlainText
-                Layout.fillWidth: true
-                wrapMode: Text.WordWrap
-                text: Shell.firstRun
-                    ? qsTr("Aucune adresse de serveur n'est configurée. La station ne "
-                           + "propose aucune adresse par défaut : saisissez celle de votre "
-                           + "Hermes.")
-                    : qsTr("Aucune session n'est ouverte sur ce poste.")
-                color: Colors.textSecondary
-                lineHeight: Type.prose.lineHeight
-                lineHeightMode: Text.FixedHeight
-                font.family: Type.prose.family
-                font.pixelSize: Type.prose.pixelSize
-            }
-
-            // --- Étape 1 : adresse ------------------------------------------
-            SectionHeader {
-                Layout.fillWidth: true
-                title: qsTr("1. Adresse de Hermes")
-                subtitle: qsTr("HTTPS est imposé. Le HTTP en clair n'est accepté que sur une "
-                               + "adresse de bouclage, et seulement si vous l'autorisez "
-                               + "explicitement ci-dessous.")
-            }
-
-            AcpTextField {
-                id: urlField
-                Layout.fillWidth: true
-                placeholder: "https://exemple.invalid"
-                accessibleName: qsTr("Adresse du serveur")
-                text: Shell.serverUrl
-                enabled: !page.enAttente
-                helperText: qsTr("Exemple de forme attendue ; ce n'est pas une adresse réelle.")
-                errorText: page.urlError
-                onAccepted: page.submitUrl()
-            }
-
+            anchors.fill: parent; anchors.margins: 56; spacing: Space.space6
             RowLayout {
-                Layout.fillWidth: true
-                spacing: Space.space4
-
-                CheckBox {
-                    id: loopbackBox
-                    text: qsTr("Autoriser HTTP en clair sur une adresse de bouclage")
-                    checked: Shell.allowsInsecureLoopback
-                    enabled: !page.enAttente
-                    contentItem: Text {
-                        textFormat: Text.PlainText
-                        text: loopbackBox.text
-                        leftPadding: loopbackBox.indicator.width + Space.space3
-                        verticalAlignment: Text.AlignVCenter
-                        color: Colors.textSecondary
-                        font.family: Type.tableCell.family
-                        font.pixelSize: Type.tableCell.pixelSize
-                    }
-                }
-
-                Item { Layout.fillWidth: true }
-
-                AcpButton {
-                    label: qsTr("Enregistrer et tester")
-                    primary: Shell.firstRun
-                    manualEnabled: urlField.text.length > 0 && !page.enAttente
-                    onTriggered: page.submitUrl()
-                }
+                AtelierMark { Layout.preferredWidth: 44; Layout.preferredHeight: 36 }
+                Text { textFormat: Text.PlainText; text: "ACP"; color: Colors.textPrimary; font.family: Type.pageTitle.family; font.pixelSize: 24; font.weight: Font.DemiBold }
             }
-
-            // --- Étape 2 : test du lien -------------------------------------
-            SectionHeader {
-                Layout.fillWidth: true
-                title: qsTr("2. Test du lien")
-                subtitle: qsTr("Les valeurs ci-dessous sont mesurées. Tant qu'aucune mesure "
-                               + "n'a eu lieu, elles affichent « Inconnu ».")
-            }
-
-            ColumnLayout {
-                Layout.fillWidth: true
-                spacing: 0
-
-                KeyValueRow {
-                    Layout.fillWidth: true
-                    label: qsTr("État du lien")
-                    value: Health.linkStatusLabel
-                    known: Health.linkStatus !== LinkStatus.Unknown
-                }
-                KeyValueRow {
-                    Layout.fillWidth: true
-                    label: qsTr("Version de Hermes")
-                    value: Health.hermesVersion
-                    known: Health.hermesVersion !== qsTr("Inconnu")
-                    monospace: true
-                }
-                KeyValueRow {
-                    Layout.fillWidth: true
-                    label: qsTr("Dernier échange réussi")
-                    value: Health.lastSuccessLabel
-                    known: Health.lastSuccessLabel !== qsTr("Jamais")
-                    monospace: true
-                }
-                KeyValueRow {
-                    Layout.fillWidth: true
-                    label: qsTr("Détail")
-                    value: Health.detail.length > 0 ? Health.detail : qsTr("Aucun")
-                    known: Health.detail.length > 0
-                }
-            }
-
-            // --- Étape 3 : connexion ----------------------------------------
-            SectionHeader {
-                Layout.fillWidth: true
-                title: qsTr("3. Connexion")
-                subtitle: qsTr("La connexion s'ouvre dans votre navigateur, sur la page de "
-                               + "connexion de Hermes (mot de passe, clé d'accès, consentement). "
-                               + "Aucun mot de passe n'est saisi dans la station.")
-            }
-
-            CheckBox {
-                id: memoriserBox
-                objectName: "connexion-memoriser"
-                text: qsTr("Mémoriser la connexion sur ce poste (coffre Windows)")
-                checked: Session.memoriser
-                enabled: !page.enAttente
-                onToggled: Session.memoriser = checked
-                contentItem: Text {
-                    textFormat: Text.PlainText
-                    text: memoriserBox.text
-                    leftPadding: memoriserBox.indicator.width + Space.space3
-                    verticalAlignment: Text.AlignVCenter
-                    color: Colors.textSecondary
-                    font.family: Type.tableCell.family
-                    font.pixelSize: Type.tableCell.pixelSize
-                }
-            }
-
-            Text {
-                textFormat: Text.PlainText
-                Layout.fillWidth: true
-                wrapMode: Text.WordWrap
-                text: qsTr("Mémorisée, la connexion reprend au prochain lancement sans repasser "
-                           + "par le navigateur, jusqu'à son expiration chez le fournisseur "
-                           + "d'identité. Seul le jeton de renouvellement est gardé, dans le "
-                           + "Gestionnaire d'identification de Windows.")
-                color: Colors.textMuted
-                font.family: Type.metadata.family
-                font.pixelSize: Type.metadata.pixelSize
-            }
-
-            RowLayout {
-                Layout.fillWidth: true
-                spacing: Space.space4
-
-                StatusChip {
-                    statusKey: {
-                        switch (Session.etat) {
-                        case SessionStatus.Connectee: return "succeeded";
-                        case SessionStatus.AttenteNavigateur:
-                        case SessionStatus.Echange:
-                        case SessionStatus.Rafraichissement: return "running";
-                        case SessionStatus.Expiree:
-                        case SessionStatus.Refusee: return "failed";
-                        case SessionStatus.HorsLigne:
-                        case SessionStatus.FournisseurInjoignable: return "offline";
-                        default: return "unknown";
-                        }
-                    }
-                    label: Session.libelleEtat
-                    detail: Session.derniereErreur
-                }
-
-                Item { Layout.fillWidth: true }
-
-                AcpButton {
-                    objectName: "connexion-annuler"
-                    visible: page.enAttente
-                    label: qsTr("Annuler")
-                    onTriggered: Session.annulerConnexion()
-                }
-
-                AcpButton {
-                    objectName: "connexion-se-connecter"
-                    label: qsTr("Se connecter avec le navigateur")
-                    primary: true
-                    commandId: "session.signIn"
-                }
-            }
-
-            Text {
-                textFormat: Text.PlainText
-                Layout.fillWidth: true
-                wrapMode: Text.WordWrap
-                visible: page.enAttente
-                text: Session.etat === SessionStatus.Echange
-                    ? qsTr("Réponse reçue du navigateur : vérification de la connexion auprès de Hermes.")
-                    : qsTr("En attente de la connexion dans le navigateur — %1 s restantes. Vous "
-                           + "pouvez revenir ici une fois la page « Connexion transmise à la "
-                           + "station » affichée.").arg(Session.secondesRestantes)
-                color: Colors.textSecondary
-                font.family: Type.prose.family
-                font.pixelSize: Type.prose.pixelSize
-            }
-
-            RowLayout {
-                Layout.fillWidth: true
-                visible: Session.etat === SessionStatus.AttenteNavigateur
-                spacing: Space.space4
-
-                Text {
-                    textFormat: Text.PlainText
-                    Layout.fillWidth: true
-                    wrapMode: Text.WordWrap
-                    text: Session.navigateurNonOuvert
-                        ? qsTr("Le navigateur ne s'est pas ouvert : copiez le lien et ouvrez-le "
-                               + "vous-même dans un navigateur de ce poste.")
-                        : qsTr("Le navigateur ne s'est pas affiché ? Copiez le lien et ouvrez-le "
-                               + "vous-même. Il ne contient ni mot de passe ni jeton.")
-                    color: Session.navigateurNonOuvert ? Status.statusFailedForeground : Colors.textMuted
-                    font.family: Type.metadata.family
-                    font.pixelSize: Type.metadata.pixelSize
-                }
-
-                AcpButton {
-                    objectName: "connexion-copier-lien"
-                    label: qsTr("Copier le lien")
-                    onTriggered: Shell.notify(Session.copierLienConnexion()
-                        ? qsTr("Lien de connexion copié dans le presse-papiers.")
-                        : qsTr("Le lien n'a pas pu être copié."))
-                }
-            }
-
-            Text {
-                textFormat: Text.PlainText
-                Layout.fillWidth: true
-                wrapMode: Text.WordWrap
-                visible: Session.derniereErreur.length > 0 && !page.enAttente
-                text: Session.derniereErreur
-                color: Status.statusFailedForeground
-                font.family: Type.prose.family
-                font.pixelSize: Type.prose.pixelSize
-            }
-
-            Text {
-                textFormat: Text.PlainText
-                Layout.fillWidth: true
-                wrapMode: Text.WordWrap
-                visible: Session.avertissement.length > 0
-                text: Session.avertissement
-                color: Colors.textSecondary
-                font.family: Type.metadata.family
-                font.pixelSize: Type.metadata.pixelSize
-            }
-
-            Text {
-                textFormat: Text.PlainText
-                Layout.fillWidth: true
-                wrapMode: Text.WordWrap
-                visible: Session.avisCoffre.length > 0
-                text: Session.avisCoffre
-                color: Colors.textSecondary
-                font.family: Type.metadata.family
-                font.pixelSize: Type.metadata.pixelSize
-            }
-
-            Item { Layout.preferredHeight: Space.space4 }
+            Item { Layout.fillHeight: true }
+            Text { textFormat: Text.PlainText; text: qsTr("L'atelier de\nvos prochaines idées."); Layout.fillWidth: true; wrapMode: Text.WordWrap; color: Colors.textPrimary; font.family: Type.pageTitle.family; font.pixelSize: 36; font.weight: Font.DemiBold; lineHeight: 1.2; font.letterSpacing: -0.8 }
+            Text { textFormat: Text.PlainText; text: qsTr("Vos projets, vos assistants, votre travail.\nUn espace pour construire et reprendre le fil."); Layout.fillWidth: true; wrapMode: Text.WordWrap; color: Colors.textSecondary; font.family: Type.prose.family; font.pixelSize: 16; lineHeight: 1.5 }
+            AtelierScene { Layout.fillWidth: true; Layout.preferredHeight: 240; visible: Appearance.themeFamily === "pixel" }
+            Item { Layout.fillHeight: true }
+            Text { textFormat: Text.PlainText; text: qsTr("PIXEL ATELIER  /  ACP"); color: Colors.textMuted; font.family: Type.identifier.family; font.pixelSize: 11; font.letterSpacing: 1.6 }
         }
     }
-
-    function submitUrl() {
-        page.urlError = Shell.applyServerUrl(urlField.text, loopbackBox.checked);
+    Flickable {
+        anchors.right: parent.right; anchors.top: parent.top; anchors.bottom: parent.bottom
+        width: page.wide ? parent.width * 0.55 : parent.width
+        contentWidth: width; contentHeight: column.implicitHeight + 80; clip: true
+        ScrollBar.vertical: ScrollBar {}
+        ColumnLayout {
+            id: column
+            x: (parent.width - width) / 2; y: 40
+            width: Math.min(parent.width - 64, 500); spacing: Space.space5
+            RowLayout {
+                Layout.fillWidth: true
+                Text { textFormat: Text.PlainText; text: qsTr("BIENVENUE DANS VOTRE ATELIER"); color: Colors.accentPrimary; font.family: Type.metadata.family; font.pixelSize: 11; font.letterSpacing: 1.3; Layout.fillWidth: true }
+                AcpButton { label: Appearance.activeTheme === "dark" ? qsTr("Jour") : qsTr("Nuit"); onTriggered: Appearance.themePreference = Appearance.activeTheme === "dark" ? "light" : "dark" }
+            }
+            Text { textFormat: Text.PlainText; text: qsTr("Retrouvons votre espace."); color: Colors.textPrimary; font.family: Type.pageTitle.family; font.pixelSize: 28; font.weight: Font.DemiBold; wrapMode: Text.WordWrap; Layout.fillWidth: true }
+            Text { textFormat: Text.PlainText; text: qsTr("Connectez votre serveur Hermes, puis identifiez-vous dans votre navigateur."); color: Colors.textSecondary; font.family: Type.prose.family; font.pixelSize: 15; lineHeight: 1.4; wrapMode: Text.WordWrap; Layout.fillWidth: true }
+            Rectangle { Layout.fillWidth: true; implicitHeight: 1; color: Colors.borderSubtle; Layout.topMargin: Space.space3; Layout.bottomMargin: Space.space3 }
+            Text { textFormat: Text.PlainText; text: qsTr("01   Votre serveur"); color: Colors.textPrimary; font.family: Type.panelTitle.family; font.pixelSize: 15; font.weight: Font.DemiBold }
+            AcpTextField {
+                id: urlField; objectName: "connexion-adresse"; Layout.fillWidth: true
+                placeholder: "https://votre-serveur.invalid"; accessibleName: qsTr("Adresse du serveur")
+                text: Shell.serverUrl; enabled: !page.enAttente; errorText: page.urlError
+                onAccepted: page.submitUrl()
+            }
+            RowLayout {
+                Layout.fillWidth: true
+                AcpButton { label: qsTr("Enregistrer et tester"); primary: Shell.firstRun; manualEnabled: urlField.text.length > 0 && !page.enAttente; onTriggered: page.submitUrl() }
+                Item { Layout.fillWidth: true }
+                AcpButton { label: qsTr("Développement"); onTriggered: page.development = !page.development }
+            }
+            CheckBox { id: loopbackBox; visible: page.development; text: qsTr("Autoriser HTTP uniquement sur cette machine"); checked: Shell.allowsInsecureLoopback; enabled: !page.enAttente; Accessible.name: text }
+            RowLayout {
+                Layout.fillWidth: true; visible: !Shell.firstRun
+                StatusChip { statusKey: Health.linkStatus === LinkStatus.Online ? "succeeded" : Health.linkStatus === LinkStatus.Degraded ? "degraded" : Health.linkStatus === LinkStatus.Offline ? "offline" : "unknown"; label: Health.linkStatusLabel }
+                Text { textFormat: Text.PlainText; text: Health.detail; color: Colors.textSecondary; font.family: Type.metadata.family; font.pixelSize: Type.metadata.pixelSize; Layout.fillWidth: true; wrapMode: Text.WordWrap }
+            }
+            Rectangle { Layout.fillWidth: true; implicitHeight: 1; color: Colors.borderSubtle; Layout.topMargin: Space.space3; Layout.bottomMargin: Space.space3 }
+            Text { textFormat: Text.PlainText; text: qsTr("02   Votre connexion"); color: Colors.textPrimary; font.family: Type.panelTitle.family; font.pixelSize: 15; font.weight: Font.DemiBold }
+            Text { textFormat: Text.PlainText; text: qsTr("Votre clé d'accès ou mot de passe reste dans le navigateur. ACP reçoit la confirmation de connexion."); color: Colors.textSecondary; font.family: Type.prose.family; font.pixelSize: 14; Layout.fillWidth: true; wrapMode: Text.WordWrap }
+            CheckBox {
+                objectName: "connexion-memoriser"; text: qsTr("Retrouver ma session au prochain lancement")
+                checked: Session.memoriser; enabled: !page.enAttente
+                onToggled: Session.memoriser = checked
+                Accessible.description: qsTr("Le jeton de renouvellement est protégé dans le coffre Windows.")
+            }
+            AcpButton { objectName: "connexion-se-connecter"; label: qsTr("Se connecter avec le navigateur"); iconName: "chevronRight"; primary: true; commandId: "session.signIn"; Layout.fillWidth: true }
+            Text { textFormat: Text.PlainText;
+                visible: page.enAttente; Layout.fillWidth: true; wrapMode: Text.WordWrap
+                text: Session.etat === SessionStatus.Echange ? qsTr("Connexion reçue, vérification…") : qsTr("Terminez la connexion dans votre navigateur · %1 s restantes.").arg(Session.secondesRestantes)
+                color: Colors.accentPrimary; font.family: Type.prose.family; font.pixelSize: 14
+            }
+            RowLayout {
+                visible: page.enAttente; spacing: Space.space4
+                AcpButton { objectName: "connexion-annuler"; label: qsTr("Annuler"); onTriggered: Session.annulerConnexion() }
+                AcpButton { objectName: "connexion-copier-lien"; visible: Session.etat === SessionStatus.AttenteNavigateur; label: qsTr("Copier le lien"); onTriggered: Shell.notify(Session.copierLienConnexion() ? qsTr("Lien de connexion copié.") : qsTr("Le lien n'a pas pu être copié.")) }
+            }
+            Text { textFormat: Text.PlainText; visible: Session.navigateurNonOuvert; text: qsTr("Le navigateur ne s'est pas ouvert. Copiez le lien et ouvrez-le dans un navigateur de ce poste."); Layout.fillWidth: true; wrapMode: Text.WordWrap; color: Status.statusDegradedForeground; font.pixelSize: 14 }
+            Text { textFormat: Text.PlainText; visible: Session.derniereErreur.length > 0; text: Session.derniereErreur; Layout.fillWidth: true; wrapMode: Text.WordWrap; color: Status.statusFailedForeground; font.pixelSize: 14; Accessible.role: Accessible.AlertMessage }
+            Text { textFormat: Text.PlainText; visible: Session.avertissement.length > 0; text: Session.avertissement; Layout.fillWidth: true; wrapMode: Text.WordWrap; color: Colors.textSecondary; font.pixelSize: 13 }
+            Text { textFormat: Text.PlainText; visible: Session.avisCoffre.length > 0; text: Session.avisCoffre; Layout.fillWidth: true; wrapMode: Text.WordWrap; color: Colors.textSecondary; font.pixelSize: 13 }
+            AcpButton { label: page.showDetails ? qsTr("Masquer les détails") : qsTr("Détails de connexion"); onTriggered: page.showDetails = !page.showDetails }
+            ColumnLayout {
+                visible: page.showDetails; Layout.fillWidth: true
+                KeyValueRow { Layout.fillWidth: true; label: qsTr("Version de Hermes"); value: Health.hermesVersion }
+                KeyValueRow { Layout.fillWidth: true; label: qsTr("Dernier échange réussi"); value: Health.lastSuccessLabel }
+                KeyValueRow { Layout.fillWidth: true; label: qsTr("Session"); value: Session.libelleEtat }
+            }
+        }
     }
+    function submitUrl() { page.urlError = Shell.applyServerUrl(urlField.text, loopbackBox.checked); }
 }

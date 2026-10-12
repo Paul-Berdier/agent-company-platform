@@ -13,9 +13,20 @@ import Acp.Controls
 
 Item {
     id: page
+    property bool diagnosticsOuverts: false
+    property bool resultatsDeveloppes: false
 
-    Component.onCompleted: Poste.pageVisible = true
+    Component.onCompleted: Poste.pageVisible = visible
+    onVisibleChanged: Poste.pageVisible = visible
     Component.onDestruction: Poste.pageVisible = false
+
+    Connections {
+        target: Poste
+        function onGuideChange() {
+            if ((Poste.guide.titre || "").length > 0)
+                Qt.callLater(function() { defilement.contentItem.contentY = Math.max(0, guideCarte.y - Space.space4); });
+        }
+    }
 
     component Discret: Text {
         Layout.fillWidth: true
@@ -57,7 +68,7 @@ Item {
                 spacing: Space.space4
                 Text {
                     Layout.fillWidth: true
-                    text: qsTr("Poste")
+                    text: qsTr("Assistants et machine")
                     textFormat: Text.PlainText
                     color: Colors.textPrimary
                     font.family: Type.pageTitle.family
@@ -72,8 +83,7 @@ Item {
             }
 
             Discret {
-                text: qsTr("Le poste Windows qui exécute les étapes de vos projets sur dépôt : enrôlement, état, "
-                           + "inventaire.")
+                text: qsTr("Connectez les outils qui travaillent sur vos projets, puis vérifiez ce que votre machine publie réellement.")
             }
             // Cadence RÉELLE (temps réel ou sondage), jamais écrite en dur (relecture de P8b, constat desktop-4).
             Discret {
@@ -104,7 +114,7 @@ Item {
                 objectName: "poste-etat"
                 Layout.fillWidth: true
                 visible: Poste.lue
-                titre: qsTr("État du poste")
+                titre: Poste.machine.presente ? Poste.assistantMachine.nom : qsTr("Machine active")
                 cle: Poste.etat.cle
                 libelleEtat: Poste.etat.libelle
                 Discret { visible: Poste.etat.detail.length > 0; text: Poste.etat.detail; color: Colors.textSecondary }
@@ -117,9 +127,169 @@ Item {
                     visible: Poste.etat.pauseReclamations
                     text: qsTr("Pause générale : le poste n'exécutera rien.")
                 }
+                Ligne { label: qsTr("Environnement"); value: Poste.assistantMachine.type }
+                Ligne { label: qsTr("Dernier relevé des assistants"); value: Poste.assistantMachine.releve }
                 Ligne { label: qsTr("Cartes du poste en attente"); value: Poste.etat.cartesEnAttente }
+                Discret { text: qsTr("Une seule machine active est prise en charge : un PC Windows ou un exécutant Linux/Railway. Se connecter sur votre PC ne connecte pas l'exécutant Railway.") }
             }
 
+            // Trois identités distinctes : ACP, le coordinateur, puis les outils de la machine.
+            GridLayout {
+                Layout.fillWidth: true
+                columns: page.width >= 900 ? 2 : 1
+                columnSpacing: Space.space4
+                rowSpacing: Space.space4
+                Carte {
+                    Layout.fillWidth: true
+                    Layout.alignment: Qt.AlignTop
+                    titre: qsTr("Votre accès ACP")
+                    sousTitre: qsTr("L'identité qui vous permet d'ouvrir ce workspace et de piloter Hermes.")
+                    Discret { text: qsTr("Elle est indépendante de vos comptes ChatGPT et Claude Code. Les réglages de connexion ACP ne changent pas les comptes de la machine.") }
+                    AcpButton { label: qsTr("Réglages ACP"); onTriggered: Navigation.setCurrentRoute("settings") }
+                }
+                Carte {
+                    Layout.fillWidth: true
+                    Layout.alignment: Qt.AlignTop
+                    titre: qsTr("Hermes · coordinateur")
+                    sousTitre: qsTr("Son compte fournisseur et son modèle se configurent dans votre tableau de bord Hermes.")
+                    Discret { text: qsTr("L'état de ce compte n'est pas publié par l'inventaire de la machine. Le catalogue des exécutants ne décrit pas le modèle du coordinateur.") }
+                    AcpButton { objectName: "assistants-guide-hermes"; label: qsTr("Configurer Hermes"); onTriggered: Poste.ouvrirGuide("hermes") }
+                }
+            }
+
+            SectionHeader { Layout.fillWidth: true; title: qsTr("Sur votre machine d'exécution") }
+            GridLayout {
+                Layout.fillWidth: true
+                columns: page.width >= 900 ? 2 : 1
+                columnSpacing: Space.space4
+                rowSpacing: Space.space4
+                Repeater {
+                    model: Poste.assistants
+                    delegate: Carte {
+                        required property var modelData
+                        objectName: "assistant-" + modelData.fournisseur
+                        Layout.fillWidth: true
+                        Layout.alignment: Qt.AlignTop
+                        titre: modelData.nom
+                        cle: modelData.cle
+                        libelleEtat: modelData.etat
+                        Ligne { label: qsTr("Mode observé"); value: modelData.mode }
+                        Ligne { label: qsTr("Version lue"); value: modelData.version; monospace: true }
+                        Ligne { label: qsTr("Offre observée"); value: modelData.offre }
+                        Discret { text: modelData.detail }
+                        AcpButton {
+                            objectName: "assistants-guide-" + modelData.fournisseur
+                            label: qsTr("Configurer / reconnecter")
+                            manualEnabled: Poste.assistantMachine.guideDisponible === true
+                            onTriggered: Poste.ouvrirGuide(modelData.fournisseur)
+                        }
+                    }
+                }
+            }
+            Discret {
+                visible: !Poste.assistantMachine.guideDisponible
+                text: qsTr("Le guide de connexion devient disponible quand une machine active et sa plateforme sont connues. Enrôlez-la ou actualisez son état.")
+            }
+
+            Carte {
+                objectName: "poste-releve"
+                Layout.fillWidth: true
+                visible: Poste.lue && Poste.peutRelever
+                titre: qsTr("Vérifier les connexions")
+                sousTitre: qsTr("Après la configuration, demandez un relevé. Un compte reconnu et une voie d'exécution disponible sont deux états distincts.")
+                Discret {
+                    objectName: "assistants-verification"
+                    visible: Poste.verificationMessage.length > 0
+                    text: Poste.verificationMessage
+                    color: Poste.verificationEtat === "echec" || Poste.verificationEtat === "retard"
+                           || Poste.verificationEtat === "interrompue" ? Status.statusDegradedForeground : Colors.textSecondary
+                }
+                Flow {
+                    Layout.fillWidth: true
+                    spacing: Space.space3
+                    AcpButton {
+                        objectName: "poste-relever"
+                        label: Poste.verificationEnCours ? qsTr("Vérification en attente…") : qsTr("Vérifier maintenant")
+                        primary: true
+                        manualEnabled: !Poste.gesteEnCours && !Poste.verificationEnCours
+                        onTriggered: Poste.relever()
+                    }
+                    AcpButton { label: qsTr("Quotas et limites"); onTriggered: Navigation.setCurrentRoute("quotas") }
+                    AcpButton { label: qsTr("Modèles d'exécution"); onTriggered: Navigation.setCurrentRoute("routing") }
+                }
+                Discret {
+                    text: qsTr("Connecter un assistant ne configure pas le routage. Après le nouveau relevé, ouvrez Modèles d'exécution, relisez et appliquez les suggestions souhaitées, puis Valider la table. Auto utilise les entrées que vous avez autorisées.")
+                }
+            }
+
+            Carte {
+                objectName: "poste-resultats"
+                Layout.fillWidth: true
+                visible: Poste.lue
+                titre: qsTr("Résultats à récupérer")
+                sousTitre: qsTr("Branches signalées terminées par Hermes. Leur présence sur l'exécutant est contrôlée lors de la génération du bundle.")
+                Discret {
+                    objectName: "poste-resultats-message"
+                    visible: Poste.resultatsMessage.length > 0
+                    text: Poste.resultatsMessage
+                }
+                Repeater {
+                    model: Poste.resultats
+                    delegate: ColumnLayout {
+                        required property var modelData
+                        required property int index
+                        Layout.fillWidth: true
+                        visible: index < 3 || page.resultatsDeveloppes
+                        spacing: Space.space2
+                        SectionHeader { Layout.fillWidth: true; title: modelData.titre; subtitle: qsTr("Dépôt %1 · terminé le %2").arg(modelData.depot).arg(modelData.termineLe) }
+                        BlocTexte { Layout.fillWidth: true; libelle: qsTr("Branche locale"); texte: modelData.branche; monospace: true }
+                        BlocTexte { Layout.fillWidth: true; libelle: qsTr("Commit attendu"); texte: modelData.tete; monospace: true }
+                        AcpButton {
+                            objectName: "poste-recuperer-resultat-" + index
+                            label: qsTr("Préparer la récupération")
+                            manualEnabled: Poste.erreur.length === 0
+                            onTriggered: Poste.ouvrirGuideRecuperation(modelData.projet, modelData.branche, modelData.tete)
+                        }
+                        Item { Layout.preferredHeight: Space.space3 }
+                    }
+                }
+                AcpButton {
+                    objectName: "poste-resultats-tous"
+                    visible: Poste.resultats.length > 3
+                    label: page.resultatsDeveloppes ? qsTr("Réduire la liste") : qsTr("Afficher les %1 résultats").arg(Poste.resultats.length)
+                    onTriggered: page.resultatsDeveloppes = !page.resultatsDeveloppes
+                }
+            }
+
+            Carte {
+                id: guideCarte
+                objectName: "assistants-guide"
+                Layout.fillWidth: true
+                visible: (Poste.guide.titre || "").length > 0
+                titre: Poste.guide.titre || ""
+                sousTitre: qsTr("Ces étapes se font dans vos consoles. Copier une commande ne l'exécute pas. Aucun jeton n'est demandé dans cette page.")
+                Repeater {
+                    model: Poste.guide.etapes || []
+                    delegate: ColumnLayout {
+                        required property var modelData
+                        required property int index
+                        Layout.fillWidth: true
+                        spacing: Space.space2
+                        SectionHeader { Layout.fillWidth: true; title: (index + 1) + ". " + modelData.titre }
+                        Discret { text: modelData.texte; color: Colors.textSecondary }
+                        BlocTexte { Layout.fillWidth: true; visible: modelData.commande.length > 0; texte: modelData.commande; monospace: true }
+                        AcpButton {
+                            visible: modelData.commande.length > 0
+                            objectName: "assistants-copier-etape-" + index
+                            label: modelData.aCompleter === true ? qsTr("Copier la commande à compléter") : qsTr("Copier la commande")
+                            onTriggered: Poste.copierEtape(index)
+                        }
+                        Item { Layout.preferredHeight: Space.space2 }
+                    }
+                }
+                Discret { visible: Poste.copieGuide.length > 0; text: Poste.copieGuide }
+                AcpButton { objectName: "assistants-fermer-guide"; label: qsTr("Fermer le guide"); onTriggered: Poste.fermerGuide() }
+            }
             // --- Enrôlement ----------------------------------------------------------------------------
             Carte {
                 objectName: "poste-enroler"
@@ -204,11 +374,16 @@ Item {
                 }
             }
 
+            AcpButton {
+                objectName: "poste-diagnostics-basculer"
+                label: page.diagnosticsOuverts ? qsTr("Masquer les diagnostics avancés") : qsTr("Diagnostics avancés et enrôlement")
+                onTriggered: page.diagnosticsOuverts = !page.diagnosticsOuverts
+            }
             // --- Poste enrôlé ---------------------------------------------------------------------------
             Carte {
                 objectName: "poste-machine"
                 Layout.fillWidth: true
-                visible: Poste.lue && Poste.machine.presente
+                visible: page.diagnosticsOuverts && Poste.lue && Poste.machine.presente
                 titre: qsTr("Poste enrôlé")
                 Ligne { label: qsTr("Nom"); value: Poste.machine.nom }
                 Ligne { label: qsTr("Empreinte"); value: Poste.machine.empreinte; monospace: true }
@@ -217,21 +392,6 @@ Item {
                 Ligne { label: qsTr("Enrôlé"); value: Poste.machine.enroleLe }
                 Ligne { label: qsTr("Confirmé"); value: Poste.machine.confirmeLe }
                 Ligne { label: qsTr("Dernier échange"); value: Poste.machine.derniereRequete }
-            }
-
-            // --- Relevé ---------------------------------------------------------------------------------
-            Carte {
-                objectName: "poste-releve"
-                Layout.fillWidth: true
-                visible: Poste.lue && Poste.peutRelever
-                titre: qsTr("Relevé")
-                sousTitre: qsTr("Demande au poste de relever ses catalogues et ses quotas, puis de publier son inventaire.")
-                AcpButton {
-                    objectName: "poste-relever"
-                    label: qsTr("Relever maintenant")
-                    manualEnabled: !Poste.gesteEnCours
-                    onTriggered: Poste.relever()
-                }
             }
 
             // --- Alertes et ordres ---------------------------------------------------------------------------
@@ -244,7 +404,7 @@ Item {
             Carte {
                 objectName: "poste-ordres"
                 Layout.fillWidth: true
-                visible: Poste.lue && Poste.peutRelever
+                visible: page.diagnosticsOuverts && Poste.lue && Poste.peutRelever
                 titre: qsTr("Ordres en attente")
                 Discret { visible: Poste.ordres.count === 0; text: qsTr("Aucun ordre en attente.") }
                 Repeater {
@@ -262,7 +422,7 @@ Item {
             Carte {
                 objectName: "poste-inventaire"
                 Layout.fillWidth: true
-                visible: Poste.lue
+                visible: page.diagnosticsOuverts && Poste.lue
                 titre: qsTr("Dernier inventaire")
                 Discret { visible: !Poste.inventaire.present; text: qsTr("Aucun inventaire reçu.") }
                 ColumnLayout {
@@ -274,7 +434,7 @@ Item {
                     Ligne { label: qsTr("Version du poste"); value: Poste.inventaire.versionPoste || ""; monospace: true }
                     SectionHeader { Layout.fillWidth: true; title: qsTr("Compte d'exécution") }
                     Ligne { label: qsTr("Compte"); value: Poste.inventaire.compte || "" }
-                    Ligne { label: qsTr("Windows"); value: Poste.inventaire.windows || ""; monospace: true }
+                    Ligne { label: Poste.assistantMachine.plateforme === "linux" ? qsTr("Noyau Linux") : qsTr("Windows"); value: Poste.assistantMachine.plateforme === "linux" ? (Poste.inventaire.noyau || qsTr("Inconnu")) : (Poste.inventaire.windows || ""); monospace: true }
                     Ligne { label: qsTr("Python"); value: Poste.inventaire.python || ""; monospace: true }
                     Ligne { label: qsTr("Empreinte de poste.toml"); value: Poste.inventaire.empreintePolitique || ""; monospace: true }
                     SectionHeader { Layout.fillWidth: true; title: qsTr("Versions des CLI") }
@@ -355,8 +515,9 @@ Item {
             // --- Exécutant Railway (étape P6) -----------------------------------------------------------------
             Carte {
                 objectName: "poste-executant"
+                visible: page.diagnosticsOuverts
                 Layout.fillWidth: true
-                titre: qsTr("Exécutant Railway")
+                titre: qsTr("Capacités de la machine active")
                 Discret {
                     objectName: "poste-executant-etat"
                     visible: !Poste.executant.present
@@ -385,7 +546,7 @@ Item {
             Carte {
                 objectName: "poste-revocation"
                 Layout.fillWidth: true
-                visible: Poste.lue && Poste.peutRevoquer
+                visible: page.diagnosticsOuverts && Poste.lue && Poste.peutRevoquer
                 titre: qsTr("Révoquer le poste")
                 sousTitre: qsTr("Le jeton du poste est refusé dès le prochain échange ; un nouvel enrôlement devient "
                                 + "possible.")

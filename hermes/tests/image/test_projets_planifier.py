@@ -141,6 +141,9 @@ def test_plafond_tours_carte_de_triage_unique(noyau, conn, monkeypatch):
 
 def test_effort_hors_enumeration_sans_reasoning_effort(noyau, conn, monkeypatch):
     projet = lancer_sur_depot(noyau, conn)
+    noyau.routage.enregistrer_routage(conn, "implementation", [
+        {"voie": "poste-codex", "modele": "factice-codex-1", "effort": "extreme"}],
+        source="releve_factice", valide_par="proprietaire:test")
     _terminer_exploration(noyau, projet)
     plan = {"resume": "r", "etapes": [{"ref": "e1", "titre": "t", "classe": "implementation", "consigne": "c",
                                        "voie": "poste-codex", "effort": "extreme", "relecture": False}]}
@@ -153,16 +156,6 @@ def test_effort_hors_enumeration_sans_reasoning_effort(noyau, conn, monkeypatch)
 
 
 @pytest.mark.parametrize("etape, code, message", [
-    ({"voie": "poste-codex", "effort": "max"}, "effort_interdit",
-     "Refusé par ACP : l'effort « max » est interdit par défaut ; seul le propriétaire peut le lever (page Routage)."),
-    ({"voie": "poste-codex", "modele": "factice-codex-2", "effort": "high"}, "effort_non_pris_en_charge",
-     "Refusé par ACP : l'effort « high » n'est pas pris en charge par « factice-codex-2 » (efforts relevés : low)."),
-    ({"voie": "poste-codex", "modele": "gpt-imaginaire"}, "modele_absent", "Refusé par ACP : le modèle "
-     "« gpt-imaginaire » ne figure pas dans le relevé de la voie poste-codex (relevé du "),
-    ({"classe": "recherche_web", "voie": "hermes", "modele": "gpt-imaginaire"}, "modele_absent",
-     "Refusé par ACP : le modèle « gpt-imaginaire » ne figure pas dans le dernier relevé poste-codex ("),
-    ({"classe": "recherche_web", "voie": "poste-codex"}, "classe_voie",
-     "Refusé par ACP : la classe « recherche_web » n'admet pas la voie « poste-codex » (voies admises : hermes)."),
     # Étape P6 : la classe « integration » est ouverte (voie poste-integration), mais jamais avec un modèle.
     ({"classe": "integration", "modele": "factice-codex-1"}, "integration_sans_modele",
      "Refusé par ACP : la classe « integration » n'a ni modèle ni effort (fusion locale déterministe)."),
@@ -202,21 +195,40 @@ def test_sans_depot_etape_poste_refusee(noyau, conn, monkeypatch):
 
 
 def test_aucun_modele_et_relecture_impossible(noyau, conn, monkeypatch):
-    projet = lancer_sur_depot(noyau, conn, voies=("poste-codex",),
+    projet = lancer_sur_depot(noyau, conn, voies=("poste-codex",), routage_valide=False,
                               exploration={"voie": "poste-codex", "modele": "factice-codex-1"})
     _terminer_exploration(noyau, projet)
-    sans_choix = {"resume": "r", "etapes": [{"ref": "e1", "titre": "t", "classe": "implementation", "consigne": "c"}]}
-    reponse = _planifier(noyau, monkeypatch, projet, sans_choix)
-    assert (reponse["code"], reponse["message"]) == ("aucun_modele", "Aucun modèle disponible pour la classe "
-                                                     "« implementation » : table de routage non validée et aucun choix "
-                                                     "explicite.")
-    avec_choix = {"resume": "r", "etapes": [{"ref": "e1", "titre": "t", "classe": "implementation", "consigne": "c",
-                                             "voie": "poste-codex"}]}
-    reponse = _planifier(noyau, monkeypatch, projet, avec_choix)
-    assert (reponse["code"], reponse["message"]) == ("relecture_impossible", "Refusé par ACP : la relecture croisée de "
-                                                     "l'étape « e1 » exige l'autre exécutant : aucun relevé pour "
-                                                     "poste-claude.")
+    for hint in ({}, {"voie": "poste-codex", "modele": "factice-codex-1"}):
+        plan = {"resume": "r", "etapes": [dict({"ref": "e1", "titre": "t", "classe": "implementation", "consigne": "c"}, **hint)]}
+        reponse = _planifier(noyau, monkeypatch, projet, plan)
+        assert reponse["code"] == "aucun_modele" and "aucune entrée autorisée" in reponse["message"]
+    noyau.routage.enregistrer_routage(conn, "implementation", [
+        {"voie": "poste-codex", "modele": "factice-codex-1", "effort": "medium"}],
+        source="releve_factice", valide_par="proprietaire:test")
+    reponse = _planifier(noyau, monkeypatch, projet, plan)
+    assert reponse["code"] == "relecture_impossible" and "aucune entrée autorisée" in reponse["message"]
+    # Aucun défaut de catalogue n'est emprunté à la place d'une table de relecture autorisée.
+    assert len(cartes_du_tableau(noyau, projet["tableau"])) == 2
 
+
+@pytest.mark.parametrize("hint", [
+    {"voie": "poste-codex", "effort": "max"},
+    {"voie": "poste-codex", "modele": "factice-codex-2", "effort": "high"},
+    {"voie": "poste-codex", "modele": "gpt-imaginaire"},
+    {"voie": "voie-imaginaire", "modele": "gpt-imaginaire"},
+])
+def test_preferences_invalides_du_plan_restent_dans_la_table(noyau, conn, monkeypatch, hint):
+    projet = lancer_sur_depot(noyau, conn)
+    _terminer_exploration(noyau, projet)
+    plan = {"resume": "r", "etapes": [dict({"ref": "e1", "titre": "t", "classe": "implementation",
+                                            "consigne": "c", "relecture": False}, **hint)]}
+    reponse = _planifier(noyau, monkeypatch, projet, plan)
+    assert reponse["ok"], reponse
+    impl = next(c for c in reponse["cartes"] if c["role"] == "implementation")
+    demande = noyau.projets.demande_de_la_carte(conn, projet["tableau"], impl["carte"])
+    assert demande["source_routage"] == "table" and demande["effort"] != "max"
+    assert any((e["voie"], e["modele"], e["effort"]) == (demande["voie"], demande["modele"], demande["effort"])
+               for e in noyau.routage.entrees_routage(conn, "implementation"))
 
 @pytest.mark.parametrize("etapes, detail", [
     ([{"ref": "e1", "titre": "t", "classe": "recherche_web", "consigne": "c", "depend_de": ["e9"]}],

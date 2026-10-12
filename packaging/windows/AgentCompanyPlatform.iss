@@ -48,6 +48,7 @@ DefaultGroupName={#AcpName}
 DisableProgramGroupPage=yes
 UninstallDisplayName={#AcpName}
 UninstallDisplayIcon={app}\{#AcpExeName}
+SetupIconFile={#SourcePath}..\..\apps\desktop\resources\icons\acp-atelier.ico
 OutputDir={#AcpOutputDir}
 OutputBaseFilename={#AcpOutputBaseFilename}
 SourceDir={#AcpSourceDir}

@@ -16,6 +16,7 @@ constexpr char kServerUrl[] = "connection/serverUrl";
 constexpr char kAllowInsecureLoopback[] = "connection/allowInsecureLoopback";
 constexpr char kConnexionMemorisee[] = "connexion/memorisee";
 constexpr char kTheme[] = "appearance/theme";
+constexpr char kThemeFamily[] = "appearance/family";
 constexpr char kMotion[] = "appearance/motion";
 constexpr char kInspectorWidth[] = "layout/inspectorWidth";
 constexpr char kSidebarWidth[] = "layout/sidebarWidth";
@@ -28,6 +29,7 @@ const QStringList &SettingsStore::allowedKeys()
     static const QStringList keys = {
         QLatin1String(kServerUrl),      QLatin1String(kAllowInsecureLoopback),
         QLatin1String(kTheme),          QLatin1String(kMotion),
+        QLatin1String(kThemeFamily),
         QLatin1String(kInspectorWidth), QLatin1String(kSidebarCollapsed),
         QLatin1String(kConnexionMemorisee),
         QLatin1String(kSidebarWidth),
@@ -98,6 +100,24 @@ void SettingsStore::setThemePreference(const QString &preference)
     }
     setValue(QLatin1String(kTheme), preference);
     emit themePreferenceChanged();
+}
+
+QString SettingsStore::themeFamily() const
+{
+    const QString stored = value(QLatin1String(kThemeFamily), QStringLiteral("pixel")).toString();
+    // Une préférence corrompue ou d'une version future revient à la famille par défaut.
+    return stored == QLatin1String("studio") ? stored : QStringLiteral("pixel");
+}
+
+void SettingsStore::setThemeFamily(const QString &family)
+{
+    if (family != QLatin1String("pixel") && family != QLatin1String("studio")) {
+        qCWarning(lcSettings) << "famille de thème inconnue, ignorée";
+        return;
+    }
+    if (themeFamily() == family) return;
+    setValue(QLatin1String(kThemeFamily), family);
+    emit themeFamilyChanged();
 }
 
 QString SettingsStore::motionPreference() const
@@ -181,6 +201,7 @@ void SettingsStore::clear()
     m_settings->sync();
     emit serverUrlChanged();
     emit themePreferenceChanged();
+    emit themeFamilyChanged();
     emit motionPreferenceChanged();
     emit connexionMemoriseeChanged();
 }

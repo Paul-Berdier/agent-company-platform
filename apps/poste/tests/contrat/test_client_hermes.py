@@ -10,6 +10,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
 
+from acp_poste import __version__
 from acp_poste.client_hermes import ClientHermes, ErreurReseau, OptionsClient, ReponseHTTP
 from acp_poste.protocole import (
     CODE_REFUSE,
@@ -95,10 +96,10 @@ def test_en_tetes(serveur, autorite):
     entetes = {k.lower(): v for k, v in vue["entetes"].items()}
     assert entetes["authorization"] == "Bearer " + "acpm_" + "h" * 43
     assert entetes["content-type"] == "application/json" and entetes["accept"] == "application/json"
-    assert entetes["user-agent"] == "acp-poste/1.0.1 (acp-machine/1)"
+    assert entetes["user-agent"] == f"acp-poste/{__version__} (acp-machine/1)"
     assert entetes["x-acp-protocole"] == "acp-machine/1"
     assert "cookie" not in entetes
-    assert json.loads(vue["corps"]) == {"protocole": "acp-machine/1", "version_poste": "1.0.1", "peut_executer": False,
+    assert json.loads(vue["corps"]) == {"protocole": "acp-machine/1", "version_poste": __version__, "peut_executer": False,
                                         "ordres_acquittes": [3], "attente_max_s": 5, "politique_valide": True}
 
 

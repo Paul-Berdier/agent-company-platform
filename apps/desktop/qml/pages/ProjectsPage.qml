@@ -1,8 +1,5 @@
-// Page Projets (cahier P8 § 7.2) : liste, détail et nouveau projet.
-//
-// Tout ce qui est affiché vient de ProjetsViewModel, déjà libellé en français. Les gestes
-// (lancer, mettre en pause, reprendre) rendent la réponse du serveur telle quelle. Aucun
-// profil, dépôt, exécutant, modèle ou effort n'est proposé s'il ne vient pas du serveur.
+// Espace projet : les objectifs, les étapes et les résultats rapportés par Hermes.
+// Les gestes et les règles restent ceux de ProjetsViewModel.
 
 import QtQuick
 import QtQuick.Controls.Basic
@@ -14,8 +11,12 @@ import Acp.Controls
 
 Item {
     id: page
-
-    Component.onCompleted: Projets.pageVisible = true
+    Component.onCompleted: Projets.pageVisible = visible
+    onVisibleChanged: {
+        Projets.pageVisible = visible;
+        if (!visible)
+            carteEntiere.close();
+    }
     Component.onDestruction: Projets.pageVisible = false
 
     component Discret: Text {
@@ -26,55 +27,96 @@ Item {
         font.family: Type.metadata.family
         font.pixelSize: Type.metadata.pixelSize
     }
-
-    component Alerte: Text {
+    component TitreSection: Text {
         Layout.fillWidth: true
-        visible: text.length > 0
         textFormat: Text.PlainText
         wrapMode: Text.WordWrap
+        color: Colors.textPrimary
+        font.family: Type.panelTitle.family
+        font.pixelSize: Type.panelTitle.pixelSize
+        font.weight: Type.panelTitle.weight
+    }
+    component Alerte: Discret {
+        visible: text.length > 0
         color: Status.statusDegradedForeground
-        font.family: Type.tableCell.family
-        font.pixelSize: Type.tableCell.pixelSize
         Accessible.role: Accessible.AlertMessage
         Accessible.name: text
+    }
+    component Onglet: Button {
+        id: onglet
+        property bool choisi: false
+        implicitHeight: 40
+        leftPadding: Space.space6
+        rightPadding: Space.space6
+        contentItem: Text {
+            text: onglet.text
+            textFormat: Text.PlainText
+            color: onglet.choisi ? Colors.textPrimary : Colors.textMuted
+            font.family: Type.buttonLabel.family
+            font.pixelSize: Type.buttonLabel.pixelSize
+            font.weight: onglet.choisi ? Font.DemiBold : Font.Normal
+            horizontalAlignment: Text.AlignHCenter
+            verticalAlignment: Text.AlignVCenter
+        }
+        background: Rectangle {
+            color: onglet.hovered ? Colors.stateHover : "transparent"
+            border.width: onglet.activeFocus ? Space.layoutFocusRingWidth : 0
+            border.color: Colors.borderFocus
+            Rectangle {
+                anchors.bottom: parent.bottom
+                width: parent.width
+                height: 2
+                color: onglet.choisi ? Colors.accentPrimary : "transparent"
+            }
+        }
+        Accessible.name: text
+        Accessible.role: Accessible.PageTab
+        Accessible.selected: choisi
     }
 
     ColumnLayout {
         anchors.fill: parent
-        anchors.margins: Space.space8
+        anchors.margins: page.width < 760 ? Space.space6 : Space.space8
         spacing: Space.space5
-
         RowLayout {
             Layout.fillWidth: true
             spacing: Space.space4
-            Text {
+            ColumnLayout {
                 Layout.fillWidth: true
-                text: qsTr("Projets")
-                textFormat: Text.PlainText
-                color: Colors.textPrimary
-                font.family: Type.pageTitle.family
-                font.pixelSize: Type.pageTitle.pixelSize
-                font.weight: Type.pageTitle.weight
+                spacing: Space.space1
+                Text {
+                    Layout.fillWidth: true
+                    text: Projets.vue === "detail" ? qsTr("Espace projet") : Projets.vue === "nouveau" ? qsTr("Nouveau projet") : qsTr("Vos projets")
+                    textFormat: Text.PlainText
+                    color: Colors.textPrimary
+                    font.family: Type.pageTitle.family
+                    font.pixelSize: Type.pageTitle.pixelSize
+                    font.weight: Type.pageTitle.weight
+                }
+                Discret {
+                    visible: Projets.vue === "liste"
+                    text: qsTr("Retrouvez le travail en cours et reprenez là où vous en étiez.")
+                }
             }
             AcpButton {
                 objectName: "projets-vue-liste"
-                label: qsTr("Vos projets")
-                primary: Projets.vue === "liste"
+                visible: Projets.vue !== "liste"
+                label: qsTr("Tous les projets")
                 onTriggered: Projets.afficherListe()
-            }
-            AcpButton {
-                objectName: "projets-vue-nouveau"
-                label: qsTr("Nouveau projet")
-                primary: Projets.vue === "nouveau"
-                onTriggered: Projets.afficherNouveau()
             }
             AcpButton {
                 objectName: "projets-actualiser"
                 label: qsTr("Actualiser")
                 onTriggered: Projets.actualiser()
             }
+            AcpButton {
+                objectName: "projets-vue-nouveau"
+                visible: Projets.vue !== "nouveau"
+                label: qsTr("Nouveau projet")
+                primary: true
+                onTriggered: Projets.afficherNouveau()
+            }
         }
-
         BandeauMessage {
             objectName: "projets-bandeau"
             Layout.fillWidth: true
@@ -82,7 +124,6 @@ Item {
             alerte: Projets.alerteGeste
             erreur: Projets.erreurGeste
         }
-
         Loader {
             Layout.fillWidth: true
             Layout.fillHeight: true
@@ -90,69 +131,32 @@ Item {
         }
     }
 
-    // --- Liste ----------------------------------------------------------------------------------
     Component {
         id: vueListe
         ColumnLayout {
-            spacing: Space.space4
-
-            Rectangle {
-                Layout.fillWidth: true
+            spacing: Space.space5
+            Alerte {
                 visible: Projets.pause.etat === 1
-                implicitHeight: textePause.implicitHeight + Space.space5 * 2
-                radius: Radius.radiusSm
-                color: Status.statusDegradedTint
-                border.width: Space.layoutBorderWidth
-                border.color: Status.statusDegradedBorder
-                Text {
-                    id: textePause
-                    anchors.fill: parent
-                    anchors.margins: Space.space5
-                    text: qsTr("Hermes est en pause générale (%1, depuis %2) : aucune nouvelle carte ne part. "
-                               + "La reprise se fait depuis l'accueil.").arg(Projets.pause.raison).arg(Projets.pause.depuis)
-                    textFormat: Text.PlainText
-                    wrapMode: Text.WordWrap
-                    color: Status.statusDegradedForeground
-                    font.family: Type.tableCell.family
-                    font.pixelSize: Type.tableCell.pixelSize
-                }
-            }
-
-            Discret {
-                text: qsTr("Les projets que vous confiez à Hermes : il les planifie, les fait avancer carte par carte "
-                           + "et vous pose ses questions.")
-            }
-            // Cadence RÉELLE (temps réel ou sondage), jamais écrite en dur (relecture de P8b, constat desktop-4).
-            Discret {
-                objectName: "projets-cadence"
-                text: Projets.cadence
+                text: qsTr("Hermes est en pause générale (%1, depuis %2). La reprise se fait depuis l'accueil.").arg(Projets.pause.raison).arg(Projets.pause.depuis)
             }
             EtatLecture {
                 Layout.fillWidth: true
                 lecture: Projets.lectureListe
                 erreur: Projets.erreurListe
             }
-
-            Text {
-                Layout.fillWidth: true
+            Discret {
                 visible: !Projets.listeLue && Projets.erreurListe.length === 0
-                text: qsTr("Chargement…")
-                textFormat: Text.PlainText
-                color: Colors.textMuted
-                font.family: Type.tableCell.family
-                font.pixelSize: Type.tableCell.pixelSize
+                text: qsTr("Chargement des projets…")
             }
-
             EmptyState {
                 Layout.fillWidth: true
-                Layout.preferredHeight: 220
+                Layout.fillHeight: true
                 visible: Projets.listeLue && Projets.projets.count === 0
-                title: qsTr("Aucun projet pour l'instant")
-                body: qsTr("Lancez-en un avec « Nouveau projet », ou demandez-le à Hermes dans la discussion.")
-                actionLabel: qsTr("Nouveau projet")
+                title: qsTr("Votre prochain projet commence ici")
+                body: qsTr("Donnez un objectif à Hermes. Vous retrouverez ici ses étapes, les questions et le résultat.")
+                actionLabel: qsTr("Créer un projet")
                 onActionTriggered: Projets.afficherNouveau()
             }
-
             ListView {
                 id: listeProjets
                 objectName: "projets-liste"
@@ -162,309 +166,663 @@ Item {
                 clip: true
                 spacing: Space.space4
                 model: Projets.projets
+                keyNavigationEnabled: true
                 ScrollBar.vertical: ScrollBar {}
-                delegate: Carte {
+                delegate: ItemDelegate {
                     id: ligne
                     required property var item
-                    width: listeProjets.width - Space.space4
-                    titre: item.titre
-                    cle: item.etatCle
-                    libelleEtat: item.etatLibelle
-                    Discret {
-                        text: qsTr("Type : %1 · Dépôt : %2 · %3 · Créé le %4")
-                            .arg(ligne.item.profil).arg(ligne.item.depot).arg(ligne.item.tour).arg(ligne.item.creeLe)
+                    required property int index
+                    objectName: "projets-ouvrir-" + item.id
+                    width: listeProjets.width - Space.space5
+                    height: contenuProjet.implicitHeight + Space.space6 * 2
+                    padding: Space.space6
+                    onClicked: Projets.ouvrirProjet(item.id)
+                    Accessible.name: qsTr("Ouvrir %1, %2").arg(item.titre).arg(item.etatLibelle)
+                    background: Rectangle {
+                        radius: Radius.radiusSm
+                        color: ligne.hovered ? Colors.stateHover : Colors.surfacePanel
+                        border.width: ligne.activeFocus ? Space.layoutFocusRingWidth : Space.layoutBorderWidth
+                        border.color: ligne.activeFocus ? Colors.borderFocus : Colors.borderSubtle
                     }
-                    Text {
-                        Layout.fillWidth: true
-                        text: qsTr("Cartes faites : %1 · en cours : %2 · en attente du poste : %3 · bloquées : %4 · en triage : %5")
-                            .arg(ligne.item.cartes).arg(ligne.item.enCours).arg(ligne.item.attentePoste)
-                            .arg(ligne.item.bloquees).arg(ligne.item.triage)
-                        textFormat: Text.PlainText
-                        wrapMode: Text.WordWrap
-                        color: Colors.textPrimary
-                        font.family: Type.tableCell.family
-                        font.pixelSize: Type.tableCell.pixelSize
-                    }
-                    Text {
-                        Layout.fillWidth: true
-                        visible: ligne.item.questionsEnAttente
-                        text: qsTr("Questions en attente : %1").arg(ligne.item.questions)
-                        textFormat: Text.PlainText
-                        color: Status.statusApprovalRequiredForeground
-                        font.family: Type.tableCellEmphasis.family
-                        font.pixelSize: Type.tableCellEmphasis.pixelSize
-                        font.weight: Type.tableCellEmphasis.weight
-                    }
-                    BlocTexte {
-                        Layout.fillWidth: true
-                        libelle: qsTr("Dernière note")
-                        texte: ligne.item.derniereNote + (ligne.item.noteTronquee ? qsTr(" […] (extrait ; le détail donne les résumés en entier)") : "")
-                        vide: qsTr("Aucune carte finie pour l'instant.")
-                    }
-                    AcpButton {
-                        objectName: "projets-ouvrir-" + ligne.item.id
-                        label: qsTr("Ouvrir le projet")
-                        onTriggered: Projets.ouvrirProjet(ligne.item.id)
+                    contentItem: ColumnLayout {
+                        id: contenuProjet
+                        spacing: Space.space4
+                        RowLayout {
+                            Layout.fillWidth: true
+                            TitreSection {
+                                text: ligne.item.titre
+                            }
+                            StatusChip {
+                                statusKey: ligne.item.etatCle
+                                label: ligne.item.etatLibelle
+                            }
+                            Text {
+                                text: "›"
+                                color: Colors.textMuted
+                                font.pixelSize: 24
+                                Accessible.ignored: true
+                            }
+                        }
+                        Discret {
+                            text: ligne.item.depot + "  ·  " + ligne.item.profil + "  ·  " + ligne.item.tour
+                        }
+                        Text {
+                            Layout.fillWidth: true
+                            text: ligne.item.derniereNote.length > 0 ? ligne.item.derniereNote + (ligne.item.noteTronquee ? "…" : "") : qsTr("Le résultat des premières étapes apparaîtra ici.")
+                            textFormat: Text.PlainText
+                            maximumLineCount: 2
+                            elide: Text.ElideRight
+                            wrapMode: Text.WordWrap
+                            color: Colors.textSecondary
+                            font.family: Type.prose.family
+                            font.pixelSize: Type.prose.pixelSize
+                        }
+                        Discret {
+                            text: qsTr("%1 cartes faites · %2 en cours · %3 en attente · %4 bloquées · %5 en triage").arg(ligne.item.cartes).arg(ligne.item.enCours).arg(ligne.item.attentePoste).arg(ligne.item.bloquees).arg(ligne.item.triage)
+                        }
+                        Discret {
+                            visible: ligne.item.questionsEnAttente
+                            text: qsTr("%1 questions à traiter").arg(ligne.item.questions)
+                            color: Status.statusApprovalRequiredForeground
+                        }
                     }
                 }
+            }
+            Discret {
+                objectName: "projets-cadence"
+                text: Projets.cadence
             }
         }
     }
 
-    // --- Détail ---------------------------------------------------------------------------------
     Component {
         id: vueDetail
-        ScrollView {
-            id: defilement
-            clip: true
-            contentWidth: availableWidth
+        ColumnLayout {
+            id: espace
+            objectName: "projets-detail"
+            spacing: Space.space4
+            property int onglet: 0
+            property string carteSelectionnee: ""
+            property var carte: ({})
+            readonly property bool inspecteurPresent: (carte.carte || "").length > 0
 
-            ColumnLayout {
-                width: defilement.availableWidth - Space.space4
+            function choisirCarte(index) {
+                const ligne = Projets.cartes.get(index);
+                carteSelectionnee = ligne.carte || "";
+                carte = ligne;
+            }
+            // La sélection suit l'identifiant après une relecture du modèle.
+            function synchroniserCarte() {
+                for (let index = 0; index < Projets.cartes.count; ++index) {
+                    if (Projets.cartes.get(index).carte === carteSelectionnee) {
+                        listeCartes.currentIndex = index;
+                        choisirCarte(index);
+                        return;
+                    }
+                }
+                listeCartes.currentIndex = Projets.cartes.count > 0 ? 0 : -1;
+                choisirCarte(listeCartes.currentIndex);
+            }
+            Component.onCompleted: synchroniserCarte()
+            Connections {
+                target: Projets
+                function onDetailChange() {
+                    espace.synchroniserCarte();
+                }
+            }
+            RowLayout {
+                Layout.fillWidth: true
                 spacing: Space.space5
-
-                RowLayout {
+                ColumnLayout {
                     Layout.fillWidth: true
-                    spacing: Space.space4
-                    AcpButton {
-                        objectName: "projets-retour"
-                        label: qsTr("Retour aux projets")
-                        onTriggered: Projets.afficherListe()
+                    spacing: Space.space2
+                    TitreSection {
+                        text: Projets.detail.titre
+                        font.pixelSize: 24
                     }
-                    Item { Layout.fillWidth: true }
-                    AcpButton {
-                        objectName: "projets-pause"
-                        visible: Projets.detail.peutMettreEnPause
-                        label: qsTr("Mettre en pause")
-                        manualEnabled: !Projets.gesteEnCours
-                        onTriggered: Projets.mettreEnPause()
-                    }
-                    AcpButton {
-                        objectName: "projets-reprise"
-                        visible: Projets.detail.peutReprendre
-                        primary: true
-                        label: qsTr("Reprendre")
-                        manualEnabled: !Projets.gesteEnCours
-                        onTriggered: Projets.reprendre()
-                    }
-                    AcpButton {
-                        objectName: "projets-kanban"
-                        label: qsTr("Ouvrir le kanban dans le navigateur")
-                        onTriggered: Projets.ouvrirKanban()
-                    }
-                }
-
-                Text {
-                    Layout.fillWidth: true
-                    visible: !Projets.detailLu && Projets.erreurDetail.length === 0
-                    text: qsTr("Chargement…")
-                    textFormat: Text.PlainText
-                    color: Colors.textMuted
-                    font.family: Type.tableCell.family
-                    font.pixelSize: Type.tableCell.pixelSize
-                }
-
-                Carte {
-                    objectName: "projets-detail"
-                    Layout.fillWidth: true
-                    titre: Projets.detail.titre
-                    cle: Projets.detail.etatCle
-                    libelleEtat: Projets.detail.etatLibelle
-                    lecture: Projets.lectureDetail
-                    erreurLecture: Projets.erreurDetail
-                    BlocTexte { Layout.fillWidth: true; libelle: qsTr("Objectif"); texte: Projets.detail.objectif }
-                    KeyValueRow { Layout.fillWidth: true; label: qsTr("Type de projet"); value: Projets.detail.profil }
-                    KeyValueRow { Layout.fillWidth: true; label: qsTr("Dépôt"); value: Projets.detail.depot; monospace: true }
-                    KeyValueRow { Layout.fillWidth: true; label: qsTr("Qui répond"); value: Projets.detail.reponses }
-                    KeyValueRow { Layout.fillWidth: true; label: qsTr("Origine"); value: Projets.detail.origine }
-                    KeyValueRow { Layout.fillWidth: true; label: qsTr("Tour"); value: Projets.detail.tour }
-                    KeyValueRow { Layout.fillWidth: true; label: qsTr("Cartes créées"); value: Projets.detail.cartesCreees }
-                    KeyValueRow { Layout.fillWidth: true; label: qsTr("Cartes faites"); value: Projets.detail.cartesFaites }
-                    KeyValueRow { Layout.fillWidth: true; label: qsTr("Corrections par étape au plus"); value: Projets.detail.corrections }
-                    KeyValueRow { Layout.fillWidth: true; label: qsTr("Restants"); value: Projets.detail.restants }
-                    KeyValueRow { Layout.fillWidth: true; label: qsTr("Créé"); value: Projets.detail.creeLe }
-                    KeyValueRow {
-                        Layout.fillWidth: true
-                        visible: Projets.detail.termineLe.length > 0
-                        label: qsTr("Terminé")
-                        value: Projets.detail.termineLe
-                    }
-                    KeyValueRow { Layout.fillWidth: true; label: qsTr("Tableau kanban"); value: Projets.detail.tableau; monospace: true }
-                    Discret { objectName: "projets-veille"; text: Projets.etatVeille }
-                    // Seconde relecture de P8b (constat desktop-8) : sans l'annonce de l'étape P7 par /v1/meta, aucun
-                    // bouton « Qui répond » ni « Clore » ; la raison est dite à leur place.
                     Discret {
-                        objectName: "projet-gestes-p7"
-                        visible: (Projets.detail.gestesP7 || "").length > 0
-                        text: Projets.detail.gestesP7 || ""
-                        color: Colors.textSecondary
+                        text: Projets.detail.depot + "  ·  " + Projets.detail.profil
                     }
-
-                    // --- « Changer qui répond » (étape P7) : rien ne change à l'écran avant la réponse du greffon.
-                    Item {
-                        id: reglage
-                        property bool ouvert: false
+                }
+                StatusChip {
+                    statusKey: Projets.detail.etatCle
+                    label: Projets.detail.etatLibelle
+                }
+            }
+            Flow {
+                Layout.fillWidth: true
+                spacing: Space.space4
+                AcpButton {
+                    objectName: "projets-retour"
+                    label: qsTr("Retour")
+                    onTriggered: Projets.afficherListe()
+                }
+                AcpButton {
+                    objectName: "projets-pause"
+                    visible: Projets.detail.peutMettreEnPause
+                    label: qsTr("Mettre en pause")
+                    manualEnabled: !Projets.gesteEnCours
+                    onTriggered: Projets.mettreEnPause()
+                }
+                AcpButton {
+                    objectName: "projets-reprise"
+                    visible: Projets.detail.peutReprendre
+                    primary: true
+                    label: qsTr("Reprendre")
+                    manualEnabled: !Projets.gesteEnCours
+                    onTriggered: Projets.reprendre()
+                }
+                AcpButton {
+                    objectName: "projets-kanban"
+                    label: qsTr("Kanban dans le navigateur")
+                    onTriggered: Projets.ouvrirKanban()
+                }
+            }
+            Rectangle {
+                Layout.fillWidth: true
+                Layout.preferredHeight: objectifProjet.implicitHeight + Space.space5 * 2
+                color: Colors.surfacePanel
+                radius: Radius.radiusSm
+                border.color: Colors.borderSubtle
+                Rectangle {
+                    width: 3
+                    height: parent.height
+                    color: Colors.accentPrimary
+                }
+                ColumnLayout {
+                    id: objectifProjet
+                    anchors.fill: parent
+                    anchors.margins: Space.space5
+                    anchors.leftMargin: Space.space6
+                    spacing: Space.space2
+                    Discret {
+                        text: qsTr("OBJECTIF")
+                        color: Colors.accentPrimary
+                        font.weight: Font.DemiBold
+                    }
+                    Text {
                         Layout.fillWidth: true
-                        implicitHeight: colonneReglage.implicitHeight
-                        visible: Projets.detail.peutChangerReponses === true
-                        Connections {
-                            target: Projets
-                            function onReglageReponsesEnregistre() { reglage.ouvert = false; }
-                            function onVueChange() { reglage.ouvert = false; }
+                        text: Projets.detail.objectif
+                        textFormat: Text.PlainText
+                        wrapMode: Text.WordWrap
+                        maximumLineCount: 3
+                        elide: Text.ElideRight
+                        color: Colors.textPrimary
+                        font.family: Type.prose.family
+                        font.pixelSize: Type.prose.pixelSize
+                    }
+                }
+            }
+            Discret {
+                visible: !Projets.detailLu && Projets.erreurDetail.length === 0
+                text: qsTr("Chargement du projet…")
+            }
+            EtatLecture {
+                Layout.fillWidth: true
+                lecture: Projets.lectureDetail
+                erreur: Projets.erreurDetail
+            }
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 0
+                Onglet {
+                    objectName: "projets-onglet-travail"
+                    text: qsTr("Travail")
+                    choisi: espace.onglet === 0
+                    onClicked: espace.onglet = 0
+                }
+                Onglet {
+                    objectName: "projets-onglet-resultats"
+                    text: qsTr("Résultats")
+                    choisi: espace.onglet === 1
+                    onClicked: espace.onglet = 1
+                }
+                Onglet {
+                    objectName: "projets-onglet-journal"
+                    text: qsTr("Journal")
+                    choisi: espace.onglet === 2
+                    onClicked: espace.onglet = 2
+                }
+                Onglet {
+                    objectName: "projets-onglet-reglages"
+                    text: qsTr("Réglages")
+                    choisi: espace.onglet === 3
+                    onClicked: espace.onglet = 3
+                }
+                Item {
+                    Layout.fillWidth: true
+                }
+            }
+            StackLayout {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                currentIndex: espace.onglet
+                SplitView {
+                    id: travail
+                    objectName: "projets-travail"
+                    orientation: width < 760 ? Qt.Vertical : Qt.Horizontal
+                    handle: Rectangle {
+                        implicitWidth: 8
+                        implicitHeight: 8
+                        color: SplitHandle.hovered || SplitHandle.pressed ? Colors.borderFocus : "transparent"
+                        Rectangle {
+                            anchors.centerIn: parent
+                            width: travail.orientation === Qt.Horizontal ? 1 : parent.width
+                            height: travail.orientation === Qt.Horizontal ? parent.height : 1
+                            color: Colors.borderSubtle
                         }
-                        ColumnLayout {
-                            id: colonneReglage
-                            width: parent.width
-                            spacing: Space.space2
-                            AcpButton {
-                                objectName: "projets-changer-reponses"
-                                visible: !reglage.ouvert
-                                label: qsTr("Changer qui répond")
-                                onTriggered: {
-                                    choixReponses.currentIndex = Projets.detail.reponsesCode === "proprietaire" ? 1 : 0;
-                                    reglage.ouvert = true;
-                                }
-                            }
-                            Discret { visible: reglage.ouvert; text: qsTr("Qui répond aux questions suivantes"); color: Colors.textSecondary }
-                            ComboBox {
-                                id: choixReponses
-                                objectName: "projets-choix-reponses"
-                                visible: reglage.ouvert
-                                Layout.preferredWidth: 280
-                                model: [qsTr("Hermes d'abord"), qsTr("Moi")]
-                                Accessible.name: qsTr("Qui répond aux questions suivantes")
+                    }
+                    ColumnLayout {
+                        SplitView.fillWidth: true
+                        SplitView.fillHeight: true
+                        SplitView.minimumWidth: travail.orientation === Qt.Horizontal ? 240 : 0
+                        SplitView.minimumHeight: travail.orientation === Qt.Vertical ? 100 : 0
+                        spacing: Space.space4
+                        RowLayout {
+                            Layout.fillWidth: true
+                            TitreSection {
+                                text: qsTr("Étapes du projet")
                             }
                             Discret {
-                                visible: reglage.ouvert
-                                text: qsTr("Le changement vaut pour les questions suivantes ; les questions déjà ouvertes gardent "
-                                           + "leur traitement, et vous pouvez toujours y répondre vous-même.")
-                            }
-                            RowLayout {
-                                visible: reglage.ouvert
-                                spacing: Space.space4
-                                AcpButton {
-                                    objectName: "projets-enregistrer-reponses"
-                                    primary: true
-                                    label: qsTr("Enregistrer")
-                                    manualEnabled: !Projets.gesteEnCours
-                                    onTriggered: Projets.changerReponses(choixReponses.currentIndex === 1 ? "proprietaire" : "hermes_d_abord")
-                                }
-                                AcpButton {
-                                    objectName: "projets-annuler-reponses"
-                                    label: qsTr("Annuler")
-                                    onTriggered: reglage.ouvert = false
-                                }
+                                Layout.fillWidth: false
+                                text: qsTr("%1 cartes").arg(Projets.cartes.count)
                             }
                         }
-                    }
-
-                    // --- « Clore le projet » (étape P7) : la confirmation dit exactement ce que fait la clôture.
-                    Item {
-                        id: cloture
-                        property bool confirmation: false
-                        Layout.fillWidth: true
-                        implicitHeight: colonneCloture.implicitHeight
-                        visible: Projets.detail.peutClore === true
-                        Connections {
-                            target: Projets
-                            function onClotureFaite() { cloture.confirmation = false; }
-                            function onVueChange() { cloture.confirmation = false; }
+                        Discret {
+                            visible: Projets.cartes.count === 0
+                            text: qsTr("Les étapes apparaîtront dès que Hermes aura planifié le projet.")
                         }
-                        ColumnLayout {
-                            id: colonneCloture
-                            width: parent.width
-                            spacing: Space.space2
-                            AcpButton {
-                                objectName: "projets-clore"
-                                visible: !cloture.confirmation
-                                label: qsTr("Clore le projet")
-                                onTriggered: cloture.confirmation = true
-                            }
-                            Text {
-                                objectName: "projets-clore-question"
-                                Layout.fillWidth: true
-                                visible: cloture.confirmation
-                                text: qsTr("Clore ce projet ?")
-                                textFormat: Text.PlainText
-                                wrapMode: Text.WordWrap
-                                color: Colors.textPrimary
-                                font.family: Type.tableCellEmphasis.family
-                                font.pixelSize: Type.tableCellEmphasis.pixelSize
-                                font.weight: Type.tableCellEmphasis.weight
-                            }
-                            Discret { visible: cloture.confirmation; text: qsTr("• Les cartes ouvertes du projet sont archivées ; un travail en cours est arrêté.") }
-                            Discret { visible: cloture.confirmation; text: qsTr("• Ses questions ouvertes sont annulées.") }
-                            Discret { visible: cloture.confirmation; text: qsTr("• Le projet passe « Terminé » si la synthèse du tour en cours est faite, sinon « Abandonné ».") }
-                            Discret { visible: cloture.confirmation; text: qsTr("• Aucune notification n'est envoyée ; les branches déjà rapportées restent sur l'exécutant jusqu'à leur purge (7 jours).") }
-                            RowLayout {
-                                visible: cloture.confirmation
-                                spacing: Space.space4
-                                AcpButton {
-                                    objectName: "projets-confirmer-clore"
-                                    label: qsTr("Confirmer la clôture")
-                                    manualEnabled: !Projets.gesteEnCours
-                                    onTriggered: Projets.clore()
-                                }
-                                AcpButton {
-                                    objectName: "projets-annuler-clore"
-                                    label: qsTr("Annuler")
-                                    onTriggered: cloture.confirmation = false
-                                }
-                            }
-                        }
-                    }
-                }
-
-                Carte {
-                    Layout.fillWidth: true
-                    visible: Projets.detail.resultat.length > 0
-                    titre: qsTr("Résultat du projet")
-                    sousTitre: qsTr("Synthèse du dernier tour fait (tour %1), en entier.").arg(Projets.detail.resultatTour)
-                    BlocTexte { Layout.fillWidth: true; texte: Projets.detail.resultat }
-                    Discret { visible: Projets.detail.resultatTronque; text: qsTr("Texte borné à 100 000 caractères par le greffon.") }
-                }
-
-                Carte {
-                    Layout.fillWidth: true
-                    visible: Projets.detail.exploration.length > 0
-                    titre: qsTr("Exploration du dépôt")
-                    BlocTexte { Layout.fillWidth: true; texte: Projets.detail.exploration }
-                }
-
-                Carte {
-                    Layout.fillWidth: true
-                    titre: qsTr("Questions ouvertes du projet")
-                    Discret { visible: Projets.questionsDuProjet.count === 0; text: qsTr("Aucune question en attente.") }
-                    Repeater {
-                        model: Projets.questionsDuProjet
-                        delegate: ColumnLayout {
-                            required property var item
+                        ListView {
+                            id: listeCartes
+                            objectName: "projets-cartes"
                             Layout.fillWidth: true
-                            spacing: Space.space1
-                            StatusChip { statusKey: item.etatCle; label: item.etatLibelle }
-                            BlocTexte { Layout.fillWidth: true; texte: item.texte }
+                            Layout.fillHeight: true
+                            clip: true
+                            spacing: Space.space3
+                            model: Projets.cartes
+                            keyNavigationEnabled: true
+                            activeFocusOnTab: true
+                            Keys.onUpPressed: {
+                                currentIndex = Math.max(0, currentIndex - 1);
+                                espace.choisirCarte(currentIndex);
+                            }
+                            Keys.onDownPressed: {
+                                currentIndex = Math.min(count - 1, currentIndex + 1);
+                                espace.choisirCarte(currentIndex);
+                            }
+                            ScrollBar.vertical: ScrollBar {}
+                            delegate: ItemDelegate {
+                                id: etape
+                                required property var item
+                                required property int index
+                                width: listeCartes.width - Space.space5
+                                height: contenuEtape.implicitHeight + Space.space5 * 2
+                                padding: Space.space5
+                                highlighted: espace.carteSelectionnee === item.carte
+                                onClicked: {
+                                    listeCartes.currentIndex = index;
+                                    espace.choisirCarte(index);
+                                }
+                                Accessible.name: item.titre + ", " + item.statutLibelle
+                                background: Rectangle {
+                                    radius: Radius.radiusSm
+                                    color: etape.highlighted ? Colors.stateSelected : etape.hovered ? Colors.stateHover : Colors.surfacePanel
+                                    border.width: etape.activeFocus ? 2 : 1
+                                    border.color: etape.activeFocus ? Colors.borderFocus : etape.highlighted ? Colors.accentPrimary : Colors.borderSubtle
+                                }
+                                contentItem: ColumnLayout {
+                                    id: contenuEtape
+                                    spacing: Space.space3
+                                    RowLayout {
+                                        Layout.fillWidth: true
+                                        Discret {
+                                            text: etape.item.groupe
+                                            color: Colors.accentPrimary
+                                        }
+                                        StatusChip {
+                                            statusKey: etape.item.statutCle
+                                            label: etape.item.statutLibelle
+                                        }
+                                    }
+                                    TitreSection {
+                                        text: etape.item.titre
+                                        font.pixelSize: Type.tableCellEmphasis.pixelSize
+                                    }
+                                    Discret {
+                                        text: etape.item.voie + "  ·  " + qsTr("Tour %1").arg(etape.item.tour)
+                                    }
+                                }
+                            }
                         }
                     }
-                }
-
-                Carte {
-                    Layout.fillWidth: true
-                    titre: qsTr("Cartes")
-                    Discret { visible: Projets.cartes.count === 0; text: qsTr("Aucune carte pour l'instant.") }
-                    Repeater {
-                        model: Projets.cartes
-                        delegate: ColumnLayout {
-                            id: carteLigne
-                            required property var item
-                            Layout.fillWidth: true
-                            spacing: Space.space2
-                            Rectangle { Layout.fillWidth: true; height: Space.layoutBorderWidth; color: Colors.borderSubtle }
-                            RowLayout {
-                                Layout.fillWidth: true
-                                spacing: Space.space4
-                                Text {
+                    Rectangle {
+                        SplitView.preferredWidth: 340
+                        SplitView.minimumWidth: travail.orientation === Qt.Horizontal ? 280 : 0
+                        SplitView.preferredHeight: 170
+                        SplitView.minimumHeight: 100
+                        color: Colors.surfacePanel
+                        radius: Radius.radiusSm
+                        border.color: Colors.borderSubtle
+                        ScrollView {
+                            id: defilementInspecteur
+                            anchors.fill: parent
+                            anchors.margins: Space.space6
+                            clip: true
+                            contentWidth: availableWidth
+                            ColumnLayout {
+                                width: defilementInspecteur.availableWidth
+                                spacing: Space.space5
+                                TitreSection {
+                                    text: qsTr("Détail de l'étape")
+                                }
+                                Discret {
+                                    visible: !espace.inspecteurPresent
+                                    text: qsTr("Sélectionnez une carte pour lire son résumé et ses informations d'exécution.")
+                                }
+                                ColumnLayout {
                                     Layout.fillWidth: true
-                                    text: carteLigne.item.groupe + " — " + carteLigne.item.titre
+                                    visible: espace.inspecteurPresent
+                                    spacing: Space.space5
+                                    TitreSection {
+                                        text: espace.carte.titre || ""
+                                    }
+                                    StatusChip {
+                                        statusKey: espace.carte.statutCle || "unknown"
+                                        label: espace.carte.statutLibelle || ""
+                                    }
+                                    BlocTexte {
+                                        Layout.fillWidth: true
+                                        libelle: espace.carte.resumeTronque ? qsTr("Résumé — extrait de %1 caractères sur %2").arg((espace.carte.resume || "").length).arg(espace.carte.resumeLongueur || "") : qsTr("Résumé")
+                                        texte: espace.carte.resume || ""
+                                        vide: qsTr("Aucun résumé reçu pour cette carte.")
+                                    }
+                                    AcpButton {
+                                        visible: espace.carte.resumeTronque === true
+                                        label: qsTr("Lire le résumé entier")
+                                        onTriggered: Projets.lireCarteEnEntier(espace.carteSelectionnee)
+                                    }
+                                    Rectangle {
+                                        Layout.fillWidth: true
+                                        height: 1
+                                        color: Colors.borderSubtle
+                                    }
+                                    BlocTexte {
+                                        Layout.fillWidth: true
+                                        libelle: qsTr("Exécutant")
+                                        texte: espace.carte.voie || ""
+                                    }
+                                    BlocTexte {
+                                        Layout.fillWidth: true
+                                        libelle: qsTr("Modèle demandé")
+                                        texte: espace.carte.modele || ""
+                                    }
+                                    BlocTexte {
+                                        Layout.fillWidth: true
+                                        libelle: qsTr("Modèle observé")
+                                        texte: espace.carte.modeleServi || ""
+                                    }
+                                    Discret {
+                                        text: qsTr("Effort : %1 · Palier : %2").arg(espace.carte.effort || "").arg(espace.carte.palier || "")
+                                    }
+                                    Alerte {
+                                        text: espace.carte.mention || ""
+                                    }
+                                    ExecutionDetails {
+                                        Layout.fillWidth: true
+                                        execution: espace.carte.execution || ({})
+                                    }
+                                }
+                                Rectangle {
+                                    Layout.fillWidth: true
+                                    height: 1
+                                    color: Colors.borderSubtle
+                                }
+                                TitreSection {
+                                    text: qsTr("Questions du projet")
+                                }
+                                Discret {
+                                    visible: Projets.questionsDuProjet.count === 0
+                                    text: qsTr("Aucune question en attente.")
+                                }
+                                Repeater {
+                                    model: Projets.questionsDuProjet
+                                    delegate: ColumnLayout {
+                                        required property var item
+                                        Layout.fillWidth: true
+                                        spacing: Space.space3
+                                        StatusChip {
+                                            statusKey: item.etatCle
+                                            label: item.etatLibelle
+                                        }
+                                        BlocTexte {
+                                            Layout.fillWidth: true
+                                            texte: item.texte
+                                        }
+                                    }
+                                }
+                                Discret {
+                                    visible: Projets.questionsDuProjet.count > 0
+                                    text: qsTr("Retrouvez ces demandes dans Questions pour y répondre.")
+                                }
+                            }
+                        }
+                    }
+                }
+
+                ScrollView {
+                    id: defilementResultats
+                    objectName: "projets-resultats"
+                    clip: true
+                    contentWidth: availableWidth
+                    ColumnLayout {
+                        width: Math.max(0, defilementResultats.availableWidth - Space.space5)
+                        spacing: Space.space6
+                        TitreSection {
+                            text: qsTr("Résultat du projet")
+                        }
+                        BlocTexte {
+                            Layout.fillWidth: true
+                            texte: Projets.detail.resultat
+                            vide: qsTr("Aucun résultat final pour le moment. Les résumés disponibles se trouvent dans les cartes de l'onglet Travail.")
+                        }
+                        Discret {
+                            visible: Projets.detail.resultat.length > 0
+                            text: qsTr("Synthèse du tour %1").arg(Projets.detail.resultatTour)
+                        }
+                        Alerte {
+                            visible: Projets.detail.resultatTronque
+                            text: qsTr("Texte borné à 100 000 caractères par le greffon.")
+                        }
+                        Rectangle {
+                            Layout.fillWidth: true
+                            height: 1
+                            color: Colors.borderSubtle
+                        }
+                        TitreSection {
+                            text: qsTr("Exploration du dépôt")
+                            visible: Projets.detail.exploration.length > 0
+                        }
+                        BlocTexte {
+                            Layout.fillWidth: true
+                            visible: Projets.detail.exploration.length > 0
+                            texte: Projets.detail.exploration
+                        }
+                        TitreSection {
+                            text: qsTr("Tours et décisions")
+                            visible: Projets.tours.count > 0
+                        }
+                        Repeater {
+                            model: Projets.tours
+                            delegate: BlocTexte {
+                                required property var item
+                                Layout.fillWidth: true
+                                libelle: item.tour
+                                texte: item.resume + (item.decisions.length > 0 ? "\n" + qsTr("Décisions :") + "\n" + item.decisions : "")
+                            }
+                        }
+                    }
+                }
+                ColumnLayout {
+                    spacing: Space.space5
+                    TitreSection {
+                        text: qsTr("Journal du projet")
+                    }
+                    Discret {
+                        text: qsTr("Les événements rapportés par Hermes, dans l'ordre fourni par le serveur.")
+                    }
+                    Discret {
+                        visible: Projets.journal.count === 0
+                        text: qsTr("Aucun événement pour l'instant.")
+                    }
+                    ListView {
+                        id: listeJournal
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        clip: true
+                        spacing: Space.space4
+                        model: Projets.journal
+                        ScrollBar.vertical: ScrollBar {}
+                        delegate: ColumnLayout {
+                            id: evenement
+                            required property var item
+                            width: listeJournal.width - Space.space5
+                            spacing: Space.space3
+                            Discret {
+                                text: evenement.item.quand + "  ·  " + evenement.item.acteur
+                            }
+                            TitreSection {
+                                font.pixelSize: Type.tableCellEmphasis.pixelSize
+                                text: [evenement.item.action, evenement.item.cible].filter(t => t.length > 0).join(" · ")
+                            }
+                            BlocTexte {
+                                Layout.fillWidth: true
+                                visible: evenement.item.detail.length > 0
+                                texte: evenement.item.detail
+                            }
+                            Rectangle {
+                                Layout.fillWidth: true
+                                height: 1
+                                color: Colors.borderSubtle
+                            }
+                        }
+                    }
+                }
+                ScrollView {
+                    id: defilementReglages
+                    objectName: "projets-reglages"
+                    clip: true
+                    contentWidth: availableWidth
+                    ColumnLayout {
+                        width: Math.min(Math.max(0, defilementReglages.availableWidth - Space.space5), Type.measureProse + 160)
+                        spacing: Space.space5
+                        TitreSection {
+                            text: qsTr("Réglages du projet")
+                        }
+                        // Seconde relecture de P8b (constat desktop-8) : sans l'annonce de l'étape P7 par /v1/meta, aucun
+                        // bouton « Qui répond » ni « Clore » ; la raison est dite à leur place.
+                        Discret {
+                            objectName: "projet-gestes-p7"
+                            visible: (Projets.detail.gestesP7 || "").length > 0
+                            text: Projets.detail.gestesP7 || ""
+                            color: Colors.textSecondary
+                        }
+
+                        // --- « Changer qui répond » (étape P7) : rien ne change à l'écran avant la réponse du greffon.
+                        Item {
+                            id: reglage
+                            property bool ouvert: false
+                            Layout.fillWidth: true
+                            implicitHeight: colonneReglage.implicitHeight
+                            visible: Projets.detail.peutChangerReponses === true
+                            Connections {
+                                target: Projets
+                                function onReglageReponsesEnregistre() {
+                                    reglage.ouvert = false;
+                                }
+                                function onVueChange() {
+                                    reglage.ouvert = false;
+                                }
+                            }
+                            ColumnLayout {
+                                id: colonneReglage
+                                width: parent.width
+                                spacing: Space.space2
+                                AcpButton {
+                                    objectName: "projets-changer-reponses"
+                                    visible: !reglage.ouvert
+                                    label: qsTr("Changer qui répond")
+                                    onTriggered: {
+                                        choixReponses.currentIndex = Projets.detail.reponsesCode === "proprietaire" ? 1 : 0;
+                                        reglage.ouvert = true;
+                                    }
+                                }
+                                Discret {
+                                    visible: reglage.ouvert
+                                    text: qsTr("Qui répond aux questions suivantes")
+                                    color: Colors.textSecondary
+                                }
+                                ComboBox {
+                                    id: choixReponses
+                                    objectName: "projets-choix-reponses"
+                                    visible: reglage.ouvert
+                                    Layout.preferredWidth: 280
+                                    model: [qsTr("Hermes d'abord"), qsTr("Moi")]
+                                    Accessible.name: qsTr("Qui répond aux questions suivantes")
+                                }
+                                Discret {
+                                    visible: reglage.ouvert
+                                    text: qsTr("Le changement vaut pour les questions suivantes ; les questions déjà ouvertes gardent " + "leur traitement, et vous pouvez toujours y répondre vous-même.")
+                                }
+                                RowLayout {
+                                    visible: reglage.ouvert
+                                    spacing: Space.space4
+                                    AcpButton {
+                                        objectName: "projets-enregistrer-reponses"
+                                        primary: true
+                                        label: qsTr("Enregistrer")
+                                        manualEnabled: !Projets.gesteEnCours
+                                        onTriggered: Projets.changerReponses(choixReponses.currentIndex === 1 ? "proprietaire" : "hermes_d_abord")
+                                    }
+                                    AcpButton {
+                                        objectName: "projets-annuler-reponses"
+                                        label: qsTr("Annuler")
+                                        onTriggered: reglage.ouvert = false
+                                    }
+                                }
+                            }
+                        }
+
+                        // --- « Clore le projet » (étape P7) : la confirmation dit exactement ce que fait la clôture.
+                        Item {
+                            id: cloture
+                            property bool confirmation: false
+                            Layout.fillWidth: true
+                            implicitHeight: colonneCloture.implicitHeight
+                            visible: Projets.detail.peutClore === true
+                            Connections {
+                                target: Projets
+                                function onClotureFaite() {
+                                    cloture.confirmation = false;
+                                }
+                                function onVueChange() {
+                                    cloture.confirmation = false;
+                                }
+                            }
+                            ColumnLayout {
+                                id: colonneCloture
+                                width: parent.width
+                                spacing: Space.space2
+                                AcpButton {
+                                    objectName: "projets-clore"
+                                    visible: !cloture.confirmation
+                                    label: qsTr("Clore le projet")
+                                    onTriggered: cloture.confirmation = true
+                                }
+                                Text {
+                                    objectName: "projets-clore-question"
+                                    Layout.fillWidth: true
+                                    visible: cloture.confirmation
+                                    text: qsTr("Clore ce projet ?")
                                     textFormat: Text.PlainText
                                     wrapMode: Text.WordWrap
                                     color: Colors.textPrimary
@@ -472,61 +830,121 @@ Item {
                                     font.pixelSize: Type.tableCellEmphasis.pixelSize
                                     font.weight: Type.tableCellEmphasis.weight
                                 }
-                                StatusChip { statusKey: carteLigne.item.statutCle; label: carteLigne.item.statutLibelle }
-                            }
-                            Discret {
-                                text: qsTr("Exécutant : %1 · Modèle demandé : %2 · Effort : %3 · Palier : %4 · Modèle servi : %5 · Tour %6")
-                                    .arg(carteLigne.item.voie).arg(carteLigne.item.modele).arg(carteLigne.item.effort)
-                                    .arg(carteLigne.item.palier).arg(carteLigne.item.modeleServi).arg(carteLigne.item.tour)
-                            }
-                            Discret { visible: carteLigne.item.mention.length > 0; text: qsTr("Mention : %1").arg(carteLigne.item.mention) }
-                            BlocTexte {
-                                Layout.fillWidth: true
-                                visible: carteLigne.item.resume.length > 0
-                                libelle: carteLigne.item.resumeTronque
-                                    ? qsTr("Résumé (extrait : %1 caractères sur %2)").arg(carteLigne.item.resume.length).arg(carteLigne.item.resumeLongueur)
-                                    : qsTr("Résumé")
-                                texte: carteLigne.item.resume
-                            }
-                            AcpButton {
-                                visible: carteLigne.item.resumeTronque && carteLigne.item.carte.length > 0
-                                label: qsTr("Lire le résumé en entier")
-                                onTriggered: Projets.lireCarteEnEntier(carteLigne.item.carte)
+                                Discret {
+                                    visible: cloture.confirmation
+                                    text: qsTr("• Les cartes ouvertes du projet sont archivées ; un travail en cours est arrêté.")
+                                }
+                                Discret {
+                                    visible: cloture.confirmation
+                                    text: qsTr("• Ses questions ouvertes sont annulées.")
+                                }
+                                Discret {
+                                    visible: cloture.confirmation
+                                    text: qsTr("• Le projet passe « Terminé » si la synthèse du tour en cours est faite, sinon « Abandonné ».")
+                                }
+                                Discret {
+                                    visible: cloture.confirmation
+                                    text: qsTr("• Aucune notification n'est envoyée ; les branches déjà rapportées restent sur l'exécutant jusqu'à leur purge (7 jours).")
+                                }
+                                RowLayout {
+                                    visible: cloture.confirmation
+                                    spacing: Space.space4
+                                    AcpButton {
+                                        objectName: "projets-confirmer-clore"
+                                        label: qsTr("Confirmer la clôture")
+                                        manualEnabled: !Projets.gesteEnCours
+                                        onTriggered: Projets.clore()
+                                    }
+                                    AcpButton {
+                                        objectName: "projets-annuler-clore"
+                                        label: qsTr("Annuler")
+                                        onTriggered: cloture.confirmation = false
+                                    }
+                                }
                             }
                         }
-                    }
-                }
-
-                Carte {
-                    Layout.fillWidth: true
-                    visible: Projets.tours.count > 0
-                    titre: qsTr("Tours et décisions")
-                    Repeater {
-                        model: Projets.tours
-                        delegate: BlocTexte {
-                            required property var item
+                        Rectangle {
                             Layout.fillWidth: true
-                            libelle: item.tour
-                            texte: item.resume + (item.decisions.length > 0 ? "\n" + qsTr("Décisions :") + "\n" + item.decisions : "")
+                            height: 1
+                            color: Colors.borderSubtle
+                        }
+                        TitreSection {
+                            text: qsTr("Contexte et limites")
+                        }
+                        BlocTexte {
+                            Layout.fillWidth: true
+                            libelle: qsTr("Objectif complet")
+                            texte: Projets.detail.objectif
+                        }
+                        KeyValueRow {
+                            Layout.fillWidth: true
+                            label: qsTr("Type de projet")
+                            value: Projets.detail.profil
+                        }
+                        KeyValueRow {
+                            Layout.fillWidth: true
+                            label: qsTr("Dépôt")
+                            value: Projets.detail.depot
+                            monospace: true
+                        }
+                        KeyValueRow {
+                            Layout.fillWidth: true
+                            label: qsTr("Qui répond")
+                            value: Projets.detail.reponses
+                        }
+                        KeyValueRow {
+                            Layout.fillWidth: true
+                            label: qsTr("Origine")
+                            value: Projets.detail.origine
+                        }
+                        KeyValueRow {
+                            Layout.fillWidth: true
+                            label: qsTr("Tour")
+                            value: Projets.detail.tour
+                        }
+                        KeyValueRow {
+                            Layout.fillWidth: true
+                            label: qsTr("Cartes créées")
+                            value: Projets.detail.cartesCreees
+                        }
+                        KeyValueRow {
+                            Layout.fillWidth: true
+                            label: qsTr("Cartes faites")
+                            value: Projets.detail.cartesFaites
+                        }
+                        KeyValueRow {
+                            Layout.fillWidth: true
+                            label: qsTr("Corrections par étape au plus")
+                            value: Projets.detail.corrections
+                        }
+                        KeyValueRow {
+                            Layout.fillWidth: true
+                            label: qsTr("Restants")
+                            value: Projets.detail.restants
+                        }
+                        KeyValueRow {
+                            Layout.fillWidth: true
+                            label: qsTr("Créé")
+                            value: Projets.detail.creeLe
+                        }
+                        KeyValueRow {
+                            Layout.fillWidth: true
+                            visible: Projets.detail.termineLe.length > 0
+                            label: qsTr("Terminé")
+                            value: Projets.detail.termineLe
+                        }
+                        KeyValueRow {
+                            Layout.fillWidth: true
+                            label: qsTr("Tableau kanban")
+                            value: Projets.detail.tableau
+                            monospace: true
+                        }
+                        Discret {
+                            objectName: "projets-veille"
+                            text: Projets.etatVeille
                         }
                     }
                 }
-
-                Carte {
-                    Layout.fillWidth: true
-                    titre: qsTr("Journal")
-                    Discret { visible: Projets.journal.count === 0; text: qsTr("Journal vide.") }
-                    Repeater {
-                        model: Projets.journal
-                        delegate: Discret {
-                            required property var item
-                            color: Colors.textSecondary
-                            text: [item.quand, item.acteur, item.action, item.cible, item.detail].filter(t => t.length > 0).join(" · ")
-                        }
-                    }
-                }
-
-                Item { Layout.preferredHeight: Space.space6 }
             }
         }
     }
@@ -542,18 +960,17 @@ Item {
             ColumnLayout {
                 id: formulaire
                 objectName: "projets-formulaire"
-                width: Math.min(defilementFormulaire.availableWidth - Space.space4, Type.measureProse + 160)
+                width: Math.min(Math.max(0, defilementFormulaire.availableWidth - Space.space5), Type.measureProse + 160)
                 spacing: Space.space4
 
                 readonly property var f: Projets.formulaire
                 property string reponses: "hermes_d_abord"
-                readonly property bool complet: titreChamp.text.trim().length > 0 && objectifChamp.text.trim().length > 0
-                    && !formulaire.f.modeleExige
+                property bool avance: false
+                readonly property bool complet: titreChamp.text.trim().length > 0 && objectifChamp.text.trim().length > 0 && !formulaire.f.modeleExige
 
                 Text {
                     Layout.fillWidth: true
-                    text: qsTr("Décrivez le résultat attendu : Hermes le découpe en étapes vérifiables et le fait avancer "
-                               + "seul. Il ne pousse, ne fusionne et ne publie jamais sans votre accord.")
+                    text: qsTr("Que voulez-vous réaliser ? Décrivez un résultat concret ; Hermes préparera les étapes et vous pourrez suivre leur avancement ici.")
                     textFormat: Text.PlainText
                     wrapMode: Text.WordWrap
                     color: Colors.textSecondary
@@ -568,24 +985,22 @@ Item {
                     font.family: Type.tableCell.family
                     font.pixelSize: Type.tableCell.pixelSize
                 }
-                Alerte { text: formulaire.f.erreurPoste }
-                Alerte { text: formulaire.f.erreurCatalogue }
-
-                Discret { text: qsTr("Titre"); color: Colors.textSecondary }
-                AcpTextField {
-                    id: titreChamp
-                    objectName: "projets-champ-titre"
-                    Layout.fillWidth: true
-                    placeholder: qsTr("Titre (120 caractères au plus)")
-                    accessibleName: qsTr("Titre")
+                Alerte {
+                    text: formulaire.f.erreurPoste
+                }
+                Alerte {
+                    text: formulaire.f.erreurCatalogue
                 }
 
-                Discret { text: qsTr("Objectif"); color: Colors.textSecondary }
+                TitreSection {
+                    text: qsTr("Le résultat que vous attendez")
+                }
                 TextArea {
                     id: objectifChamp
                     objectName: "projets-champ-objectif"
                     Layout.fillWidth: true
-                    Layout.preferredHeight: 120
+                    Layout.preferredHeight: 160
+                    padding: Space.space5
                     wrapMode: TextEdit.Wrap
                     textFormat: TextEdit.PlainText
                     placeholderText: qsTr("Ce qui doit exister à la fin, les contraintes et ce qui compte pour vous.")
@@ -601,7 +1016,22 @@ Item {
                     Accessible.name: qsTr("Objectif")
                 }
 
-                Discret { text: qsTr("Type de projet"); color: Colors.textSecondary }
+                Discret {
+                    text: qsTr("Nom du projet")
+                    color: Colors.textSecondary
+                }
+                AcpTextField {
+                    id: titreChamp
+                    objectName: "projets-champ-titre"
+                    Layout.fillWidth: true
+                    placeholder: qsTr("Titre (120 caractères au plus)")
+                    accessibleName: qsTr("Titre")
+                }
+
+                Discret {
+                    text: qsTr("Type de projet")
+                    color: Colors.textSecondary
+                }
                 ComboBox {
                     id: profilChoix
                     objectName: "projets-champ-profil"
@@ -614,7 +1044,10 @@ Item {
                     onModelChanged: currentIndex = Math.max(0, indexOfValue(formulaire.f.profilDefaut))
                 }
 
-                Discret { text: qsTr("Dépôt"); color: Colors.textSecondary }
+                Discret {
+                    text: qsTr("Dépôt")
+                    color: Colors.textSecondary
+                }
                 ComboBox {
                     id: depotChoix
                     objectName: "projets-champ-depot"
@@ -623,107 +1056,159 @@ Item {
                     model: [qsTr("Sans dépôt")].concat(formulaire.f.depots)
                     currentIndex: formulaire.f.depot.length > 0 ? formulaire.f.depots.indexOf(formulaire.f.depot) + 1 : 0
                     Accessible.name: qsTr("Dépôt")
-                    onActivated: function(index) { Projets.choisirDepot(index === 0 ? "" : formulaire.f.depots[index - 1]) }
+                    onActivated: function (index) {
+                        Projets.choisirDepot(index === 0 ? "" : formulaire.f.depots[index - 1]);
+                    }
                 }
-                Discret { visible: formulaire.f.aideDepot.length > 0; text: formulaire.f.aideDepot }
-
-                Discret { text: qsTr("Qui répond aux questions"); color: Colors.textSecondary }
                 Discret {
-                    visible: formulaire.f.reponsesSansObjet
-                    text: qsTr("Sans objet sans dépôt : aucune question ne naît d'un projet sans dépôt ; s'il manque une "
-                               + "information, Hermes bloque une carte avec sa raison (page Questions, cartes bloquées).")
-                }
-                RadioButton {
-                    visible: !formulaire.f.reponsesSansObjet
-                    text: qsTr("Hermes d'abord : il répond s'il le peut, sinon il vous transmet la question.")
-                    checked: formulaire.reponses === "hermes_d_abord"
-                    onToggled: if (checked) formulaire.reponses = "hermes_d_abord"
-                }
-                RadioButton {
-                    visible: !formulaire.f.reponsesSansObjet
-                    text: qsTr("Moi : chaque question vous est transmise directement.")
-                    checked: formulaire.reponses === "proprietaire"
-                    onToggled: if (checked) formulaire.reponses = "proprietaire"
+                    visible: formulaire.f.aideDepot.length > 0
+                    text: formulaire.f.aideDepot
                 }
 
+                CheckBox {
+                    objectName: "projets-routage-manuel"
+                    Layout.fillWidth: true
+                    text: qsTr("Choisir manuellement l'assistant, le modèle et l'effort")
+                    checked: !formulaire.f.routageAutomatique
+                    onToggled: {
+                        Projets.choisirRoutageAutomatique(!checked);
+                        if (checked) formulaire.avance = true;
+                    }
+                }
+                Discret {
+                    text: formulaire.f.routageAutomatique
+                        ? qsTr("Auto choisit dans la table de routage autorisée et respecte vos verrous. Après connexion et relevé : Assistants → Modèles d'exécution, relisez et appliquez les suggestions souhaitées, puis Valider la table.")
+                        : qsTr("Choix manuel : les paramètres d'exploration ci-dessous sont envoyés explicitement.")
+                }
+
+                AcpButton {
+                    objectName: "projets-avance"
+                    label: formulaire.avance ? qsTr("Masquer les options avancées") : qsTr("Options avancées")
+                    onTriggered: formulaire.avance = !formulaire.avance
+                }
                 Alerte {
-                    text: formulaire.f.releveFactice ? qsTr("Relevé factice : ces modèles viennent d'un relevé de test, pas de votre poste.") : ""
+                    visible: !formulaire.avance && formulaire.f.modeleExige
+                    text: qsTr("Un modèle doit être choisi dans les options avancées avant de lancer ce projet.")
                 }
-
                 ColumnLayout {
                     Layout.fillWidth: true
-                    visible: formulaire.f.avecExploration
-                    spacing: Space.space3
-                    Text {
-                        text: qsTr("Exploration du dépôt")
-                        textFormat: Text.PlainText
-                        color: Colors.textPrimary
-                        font.family: Type.panelTitle.family
-                        font.pixelSize: Type.panelTitle.pixelSize
-                        font.weight: Type.panelTitle.weight
+                    visible: formulaire.avance
+                    spacing: Space.space4
+                    Discret {
+                        text: qsTr("Qui répond aux questions")
+                        color: Colors.textSecondary
                     }
-                    Discret { text: qsTr("Le poste lit le dépôt, sans rien y modifier, avant la planification.") }
-                    Discret { text: qsTr("Exécutant"); color: Colors.textSecondary }
-                    ComboBox {
-                        id: voieChoix
-                        objectName: "projets-champ-voie"
-                        Layout.fillWidth: true
-                        model: formulaire.f.voies
-                        textRole: "libelle"
-                        valueRole: "valeur"
-                        currentIndex: Math.max(0, indexOfValue(formulaire.f.voie))
-                        Accessible.name: qsTr("Exécutant")
-                        onActivated: Projets.choisirVoie(currentValue)
-                        // Étape P7 : un exécutant fermé pour le dépôt choisi est grisé, jamais choisissable.
-                        delegate: ItemDelegate {
-                            required property var modelData
-                            required property int index
-                            objectName: "projets-voie-option-" + modelData.valeur
-                            width: voieChoix.width
-                            text: modelData.libelle
-                            enabled: !modelData.fermee
-                            highlighted: voieChoix.highlightedIndex === index
-                        }
+                    Discret {
+                        visible: formulaire.f.reponsesSansObjet
+                        text: qsTr("Sans objet sans dépôt : aucune question ne naît d'un projet sans dépôt ; s'il manque une " + "information, Hermes bloque une carte avec sa raison (page Questions, cartes bloquées).")
                     }
-                    Repeater {
-                        model: formulaire.f.voiesFermees || []
-                        delegate: Discret {
-                            required property var modelData
-                            objectName: "projets-voie-fermee"
-                            text: modelData
-                        }
+                    RadioButton {
+                        visible: !formulaire.f.reponsesSansObjet
+                        text: qsTr("Hermes d'abord : il répond s'il le peut, sinon il vous transmet la question.")
+                        checked: formulaire.reponses === "hermes_d_abord"
+                        onToggled: if (checked)
+                            formulaire.reponses = "hermes_d_abord"
                     }
+                    RadioButton {
+                        visible: !formulaire.f.reponsesSansObjet
+                        text: qsTr("Moi : chaque question vous est transmise directement.")
+                        checked: formulaire.reponses === "proprietaire"
+                        onToggled: if (checked)
+                            formulaire.reponses = "proprietaire"
+                    }
+
                     Alerte {
-                        objectName: "projets-aucune-voie-ouverte"
-                        text: formulaire.f.aucuneVoieOuverte === true
-                            ? qsTr("Aucun exécutant ouvert pour ce dépôt. Le projet part sans exploration du dépôt.")
-                            : ""
+                        text: formulaire.f.releveFactice ? qsTr("Relevé factice : ces modèles viennent d'un relevé de test, pas de votre poste.") : ""
                     }
-                    Discret { text: qsTr("Modèle"); color: Colors.textSecondary }
-                    ComboBox {
-                        id: modeleChoix
-                        objectName: "projets-champ-modele"
+
+                    ColumnLayout {
                         Layout.fillWidth: true
-                        model: [formulaire.f.libelleModeleVide].concat(formulaire.f.modeles)
-                        currentIndex: formulaire.f.modele.length > 0 ? formulaire.f.modeles.indexOf(formulaire.f.modele) + 1 : 0
-                        Accessible.name: qsTr("Modèle")
-                        onActivated: function(index) { Projets.choisirModele(index === 0 ? "" : formulaire.f.modeles[index - 1]) }
-                    }
-                    Discret { text: qsTr("Effort"); color: Colors.textSecondary }
-                    ComboBox {
-                        id: effortChoix
-                        objectName: "projets-champ-effort"
-                        Layout.fillWidth: true
-                        model: [qsTr("Par défaut")].concat(formulaire.f.efforts)
-                        Accessible.name: qsTr("Effort")
-                        onModelChanged: currentIndex = 0
-                    }
-                    Discret { text: qsTr("Relevé du %1").arg(formulaire.f.releveDu) }
-                    Alerte { text: formulaire.f.relevePerime ? qsTr("Relevé périmé : le poste doit publier un nouvel inventaire.") : "" }
-                    Alerte {
-                        text: formulaire.f.modeleExige
-                            ? qsTr("Choisissez un modèle pour l'exploration : le relevé de cet exécutant n'en désigne aucun par défaut.")
-                            : ""
+                        visible: formulaire.f.avecExploration && !formulaire.f.routageAutomatique
+                        spacing: Space.space3
+                        Text {
+                            text: qsTr("Exploration du dépôt")
+                            textFormat: Text.PlainText
+                            color: Colors.textPrimary
+                            font.family: Type.panelTitle.family
+                            font.pixelSize: Type.panelTitle.pixelSize
+                            font.weight: Type.panelTitle.weight
+                        }
+                        Discret {
+                            text: qsTr("Le poste lit le dépôt, sans rien y modifier, avant la planification.")
+                        }
+                        Discret {
+                            text: qsTr("Exécutant")
+                            color: Colors.textSecondary
+                        }
+                        ComboBox {
+                            id: voieChoix
+                            objectName: "projets-champ-voie"
+                            Layout.fillWidth: true
+                            model: formulaire.f.voies
+                            textRole: "libelle"
+                            valueRole: "valeur"
+                            currentIndex: Math.max(0, indexOfValue(formulaire.f.voie))
+                            Accessible.name: qsTr("Exécutant")
+                            onActivated: Projets.choisirVoie(currentValue)
+                            // Étape P7 : un exécutant fermé pour le dépôt choisi est grisé, jamais choisissable.
+                            delegate: ItemDelegate {
+                                required property var modelData
+                                required property int index
+                                objectName: "projets-voie-option-" + modelData.valeur
+                                width: voieChoix.width
+                                text: modelData.libelle
+                                enabled: !modelData.fermee
+                                highlighted: voieChoix.highlightedIndex === index
+                            }
+                        }
+                        Repeater {
+                            model: formulaire.f.voiesFermees || []
+                            delegate: Discret {
+                                required property var modelData
+                                objectName: "projets-voie-fermee"
+                                text: modelData
+                            }
+                        }
+                        Alerte {
+                            objectName: "projets-aucune-voie-ouverte"
+                            text: formulaire.f.aucuneVoieOuverte === true ? qsTr("Aucun exécutant ouvert pour ce dépôt. Le lancement sera refusé tant que ses prérequis ne sont pas réunis.") : ""
+                        }
+                        Discret {
+                            text: qsTr("Modèle")
+                            color: Colors.textSecondary
+                        }
+                        ComboBox {
+                            id: modeleChoix
+                            objectName: "projets-champ-modele"
+                            Layout.fillWidth: true
+                            model: [formulaire.f.libelleModeleVide].concat(formulaire.f.modeles)
+                            currentIndex: formulaire.f.modele.length > 0 ? formulaire.f.modeles.indexOf(formulaire.f.modele) + 1 : 0
+                            Accessible.name: qsTr("Modèle")
+                            onActivated: function (index) {
+                                Projets.choisirModele(index === 0 ? "" : formulaire.f.modeles[index - 1]);
+                            }
+                        }
+                        Discret {
+                            text: qsTr("Effort")
+                            color: Colors.textSecondary
+                        }
+                        ComboBox {
+                            id: effortChoix
+                            objectName: "projets-champ-effort"
+                            Layout.fillWidth: true
+                            model: [qsTr("Par défaut")].concat(formulaire.f.efforts)
+                            Accessible.name: qsTr("Effort")
+                            onModelChanged: currentIndex = 0
+                        }
+                        Discret {
+                            text: qsTr("Relevé du %1").arg(formulaire.f.releveDu)
+                        }
+                        Alerte {
+                            text: formulaire.f.relevePerime ? qsTr("Relevé périmé : le poste doit publier un nouvel inventaire.") : ""
+                        }
+                        Alerte {
+                            text: formulaire.f.modeleExige ? qsTr("Choisissez un modèle pour l'exploration : le relevé de cet exécutant n'en désigne aucun par défaut.") : ""
+                        }
                     }
                 }
 
@@ -743,11 +1228,11 @@ Item {
                     primary: true
                     label: Projets.gesteEnCours ? qsTr("Envoi…") : qsTr("Lancer le projet")
                     manualEnabled: formulaire.f.pret && formulaire.complet && !Projets.gesteEnCours
-                    onTriggered: Projets.lancer(titreChamp.text, objectifChamp.text, profilChoix.currentValue,
-                                                formulaire.reponses,
-                                                effortChoix.currentIndex > 0 ? formulaire.f.efforts[effortChoix.currentIndex - 1] : "")
+                    onTriggered: Projets.lancer(titreChamp.text, objectifChamp.text, profilChoix.currentValue, formulaire.reponses, effortChoix.currentIndex > 0 ? formulaire.f.efforts[effortChoix.currentIndex - 1] : "")
                 }
-                Item { Layout.preferredHeight: Space.space6 }
+                Item {
+                    Layout.preferredHeight: Space.space6
+                }
             }
         }
     }
@@ -756,7 +1241,7 @@ Item {
     Connections {
         target: Projets
         function onCarteLueChange() {
-            if ((Projets.carteLue.carte || "").length > 0)
+            if (page.visible && Projets.vue === "detail" && (Projets.carteLue.carte || "").length > 0)
                 carteEntiere.open();
             else
                 carteEntiere.close();
@@ -778,8 +1263,13 @@ Item {
             ColumnLayout {
                 width: parent.width
                 spacing: Space.space3
-                Discret { visible: Projets.carteLue.chargement === true; text: qsTr("Chargement…") }
-                Alerte { text: Projets.carteLue.erreur || "" }
+                Discret {
+                    visible: Projets.carteLue.chargement === true
+                    text: qsTr("Chargement…")
+                }
+                Alerte {
+                    text: Projets.carteLue.erreur || ""
+                }
                 Discret {
                     visible: (Projets.carteLue.statut || "").length > 0
                     text: qsTr("Statut : %1 · %2 caractères").arg(Projets.carteLue.statut || "").arg(Projets.carteLue.longueur || "")
@@ -790,7 +1280,10 @@ Item {
                     texte: Projets.carteLue.resume || ""
                     vide: qsTr("Aucun résumé pour cette carte.")
                 }
-                Discret { visible: (Projets.carteLue.borne || "").length > 0; text: Projets.carteLue.borne || "" }
+                Discret {
+                    visible: (Projets.carteLue.borne || "").length > 0
+                    text: Projets.carteLue.borne || ""
+                }
             }
         }
         footer: DialogButtonBox {

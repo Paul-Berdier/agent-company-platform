@@ -28,6 +28,7 @@ import re
 import subprocess
 import sys
 from pathlib import Path
+from urllib.parse import urlsplit
 
 DESKTOP_ROOT = Path(__file__).resolve().parents[1]
 REPO_ROOT = DESKTOP_ROOT.parents[1]
@@ -48,15 +49,42 @@ FORBIDDEN_PATTERNS = [
 
 #: Chemins absolus interdits dans les sources versionnées.
 ABSOLUTE_PATH_PATTERNS = [
-    re.compile(r"[\"'][A-Za-z]:[\\/]"),
-    re.compile(r"[\"']/(usr|home|opt|Users)/"),
+    re.compile(r"[\"'](?P<path>[A-Za-z]:[\\/][^\"'\r\n]*)[\"']"),
+    re.compile(r"[\"'](?P<path>/(?:usr|home|opt|Users)/[^\"'\r\n]*)[\"']"),
 ]
+
+# Valeurs exactes des scénarios de test, pas des chemins d'installation de la station.
+# Aucune exemption globale des tests : un nouveau chemin local arbitraire reste signalé.
+ABSOLUTE_PATH_FIXTURES = {
+    "tests/cpp/tst_pages_bureau.cpp": {"/opt/data/backups/hermes-backup-essai.zip"},
+    "tests/cpp/tst_sauvegarde.cpp": {
+        "/opt/data/backups/hermes-backup-2026-10-02-101500-ab12cd34.zip",
+        "C:/Sauvegardes/h.acpb",
+    },
+    "tests/e2e/e2e_desktop_windows.py": {
+        "/opt/hermes/.venv/bin/python",
+        "/opt/acp-tests/outils/poste_simule.py",
+        "/opt/acp-tests/outils/modele_factice.py",
+        "/opt/acp-tests/ac/ac.pem",
+    },
+}
+
+# Le test pur de validateRelease vérifie l'acceptation d'une publication et le refus de
+# HTTP, d'un autre dépôt et d'un userinfo. Aucune de ces quatre URL n'est appelée.
+NETWORK_URL_FIXTURES = {
+    "tests/cpp/tst_updates.cpp": {
+        "https://github.com/Paul-Berdier/agent-company-platform/releases/tag/v0.10.0",
+        "http://github.com/Paul-Berdier/agent-company-platform/releases/tag/v0.10.0",
+        "https://github.com/other/repo/releases/tag/v0.10.0",
+        "https://user@github.com/Paul-Berdier/agent-company-platform/releases/tag/v0.10.0",
+    },
+}
 
 
 #: Répertoires de sortie locale, ignorés par git (apps/desktop/.gitignore) : ils contiennent
 #: des fichiers engendrés par CMake, avec des chemins absolus du poste, qui ne sont pas des
 #: sources. Les inclure ferait échouer ce script sur tout poste qui a compilé.
-EXCLUDED_DIRECTORIES = {"build"}
+EXCLUDED_DIRECTORIES = {"build", "atelier-local"}
 
 
 def desktop_files(pattern: str) -> list[Path]:
@@ -245,6 +273,12 @@ def check_tokens(findings: Findings) -> None:
         except json.JSONDecodeError as error:
             findings.add(f"{path.relative_to(REPO_ROOT).as_posix()} : JSON invalide ({error})")
             continue
+        if path.name == "desktop-palettes.json":
+            families = document.get("families", {})
+            if set(families) != {"pixel", "studio"}:
+                findings.add("desktop-palettes.json : familles pixel/studio manquantes")
+            # Le générateur ci-dessous valide les variantes et tous leurs jetons.
+            continue
         if "tokens" not in document:
             findings.add(
                 f"{path.relative_to(REPO_ROOT).as_posix()} : objet « tokens » manquant"
@@ -291,11 +325,16 @@ def check_file_contents(findings: Findings) -> None:
             if pattern.search(text):
                 findings.add(f"{relative} : motif interdit détecté ({label})")
 
-        # Les chemins absolus sont refusés partout : ils rendent un projet inconfigurable
-        # ailleurs que sur le poste qui les a écrits.
+        # Un chemin du poste compromet la portabilité. Les seules exceptions sont les
+        # valeurs exactes, sans accès disque local, des scénarios de sauvegarde/conteneur.
+        fixture_paths = ABSOLUTE_PATH_FIXTURES.get(path.relative_to(DESKTOP_ROOT).as_posix(), set())
+        if path.relative_to(DESKTOP_ROOT).as_posix() == "cmake/check_layout.py":
+            # Les déclarations de cette liste blanche ne sont pas des accès disque.
+            fixture_paths = set().union(*ABSOLUTE_PATH_FIXTURES.values())
         for pattern in ABSOLUTE_PATH_PATTERNS:
             for match in pattern.finditer(text):
-                findings.add(f"{relative} : chemin absolu littéral ({match.group(0)})")
+                if match.group("path") not in fixture_paths:
+                    findings.add(f"{relative} : chemin absolu littéral ({match.group('path')})")
 
         if path.suffix in {".cpp", ".h", ".qml"} and "\t" in text:
             findings.add(f"{relative} : tabulation dans un fichier source")
@@ -311,9 +350,10 @@ def check_no_hardcoded_origin(findings: Findings) -> None:
     adresses de bouclage des tests, et les domaines réservés ``.invalid`` (exemples) et
     ``.test`` (pile de test : ``hermes-acp.test``, ``identite-acp.test``), réservés par
     RFC 2606 et RFC 6761 — qui, par définition, ne résolvent jamais publiquement.
+    Les URL exactes du test pur de validateRelease sont exemptées dans ce seul fichier.
     """
 
-    url_pattern = re.compile(r"https?://([A-Za-z0-9.-]+)")
+    url_pattern = re.compile(r"https?://[^\s\"'<>]+")
     allowed_hosts = {
         "doc.qt.io",
         "learn.microsoft.com",
@@ -326,11 +366,25 @@ def check_no_hardcoded_origin(findings: Findings) -> None:
         if not path.is_file() or path.suffix not in {".cpp", ".h", ".qml", ".json", ".txt"}:
             continue
         relative = path.relative_to(REPO_ROOT).as_posix()
+        desktop_relative = path.relative_to(DESKTOP_ROOT).as_posix()
+        fixture_urls = NETWORK_URL_FIXTURES.get(desktop_relative, set())
         for match in url_pattern.finditer(path.read_text(encoding="utf-8")):
-            host = match.group(1)
-            if host in allowed_hosts or host.lower().endswith((".invalid", ".test")):
+            literal = match.group(0)
+            if literal in fixture_urls:
                 continue
-            findings.add(f"{relative} : origine réseau codée en dur ({host})")
+            # Les tests de rappel contiennent aussi une URL dans une expression régulière
+            # C++/Python. Seuls ses points échappés sont normalisés, jamais une URL produit.
+            parsed_literal = re.sub(r"\\+\.", ".", literal) if desktop_relative.startswith("tests/") else literal
+            try:
+                host = urlsplit(parsed_literal).hostname
+            except ValueError:
+                host = None
+            if not host:
+                findings.add(f"{relative} : origine réseau illisible ({literal})")
+            elif host in allowed_hosts or host.endswith((".invalid", ".test")):
+                continue
+            else:
+                findings.add(f"{relative} : origine réseau codée en dur ({host})")
 
 
 # --- Point d'entrée -----------------------------------------------------------

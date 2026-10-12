@@ -16,21 +16,30 @@ Rectangle {
 
     color: Colors.surfaceCanvas
 
-    Loader {
-        anchors.fill: parent
-        sourceComponent: {
-            switch (Navigation.currentRoute) {
-            case "home": return homeComponent;
-            case "projects": return projectsComponent;
-            case "questions": return questionsComponent;
-            case "chat": return discussionComponent;
-            case "station": return posteComponent;
-            case "quotas": return quotasComponent;
-            case "routing": return routageComponent;
-            case "backup": return sauvegardeComponent;
-            case "diagnostics": return diagnosticsComponent;
-            case "settings": return settingsComponent;
-            default: return unknownComponent;
+    Repeater {
+        model: ["home", "projects", "questions", "chat", "station", "quotas", "routing", "backup", "diagnostics", "settings"]
+        delegate: Loader {
+            required property string modelData
+            property bool visited: false
+            anchors.fill: parent
+            visible: Navigation.currentRoute === modelData
+            active: visited
+            onVisibleChanged: if (visible) visited = true
+            Component.onCompleted: if (visible) visited = true
+            sourceComponent: {
+                switch (modelData) {
+                case "home": return homeComponent;
+                case "projects": return projectsComponent;
+                case "questions": return questionsComponent;
+                case "chat": return discussionComponent;
+                case "station": return posteComponent;
+                case "quotas": return quotasComponent;
+                case "routing": return routageComponent;
+                case "backup": return sauvegardeComponent;
+                case "diagnostics": return diagnosticsComponent;
+                case "settings": return settingsComponent;
+                default: return unknownComponent;
+                }
             }
         }
     }

@@ -16,11 +16,14 @@ from __future__ import annotations
 import json
 import os
 import stat
+import tomllib
 from pathlib import Path
 
 from conftest import env_processus, executer_python, installer_home_de_test
 
 GREFFONS = Path("/opt/hermes/plugins")
+# Source indépendante des manifestes et des bannières vérifiés, gardée par check_version.py.
+VERSION_ACP = tomllib.loads((GREFFONS / "acp-poste" / "contrat" / "pyproject.toml").read_text(encoding="utf-8"))["project"]["version"]
 NOMS_ACP = ("acp-interface", "acp-catalogue", "acp-projets", "acp-poste-vues", "acp-discussion")
 
 CONFIG_PIEGEE = """\
@@ -62,10 +65,10 @@ def test_fichiers_des_greffons_root_0644_sans_code_serveur():
             attendu = 0o755 if stat.S_ISDIR(st.st_mode) else 0o644
             assert st.st_uid == 0 and st.st_gid == 0 and stat.S_IMODE(st.st_mode) == attendu, chemin
         manifeste = json.loads((racine / "dashboard" / "manifest.json").read_text(encoding="utf-8"))
-        assert manifeste["name"] == nom and manifeste["version"] == "1.0.1"
+        assert manifeste["name"] == nom and manifeste["version"] == VERSION_ACP
         assert "api" not in manifeste
         code = (racine / "dashboard" / "dist" / "index.js").read_text(encoding="utf-8")
-        assert code.startswith(f"/* {nom} 1.0.1 (ACP)")
+        assert code.startswith(f"/* {nom} {VERSION_ACP} (ACP)")
 
 
 def test_hermes_decouvre_et_sert_les_greffons_d_acp_malgre_un_volume_piege(chemins, valeurs):

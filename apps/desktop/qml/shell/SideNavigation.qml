@@ -109,71 +109,81 @@ Rectangle {
 
     ColumnLayout {
         anchors.fill: parent
-        anchors.topMargin: Space.space3
-        anchors.bottomMargin: Space.space3
-        spacing: Space.space1
-        NavEntry {
-            Layout.fillWidth: true
-            objectName: "navigation-home"
-            label: qsTr("Accueil"); iconName: "grid"
-            selected: Navigation.currentRoute === "home"
-            onActivated: Navigation.setCurrentRoute("home")
-        }
-        ScrollView {
-            id: scroll
-            Layout.fillWidth: true
-            Layout.fillHeight: true
-            clip: true
-            contentWidth: availableWidth
-            ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
-            Column {
-                width: scroll.availableWidth
-                spacing: Space.space1
-                SectionLabel { width: parent.width; text: qsTr("PILOTAGE") }
-                Repeater {
-                    model: [
-                        {route: "projects", label: qsTr("Projets"), icon: "folder"},
-                        {route: "questions", label: qsTr("Questions"), icon: "chat"},
-                        {route: "chat", label: qsTr("Discussion"), icon: "chat"},
-                        {route: "station", label: qsTr("Poste"), icon: "grid"},
-                        {route: "quotas", label: qsTr("Quotas"), icon: "gauge"},
-                        {route: "routing", label: qsTr("Routage"), icon: "code"},
-                        {route: "backup", label: qsTr("Sauvegarde"), icon: "archive"},
-                        {route: "office", label: qsTr("Bureau de département"), icon: "grid"}
-                    ]
-                    delegate: NavEntry {
-                        required property var modelData
-                        width: parent.width
-                        objectName: "navigation-" + modelData.route
-                        label: modelData.label; iconName: modelData.icon
-                        selected: Navigation.currentRoute === modelData.route
-                        actionable: Navigation.isNavigable(modelData.route)
-                        compteur: modelData.route === "questions" ? Streams.aTraiter : 0
-                        // Le nom accessible dit ce que le total compte : discussions comprises quand elles sont lues.
-                        compteurDescription: modelData.route === "questions" ? Streams.descriptionATraiter : ""
-                        explanation: actionable ? "" : Navigation.detailFor(modelData.route)
-                        onActivated: Navigation.setCurrentRoute(modelData.route)
-                    }
-                }
+        anchors.topMargin: Space.space5; anchors.bottomMargin: Space.space4
+        spacing: Space.space2
+        RowLayout {
+            Layout.fillWidth: true; Layout.leftMargin: Space.space5; Layout.bottomMargin: Space.space5
+            AtelierMark { Layout.preferredWidth: 36; Layout.preferredHeight: 28 }
+            ColumnLayout {
+                visible: !navigation.collapsed; spacing: 1
+                Text { text: "ACP"; color: Colors.textPrimary; font.family: Type.panelTitle.family; font.pixelSize: 18; font.weight: Font.DemiBold }
+                Text { text: qsTr("Votre atelier de développement"); color: Colors.textMuted; font.family: Type.metadata.family; font.pixelSize: 11 }
             }
         }
-        Rectangle {
-            Layout.fillWidth: true; Layout.leftMargin: Space.space5; Layout.rightMargin: Space.space5
-            height: 1; color: Colors.borderSubtle
+        NavEntry {
+            Layout.fillWidth: true; label: qsTr("Rechercher"); iconName: "search"
+            explanation: qsTr("Commandes et navigation · Ctrl+K")
+            onActivated: Commands.execute("palette.open")
         }
         NavEntry {
-            Layout.fillWidth: true
-            objectName: "navigation-diagnostics"
-            label: qsTr("Diagnostics"); iconName: "activity"
-            selected: Navigation.currentRoute === "diagnostics"
-            onActivated: Navigation.setCurrentRoute("diagnostics")
+            objectName: "navigation-new-project"; Layout.fillWidth: true
+            label: qsTr("Nouveau projet"); iconName: "plus"
+            onActivated: { Projets.afficherNouveau(); Navigation.setCurrentRoute("projects"); }
+        }
+        Rectangle { Layout.fillWidth: true; Layout.margins: Space.space4; implicitHeight: 1; color: Colors.borderSubtle }
+        NavEntry {
+            Layout.fillWidth: true; objectName: "navigation-home"
+            label: qsTr("Mon atelier"); iconName: "grid"; selected: Navigation.currentRoute === "home"
+            onActivated: Navigation.setCurrentRoute("home")
         }
         NavEntry {
-            Layout.fillWidth: true
-            objectName: "navigation-settings"
+            Layout.fillWidth: true; objectName: "navigation-questions"
+            label: qsTr("À traiter"); iconName: "activity"; selected: Navigation.currentRoute === "questions"
+            compteur: Streams.aTraiter; compteurDescription: Streams.descriptionATraiter
+            onActivated: Navigation.setCurrentRoute("questions")
+        }
+        NavEntry {
+            Layout.fillWidth: true; objectName: "navigation-chat"
+            label: qsTr("Discussions"); iconName: "chat"; selected: Navigation.currentRoute === "chat"
+            onActivated: Navigation.setCurrentRoute("chat")
+        }
+        SectionLabel { Layout.fillWidth: true; text: qsTr("PROJETS") }
+        NavEntry {
+            Layout.fillWidth: true; objectName: "navigation-projects"
+            label: qsTr("Tous les projets"); iconName: "folder"
+            selected: Navigation.currentRoute === "projects" && Projets.vue === "liste"
+            onActivated: { Projets.afficherListe(); Navigation.setCurrentRoute("projects"); }
+        }
+        ListView {
+            id: projectList
+            Layout.fillWidth: true; Layout.fillHeight: true; clip: true
+            model: Projets.listeLue ? Projets.projets : Accueil.projetsEnCours; spacing: Space.space1
+            ScrollBar.vertical: ScrollBar {}
+            delegate: NavEntry {
+                required property var item
+                width: projectList.width; label: item.titre; iconName: "folder"; explanation: item.etatLibelle
+                selected: Navigation.currentRoute === "projects" && Projets.projetOuvert === item.id && Projets.vue === "detail"
+                onActivated: { Projets.ouvrirProjet(item.id); Navigation.setCurrentRoute("projects"); }
+            }
+            Text {
+                anchors.left: parent.left; anchors.right: parent.right; anchors.top: parent.top; anchors.margins: Space.space5
+                visible: !navigation.collapsed && projectList.count === 0
+                text: Projets.listeLue ? qsTr("Vos projets apparaîtront ici.") : qsTr("Ouvrez vos projets pour les retrouver ici.")
+                color: Colors.textMuted; font.family: Type.metadata.family; font.pixelSize: Type.metadata.pixelSize; wrapMode: Text.WordWrap
+            }
+        }
+        Rectangle { Layout.fillWidth: true; Layout.leftMargin: Space.space5; Layout.rightMargin: Space.space5; implicitHeight: 1; color: Colors.borderSubtle }
+        NavEntry {
+            Layout.fillWidth: true; objectName: "navigation-settings"
             label: qsTr("Réglages"); iconName: "settings"
-            selected: Navigation.currentRoute === "settings"
+            selected: ["settings", "station", "quotas", "routing", "backup", "diagnostics"].indexOf(Navigation.currentRoute) >= 0
             onActivated: Navigation.setCurrentRoute("settings")
+        }
+        Text {
+            Layout.fillWidth: true; Layout.leftMargin: Space.space5; Layout.rightMargin: Space.space4
+            visible: !navigation.collapsed
+            text: Colors.variantLabel
+            color: Colors.textMuted; font.family: Type.metadata.family; font.pixelSize: 11; elide: Text.ElideRight
         }
     }
 }
