@@ -2,7 +2,7 @@
 
 La page native **Outils** lit le catalogue du Hermes auquel la session est connectée. La recherche porte sur les noms, descriptions, profils et états ; les filtres séparent skills, MCP et sources étudiées. Une erreur conserve la dernière lecture datée. La déconnexion ou le changement de serveur l’efface.
 
-Une skill « Texte chargé » est trouvée par le chargeur de Hermes. Ce statut ne confirme ni l’installation d’un logiciel tiers, ni un compte fournisseur, ni l’utilisation du texte dans une tâche donnée. Un serveur MCP n’est dit connecté que lorsque le catalogue publie sa connexion. Le registre embarqué des neuf sources ne sonde aucun service externe.
+Une skill « Texte chargé » est trouvée par le chargeur de Hermes. Ce statut ne confirme ni l’installation d’un logiciel tiers, ni un compte fournisseur, ni l’utilisation du texte dans une tâche donnée. Un serveur MCP n’est dit connecté que lorsque le catalogue publie sa connexion. Le registre embarqué des dix sources ne sonde aucun service externe.
 
 **Préparer une consigne** ajoute un texte au brouillon de Discussion, sans l’envoyer. Le brouillon existant est conservé. La Discussion reste globale : cette action ne rattache pas une conversation à un projet. Le choix du profil au lancement d’un projet détermine les adaptations textuelles associées aux classes de tâches ; leur présence dans un profil n’est pas une preuve d’exécution. Les permissions, fournisseurs et quotas restent régis par ACP.
 

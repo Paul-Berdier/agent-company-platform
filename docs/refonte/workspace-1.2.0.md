@@ -132,6 +132,13 @@ transforme pas les neuf dépôts en services déjà déployés.
 
 ## Mettre à jour une ancienne installation
 
+Cette version étend la base du greffon avec trois tables `coffres_*` et un index,
+créés à la première utilisation du coffre. Elle ne modifie pas les tables existantes
+et ne change pas l’épingle amont de Hermes. Pour une instance déployée depuis `main`,
+la fusion peut déclencher sa mise à jour : appliquer la pause, les sauvegardes des
+volumes et l’export chiffré décrits au [§ 6.4 du manuel](../exploitation.md#64-vos-gestes-et-le-point-de-non-retour)
+avant cette transition. Ces gestes sur l’instance personnelle restent ceux du propriétaire.
+
 1. Sauvegarder les brouillons utiles hors d’ACP, puis fermer le desktop et le lanceur du coffre s’il est ouvert.
 2. Exécuter le Setup 1.2.0 fourni à la livraison ; conserver l’URL Hermes habituelle.
 3. Rouvrir ACP. Si la session d’identité a expiré, suivre **Se connecter**. Les
