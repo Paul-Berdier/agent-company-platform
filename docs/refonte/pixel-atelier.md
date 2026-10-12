@@ -142,7 +142,7 @@ Les résultats suivants sont établis sur le lot fonctionnel 1.1.0, le 12 octobr
 | --- | --- | --- |
 | Moteur Pixel Office gelé | **74 tests réussis**, 7 fichiers | `engine-tests-1.1.0.log` |
 | Interface web Hermes | **204 tests réussis**, 21 fichiers | `interface-tests-1.1.0.log` |
-| Station native Qt | **36/36 suites CTest réussies**, 116,78 s | `desktop-tests-validated-1.1.0.log` |
+| Station native Qt | **36/36 suites CTest réussies**, 105,18 s | `desktop-tests-guides-final-1.1.0.log` |
 | Image Hermes, routage et planification ciblés | **87 tests réussis** | `hermes-routing-1.1.0.log` |
 | Image Hermes, observations et routes projet ciblées | **20 tests réussis** | `hermes-observations-1.1.0.log` |
 
@@ -188,13 +188,13 @@ La chaîne `package-desktop.ps1 -DryRun` a produit le 12 octobre 2026, dans
 `dist/pixel-atelier-1.1.0/`, un installeur Inno Setup et une archive portable avec
 les DLL Qt et MSVC. Le build local embarque le décor LimeZu licencié ; le paquet CI
 public utilise le décor original ACP. Les binaires locaux sont **non signés** et
-l'installeur n'a pas été exécuté. Le journal est `package-1.1.0.log` dans le dossier
+l'installeur n'a pas été exécuté. Le journal est `package-guides-final-1.1.0.log` dans le dossier
 de vérification. Les deux fichiers finaux ont été relus pour vérifier ces SHA-256 :
 
 | Fichier | Taille (octets) | SHA-256 |
 | --- | ---: | --- |
-| `AgentCompanyPlatform-Setup-1.1.0-x64.exe` | 24663458 | `ad5cf04a39847e9f7f365a9dd6f583a42407a9d456bf06fa846baef3ff65a784` |
-| `AgentCompanyPlatform-Portable-1.1.0-x64.zip` | 37627473 | `ff95c378d591c3245f71a3621fc03607390604b032a065cec7ba7b007ea0ae6e` |
+| `AgentCompanyPlatform-Setup-1.1.0-x64.exe` | 24659455 | `48220ebb949da7753014c421bcc649c5bebccd1be6cb6a82feaa173e4750ddac` |
+| `AgentCompanyPlatform-Portable-1.1.0-x64.zip` | 37627987 | `74292906c6ae7a0492e9f83448508a84cf8799f63ff3ab7b55115591ce9356c4` |
 
 Ces empreintes appartiennent à ce build local uniquement. Elles ne décrivent ni les
 anciens aperçus ni les artefacts GitHub fabriqués depuis les sources fusionnées.
@@ -209,3 +209,16 @@ ne sont pas comptés comme réussis. Les suites Linux et les images complètes r
 (`python-runner-final-startup-1.1.0.log`). Le budget de démarrage des Python imbriqués
 est distinct du budget d'arrêt du produit, inchangé. Les échecs des passages
 intermédiaires sont conservés dans leurs journaux ; ils ne servent pas de preuve verte.
+
+### Relecture du parcours de récupération
+
+La relecture finale a fait corriger la clôture des accès Railway dans les guides
+(nouveau rappel, sans exécution ni commande de compte copiable) et la résolution
+des chemins du bundle et du dossier de revue avant les commandes `git -C`.
+Les 36 suites Qt ont été rejouées après ce changement : toutes réussies en 105,18 s.
+Les blocs documentaires de contrôle SHA-256, d'import et de création du worktree
+ont également été exécutés sous PowerShell 7 et Windows PowerShell 5.1, sur des
+dépôts jetables : bundle relatif avec espaces et crochets, clone dans un autre
+dossier, tête importée et emplacement du worktree vérifiés. Journaux
+`recuperation-chemins-1.1.0.log` et `recuperation-chemins-powershell51-1.1.0.log`.
+Aucun SSH, compte fournisseur ou accès Railway réel n'a été utilisé pour cet essai.

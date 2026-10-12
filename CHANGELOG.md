@@ -28,6 +28,8 @@ interfaces que nomme la section 1.0.0 (D130), et une rupture de l'une d'elles ap
 
 ### Corrigé
 
+- Chemins du bundle et du dossier de revue résolus avant les commandes Git de récupération, même si le clone
+  se trouve dans un autre dossier ; séparation explicite des options de `git fetch`.
 - Réponses réseau obsolètes du formulaire et des résumés ignorées après une autre lecture, navigation ou déconnexion.
 - Suivi de la fin d'une nouvelle discussion sans forcer le retour en bas lors de la lecture de son historique.
 - Preuve d'arrêt Windows : délais et refus transitoires ne restent plus des échecs lorsque la convergence finale
@@ -40,12 +42,15 @@ interfaces que nomme la section 1.0.0 (D130), et une rupture de l'une d'elles ap
 - Observations liées à la carte, au run et au verrou de machine vérifiés, avec liste fermée de métadonnées et
   masquage ; lecture bornée à une exécution. Aucune sortie brute ni fichier distant arbitraire n'est exposé.
 - Les guides ne copient pas une commande reçue du serveur ; identifiants contrôlés, clé SSH dédiée à compléter.
+  Les parcours Railway rappellent le retrait de cette clé, le contrôle de la liste vide et la déconnexion après usage.
 - Tous les handles de processus doivent être signalés pour prouver l'arrêt. Erreurs API, descendants nouveaux et
   processus non arrêtés restent des refus ; aucune garde de l'exécutant n'est désactivée.
 
 ### Vérifié localement
 
 - Compilation Qt 6.8.3 / MSVC 2022 ; parcours natifs sur serveur factice et captures des quatre variantes.
+- Parcours documentaire hash/import/worktree exécuté sur dépôts jetables sous PowerShell 7 et 5.1, avec chemins
+  relatifs, espaces et crochets ; 36 suites Qt rejouées après la relecture des guides.
 - 74 tests du moteur gelé et 204 tests des greffons web réussis ; bundles régénérés pour 1.1.0.
 - 107 tests ciblés dans l'image Hermes épinglée : routage, planification, observations et routes projet.
 - Suite Python complète Windows : **1 280 tests et 464 sous-tests réussis**, 106 ignorés selon plateforme,
