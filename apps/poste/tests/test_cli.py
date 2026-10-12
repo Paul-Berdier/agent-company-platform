@@ -9,6 +9,7 @@ import sys
 
 import pytest
 
+from acp_poste import __version__
 from acp_poste.cli import main
 from acp_poste.journal import Journal
 from acp_poste_contrat.inventaire import valider_inventaire
@@ -24,7 +25,7 @@ def test_commandes_de_l_ancienne_api_absentes(commande: str):
 def test_version(capsys):
     with pytest.raises(SystemExit) as fin:
         main(["--version"])
-    assert fin.value.code == 0 and capsys.readouterr().out.strip() == "acp-poste 1.0.1"
+    assert fin.value.code == 0 and capsys.readouterr().out.strip() == f"acp-poste {__version__}"
 
 
 @pytest.mark.parametrize("argv, attendu", [

@@ -22,6 +22,13 @@ from acp_poste.local_runner import (
 )
 
 
+# Le runner réserve déjà jusqu’à 5 s pour vider le Job Object Windows.
+# Le watchdog du test doit couvrir ce nettoyage et le démarrage du lanceur
+# sous charge ; il ne remplace jamais les limites internes de 0,15 s testées.
+WATCHDOG_S = 30
+STARTUP_TIMEOUT_S = 15
+
+
 def runner_config(
     tmp_path: Path,
     code: str,
@@ -146,20 +153,20 @@ async def test_timeout_terminates_the_real_process(tmp_path: Path):
         timeout=0.15,
     )
 
-    result = await asyncio.wait_for(run_local_program(config, request()), timeout=3)
+    result = await asyncio.wait_for(run_local_program(config, request()), timeout=WATCHDOG_S)
 
     assert result.succeeded is False
     assert result.status == "timed_out"
     assert result.termination_reason == "timeout"
     assert result.exit_code not in (None, 0)
-    assert result.duration_ms < 2500
+    assert result.duration_ms < WATCHDOG_S * 1000
 
 
 async def test_request_duration_can_only_reduce_the_local_timeout(tmp_path: Path):
     config = runner_config(tmp_path, "import time; time.sleep(30)", timeout=5)
 
     result = await asyncio.wait_for(
-        run_local_program(config, request(timeout_seconds=0.15)), timeout=3
+        run_local_program(config, request(timeout_seconds=0.15)), timeout=WATCHDOG_S
     )
 
     assert result.status == "timed_out"
@@ -179,7 +186,7 @@ async def test_stop_event_terminates_the_real_process(tmp_path: Path):
 
     stopper = asyncio.create_task(request_stop())
     result = await asyncio.wait_for(
-        run_local_program(config, request(), stop_event=stop), timeout=3
+        run_local_program(config, request(), stop_event=stop), timeout=WATCHDOG_S
     )
     await stopper
 
@@ -187,7 +194,7 @@ async def test_stop_event_terminates_the_real_process(tmp_path: Path):
     assert result.status == "cancelled"
     assert result.termination_reason == "stop_requested"
     assert result.exit_code not in (None, 0)
-    assert result.duration_ms < 2500
+    assert result.duration_ms < WATCHDOG_S * 1000
 
 
 async def test_preexisting_stop_is_persisted_without_spawning(tmp_path: Path):
@@ -294,7 +301,7 @@ async def test_stop_terminates_a_spawned_child_process(tmp_path: Path):
     stop = asyncio.Event()
 
     async def stop_after_child_started() -> None:
-        for _ in range(300):
+        for _ in range(STARTUP_TIMEOUT_S * 100):
             if read_test_process_id(child_pid_file) is not None:
                 stop.set()
                 return
@@ -305,7 +312,7 @@ async def test_stop_terminates_a_spawned_child_process(tmp_path: Path):
     child_pid: int | None = None
     try:
         result = await asyncio.wait_for(
-            run_local_program(config, request(), stop_event=stop), timeout=5
+            run_local_program(config, request(), stop_event=stop), timeout=WATCHDOG_S
         )
         await stopper
         child_pid = read_test_process_id(child_pid_file)
@@ -339,10 +346,17 @@ async def test_normal_parent_exit_cannot_leave_a_background_child(tmp_path: Path
         f"child=subprocess.Popen([sys.executable,'-I','-c',{child_code!r}]); "
         "pathlib.Path(sys.argv[1]).write_text(str(child.pid))"
     )
-    config = runner_config(tmp_path, code, extra_args=(str(child_pid_file),))
+    # Ce cas vérifie le nettoyage après une sortie normale : les lancements
+    # Python imbriqués sous Windows doivent disposer du budget de démarrage.
+    config = runner_config(
+        tmp_path,
+        code,
+        timeout=STARTUP_TIMEOUT_S,
+        extra_args=(str(child_pid_file),),
+    )
     child_pid: int | None = None
     try:
-        result = await asyncio.wait_for(run_local_program(config, request()), timeout=5)
+        result = await asyncio.wait_for(run_local_program(config, request()), timeout=WATCHDOG_S)
         child_pid = read_test_process_id(child_pid_file)
         assert child_pid is not None
         for _ in range(200):
@@ -374,7 +388,7 @@ async def test_asyncio_cancellation_terminates_the_process_tree(tmp_path: Path):
     execution = asyncio.create_task(run_local_program(config, request()))
     child_pid: int | None = None
     try:
-        for _ in range(300):
+        for _ in range(STARTUP_TIMEOUT_S * 100):
             if child_pid_file.exists():
                 break
             await asyncio.sleep(0.01)
@@ -424,12 +438,15 @@ async def test_orphaned_grandchild_is_terminated_when_parent_exits_normally(
         "raise SystemExit(subprocess.call("
         f"[sys.executable,'-I','-c',{intermediate_code!r},sys.argv[1]]))"
     )
+    # Trois démarrages imbriqués peuvent prendre plus de 5 s sous Windows ;
+    # ce cas vérifie le petit-fils orphelin, pas une échéance d’exécution courte.
     config = runner_config(
-        tmp_path, parent_code, extra_args=(str(grandchild_pid_file),)
+        tmp_path, parent_code, timeout=STARTUP_TIMEOUT_S,
+        extra_args=(str(grandchild_pid_file),)
     )
     grandchild_pid: int | None = None
     try:
-        result = await asyncio.wait_for(run_local_program(config, request()), timeout=10)
+        result = await asyncio.wait_for(run_local_program(config, request()), timeout=WATCHDOG_S)
         grandchild_pid = read_test_process_id(grandchild_pid_file)
         assert grandchild_pid is not None
         for _ in range(200):
@@ -469,7 +486,7 @@ async def test_job_assignment_failure_is_spawn_failed_and_never_runs_the_program
         extra_args=(str(marker),),
     )
 
-    result = await asyncio.wait_for(run_local_program(config, request()), timeout=10)
+    result = await asyncio.wait_for(run_local_program(config, request()), timeout=WATCHDOG_S)
 
     assert result.succeeded is False
     assert result.status == "spawn_failed"

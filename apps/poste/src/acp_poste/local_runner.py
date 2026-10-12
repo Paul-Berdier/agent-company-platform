@@ -1087,6 +1087,7 @@ async def _windows_force_terminate_tree(
         wait_timeout = 0x00000102
         error_no_more_files = 18
         error_invalid_parameter = 87
+        error_access_denied = 5
         invalid_handle = ctypes.c_void_p(-1).value
 
         class ProcessEntry(ctypes.Structure):
@@ -1248,7 +1249,9 @@ async def _windows_force_terminate_tree(
         # l'arrêt de son parent. Les handles restent ouverts pour empêcher toute
         # réutilisation de PID pendant cette convergence bornée.
         try:
-            for _ in range(4):
+            # Quatre passes d’arrêt, puis une lecture finale sans nouveau délai :
+            # la dernière attente peut avoir signalé les derniers handles.
+            for iteration in range(5):
                 pinned_before = len(pinned_handles)
                 snapshot_ok, depths = process_depths()
                 if not snapshot_ok:
@@ -1258,16 +1261,28 @@ async def _windows_force_terminate_tree(
                 # qu'un handle le référence : son handle épinglé et signalé
                 # prouve son arrêt sans rouvrir un PID potentiellement réutilisé.
                 # Un candidat invérifiable (jamais épinglé) reste en attente.
-                pending_depths = {
-                    candidate: depth
-                    for candidate, depth in depths.items()
-                    if candidate not in pinned_handles
-                    or kernel32.WaitForSingleObject(pinned_handles[candidate], 0)
-                    != wait_object_0
+                # Un PID peut disparaître du snapshot avant que son handle
+                # soit signalé : garder ces preuves épinglées dans les passes
+                # suivantes et ne conclure qu’une fois tous les handles arrêtés.
+                proof_depths = {
+                    candidate: known_depths.get(candidate, 0)
+                    for candidate in pinned_handles
                 }
+                proof_depths.update(depths)
+                pending_depths: dict[int, int] = {}
+                for candidate, depth in proof_depths.items():
+                    handle = pinned_handles.get(candidate)
+                    if handle is None:
+                        pending_depths[candidate] = depth
+                        continue
+                    state = kernel32.WaitForSingleObject(handle, 0)
+                    if state != wait_object_0:
+                        pending_depths[candidate] = depth
+                        if state != wait_timeout:
+                            all_stopped = False
                 ordered_ids = sorted(
                     pending_depths,
-                    key=lambda candidate: depths[candidate],
+                    key=lambda candidate: pending_depths[candidate],
                     reverse=True,
                 )
                 if not ordered_ids:
@@ -1278,6 +1293,8 @@ async def _windows_force_terminate_tree(
                         converged = True
                         break
                     continue
+                if iteration == 4:
+                    break  # budget épuisé : un membre encore en attente interdit le succès
                 if include_root and process_id in pending_depths and process_id not in pinned_handles:
                     # Racine vivante et épinglée par l'appelant : seule ouverture
                     # sans preuve d'ascendance, puisqu'elle est l'origine.
@@ -1299,10 +1316,17 @@ async def _windows_force_terminate_tree(
                 for _, handle in handles:
                     state = kernel32.WaitForSingleObject(handle, 0)
                     if state == wait_timeout:
+                        ctypes.set_last_error(0)
                         if not kernel32.TerminateProcess(handle, 1):
-                            # Une sortie concurrente reste un succès si le handle
-                            # est devenu signalé entre les deux appels.
-                            if kernel32.WaitForSingleObject(handle, 0) != wait_object_0:
+                            error = ctypes.get_last_error()
+                            state = kernel32.WaitForSingleObject(handle, 0)
+                            # Windows rend aussi ACCESS_DENIED si le processus
+                            # termine déjà (par exemple après TerminateJobObject).
+                            # Ce seul cas peut attendre une preuve finale sur le
+                            # handle ; une autre erreur API reste définitive.
+                            if state != wait_object_0 and not (
+                                error == error_access_denied and state == wait_timeout
+                            ):
                                 all_stopped = False
                     elif state != wait_object_0:
                         all_stopped = False
@@ -1313,7 +1337,10 @@ async def _windows_force_terminate_tree(
                         round((wait_deadline - monotonic()) * 1000),
                     )
                     state = kernel32.WaitForSingleObject(handle, remaining_ms)
-                    if state != wait_object_0:
+                    # WAIT_TIMEOUT n’est pas une erreur définitive : une passe
+                    # suivante peut prouver la fin. Les erreurs API restent un
+                    # refus ; sans convergence finale, le retour reste False.
+                    if state not in {wait_object_0, wait_timeout}:
                         all_stopped = False
         finally:
             for handle in pinned_handles.values():

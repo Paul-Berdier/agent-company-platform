@@ -40,7 +40,12 @@ class ProcessSnapshotApi:
         self.opened = []
         self.terminated = []
         self.closed = []
-        self.signaled = set() if scenario in {"active", "still_active"} or scenario in NAISSANCES else {2}
+        self.signaled = set() if scenario in {
+            "active", "still_active", "late_exit", "late_exit_missing", "still_active_missing",
+            "wait_failed_then_exit", "snapshot_failed_then_exit", "terminate_failed_then_exit",
+            "termination_pending", "termination_denied_still_active",
+            "last_wait_exit", "last_snapshot_child",
+        } or scenario in NAISSANCES else {2}
         for name in (
             "CreateToolhelp32Snapshot", "Process32FirstW", "Process32NextW",
             "OpenProcess", "TerminateProcess", "WaitForSingleObject", "CloseHandle", "GetProcessTimes",
@@ -50,12 +55,22 @@ class ProcessSnapshotApi:
     def CreateToolhelp32Snapshot(self, flags, pid):
         assert flags == 2 and pid == 0
         self.snapshots += 1
+        if self.scenario in {
+            "late_exit", "late_exit_missing", "wait_failed_then_exit",
+            "snapshot_failed_then_exit", "terminate_failed_then_exit", "termination_pending",
+        } and self.snapshots >= 3:
+            self.signaled.add(2)
+        if self.scenario == "snapshot_failed_then_exit" and self.snapshots == 2:
+            self.last_error = 5
+            return 0
         # La racine a fini ; un descendant reste visible dans les snapshots,
         # même lorsqu'un handle épinglé prouve qu'il est déjà terminé.
         self.entries = [(99, 0), (2, 1)]
-        if self.scenario == "missing" and self.snapshots > 1:
+        if self.scenario in {"missing", "late_exit_missing", "still_active_missing"} and self.snapshots > 1:
             self.entries = [(99, 0)]
         if self.scenario == "late_descendant" and self.snapshots > 1:
+            self.entries.append((3, 2))
+        if self.scenario == "last_snapshot_child" and self.snapshots >= 5:
             self.entries.append((3, 2))
         return 1000 + self.snapshots
 
@@ -109,7 +124,9 @@ class ProcessSnapshotApi:
 
     def WaitForSingleObject(self, handle, timeout):
         assert handle - 100 in self.opened
-        if self.scenario == "wait_failed":
+        if self.scenario in {"last_wait_exit", "last_snapshot_child"} and self.snapshots == 4 and timeout > 0:
+            self.signaled.add(handle - 100)
+        if self.scenario == "wait_failed" or (self.scenario == "wait_failed_then_exit" and self.snapshots == 1):
             return 0xFFFFFFFF
         return 0 if handle - 100 in self.signaled else 0x102
 
@@ -117,7 +134,16 @@ class ProcessSnapshotApi:
         assert code == 1
         pid = handle - 100
         self.terminated.append(pid)
-        if self.scenario != "still_active":
+        if self.scenario in {"termination_pending", "termination_denied_still_active"}:
+            self.last_error = 5  # processus déjà en terminaison OU réel refus : le handle tranche
+            return False
+        if self.scenario == "terminate_failed_then_exit":
+            self.last_error = 6  # INVALID_HANDLE : erreur API définitive
+            return False
+        if self.scenario not in {
+            "still_active", "late_exit", "late_exit_missing", "still_active_missing",
+            "wait_failed_then_exit", "snapshot_failed_then_exit", "last_wait_exit", "last_snapshot_child",
+        }:
             self.signaled.add(pid)
         return True
 
@@ -131,6 +157,11 @@ class ProcessSnapshotApi:
     [
         ("signaled", True), ("active", True), ("late_descendant", True),
         ("still_active", False), ("missing", True),
+        ("late_exit", True), ("late_exit_missing", True), ("still_active_missing", False),
+        ("wait_failed_then_exit", False), ("snapshot_failed_then_exit", False),
+        ("terminate_failed_then_exit", False),
+        ("termination_pending", True), ("termination_denied_still_active", False),
+        ("last_wait_exit", True), ("last_snapshot_child", False),
         ("missing_still_listed", False), ("access_denied", False),
         ("wait_failed", False), ("stale_parent", True), ("reused_root", True),
         ("reused_root_genuine", True), ("stale_parent_protected", True),
@@ -152,6 +183,15 @@ async def test_tree_cleanup_uses_pinned_handle_proof(monkeypatch, scenario, expe
         assert api.terminated == []
     elif scenario == "active":
         assert api.terminated == [2]
+    elif scenario in {"late_exit", "late_exit_missing", "termination_pending"}:
+        # Le premier WAIT_TIMEOUT est provisoire. La dernière passe doit prouver
+        # le handle signalé, même si le PID a disparu du snapshot entre-temps.
+        assert api.snapshots >= 3
+        assert api.opened == [2] and 2 in api.signaled
+    elif scenario == "last_wait_exit":
+        assert api.snapshots == 5 and api.signaled == {2}
+    elif scenario == "last_snapshot_child":
+        assert api.snapshots == 5 and 3 in api.opened and 3 not in api.signaled
     elif scenario == "late_descendant":
         assert api.snapshots >= 3
         assert api.opened == [2, 3]
