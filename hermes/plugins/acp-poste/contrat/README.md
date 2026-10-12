@@ -164,21 +164,22 @@ service Windows ni connexion à un coffre personnel n'est démontré par ces mé
 
 ### Validation du lot
 
-Tests purs sur base SQLite jetable et routes FastAPI :
+Tests purs sur base SQLite jetable, contrat et adaptateur d’authentification simulé,
+sans dépendance FastAPI dans la suite commune Linux/Windows :
 
 ```text
-python -m pytest hermes/plugins/acp-poste/contrat/tests/test_coffre.py hermes/plugins/acp-poste/contrat/tests/test_motifs_parite.py scripts/tests/test_coffre_backend.py -q
+python -m pytest scripts/tests/test_coffre_backend.py hermes/plugins/acp-poste/contrat/tests/test_coffre.py hermes/plugins/acp-poste/contrat/tests/test_motifs_parite.py -q
 ```
 
-**43 tests réussis** le 12 octobre 2026 (2,62 s), couvrant notamment confirmation,
+**42 tests réussis** le 12 octobre 2026 (1,92 s), couvrant notamment confirmation,
 rotation après révocation ou réponse perdue, séparation des identités, bornes, secrets,
 rejeux, expirations, réponse tardive et purge. Les **21 tests du scanner**
 `scripts/tests/test_balayer_secrets.py` ont aussi réussi dans le passage précédent.
-`hermes/tests/image/test_jeton_coffre.py` couvre le vrai fournisseur et la couture de
-Hermes épinglé, avec l'étanchéité machine/coffre ; son exécution appartient à la
-validation centralisée de l'image. Ces tests n'associent aucun coffre ou compte personnel.
 
-Après la revue croisée, les **15 tests backend** ont réussi en **4,71 s**, incluant
-la contrepreuve HTTP d’une rotation pendant un long-poll déjà authentifié et le refus
-d’un ancien principal pour publier un résultat. Le nouveau jeton peut continuer ;
-la requête de l’ancienne génération ne livre aucune opération.
+Les **cinq tests** `hermes/tests/image/test_jeton_coffre.py` appartiennent à la suite
+obligatoire de l’image Hermes, où FastAPI et l’authentification du serveur épinglé sont
+disponibles. Ils couvrent le vrai fournisseur, la couture machine/coffre, les droits
+HTTP, les bornes des corps et la contrepreuve d’une rotation pendant un long-poll déjà
+authentifié. Aucun test HTTP n’est ignoré ni rendu facultatif en l’absence de FastAPI
+sur l’hôte ; son exécution relève de la validation centralisée de l’image. Ces tests
+n’associent aucun coffre ou compte personnel.

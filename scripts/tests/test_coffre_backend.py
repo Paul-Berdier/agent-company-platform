@@ -1,4 +1,4 @@
-"""File coffre réelle SQLite et façade HTTP : reprise, autorisation, bornes, aucun accès aux notes."""
+"""File coffre SQLite : reprise, autorisation, bornes. HTTP dans l’image Hermes, sans dépendance serveur ici."""
 from __future__ import annotations
 
 from contextlib import contextmanager
@@ -13,8 +13,6 @@ from types import ModuleType, SimpleNamespace
 from uuid import uuid4
 
 import pytest
-from fastapi import FastAPI, Request
-from fastapi.testclient import TestClient
 from acp_poste_contrat import coffre as C
 
 RACINE = Path(__file__).resolve().parents[2]
@@ -44,9 +42,6 @@ aa.TokenPrincipal = Principal
 aa.register_token_route = lambda route: None
 sys.modules[aa.__name__] = aa
 j = importlib.import_module(NOM + ".jeton_coffre")
-api_spec = importlib.util.spec_from_file_location("_api_coffre_tests", NOYAU.parent / "coffre_api.py")
-api = importlib.util.module_from_spec(api_spec)
-api_spec.loader.exec_module(api)
 
 
 @pytest.fixture
@@ -238,64 +233,6 @@ def test_secrets_non_persists_dans_notes_et_resultats(bdd,secret):
         assert secret not in "\n".join(conn.iterdump())
 
 
-@pytest.fixture
-def http(bdd):
-    app=FastAPI()
-    provider=j.FournisseurCoffre()
-    @app.middleware("http")
-    async def identites(request:Request,suivant):
-        # Double de la couture Hermes, jamais une identité présumée dans la route testée.
-        auth=request.headers.get("authorization","")
-        if auth.startswith("Bearer "):
-            token=auth[7:]
-            request.state.token_principal = Principal("acp-poste:test","acp-poste-machine",("machine",)) if token=="machine-test" else provider.verify_token(token=token)
-        return await suivant(request)
-    app.include_router(api.creer_router(lambda nom:importlib.import_module(NOM+"."+nom),
-        lambda req:"proprietaire:test" if req.headers.get("x-session")=="owner" else None,
-        lambda:"https://hermes.test"))
-    with TestClient(app) as client: yield client
-
-
-def test_http_auth_scopes_owner_origine_et_cycle_reel(http):
-    owner={"x-session":"owner"}
-    assert http.get("/v1/coffre").status_code==401
-    assert http.post("/v1/coffre/enrolement",headers=dict(owner,origin="https://intrus.test"),json={}).status_code==403
-    code=http.post("/v1/coffre/enrolement",headers=owner,json={}).json()["code"]
-    body={"protocole":C.PROTOCOLE,"coffre_id":str(uuid4()),"alias":"acp","version_bridge":"1.2.0"}
-    for token,status in ((None,401),("machine-test",403)):
-        headers=owner if token is None else {"authorization":"Bearer "+token}
-        assert http.post("/coffre/v1/enrolement",headers=headers,json=body).status_code==status
-    r=http.post("/coffre/v1/enrolement",headers={"authorization":"Bearer "+code},json=body)
-    assert r.status_code==201 and r.headers["cache-control"]=="no-store"
-    r=r.json(); token={"authorization":"Bearer "+r["jeton"]}
-    assert http.post("/coffre/v1/enrolement",headers=token,json=body).status_code==403
-    poll={"protocole":C.PROTOCOLE,"coffre_id":r["coffre_id"],"capacites":list(C.ACTIONS)}
-    assert http.post("/coffre/v1/reclamer",headers=token,json=poll).json()["etat"]=="a_confirmer"
-    assert http.post("/v1/coffre/confirmer",headers=owner,json={"coffre_id":r["coffre_id"],"empreinte":r["empreinte"]}).status_code==200
-    d=nouvelle(r["coffre_id"])
-    assert http.post("/v1/coffre/operations",headers=token,json=d.model_dump()).status_code==401
-    assert http.post("/v1/coffre/operations",headers=owner,json=d.model_dump()).status_code==202
-    assert http.post("/coffre/v1/reclamer",headers=token,json=poll).json()["operation"]["id_operation"]==d.id_operation
-    assert http.post("/coffre/v1/resultat",headers=token,json=rendu(d).model_dump()).json()["deja"] is False
-    assert http.get("/v1/coffre/operations/"+d.id_operation,headers=owner).json()["etat"]=="reussie"
-    assert http.post("/v1/coffre/revoquer",headers=owner,json={"coffre_id":r["coffre_id"],"motif":"Test"}).status_code==200
-    refused=http.post("/coffre/v1/reclamer",headers=token,json=poll)
-    assert refused.status_code==401 and refused.json()["detail"]["code"]=="coffre_revoque"
-
-
-def test_http_bornes_et_validation_ne_refletent_pas_le_contenu(http,bdd):
-    owner={"x-session":"owner"}
-    assert http.post("/v1/coffre/enrolement",headers=owner,json={"x":"a"*65536}).status_code==413
-    with bdd.ouvrir() as conn:r,_=preparer(conn)
-    d=nouvelle(r["coffre_id"],"creer",{"chemin":"a.md","contenu":"a"*131072})
-    assert http.post("/v1/coffre/operations",headers=owner,json=d.model_dump()).status_code==202
-    assert http.post("/v1/coffre/operations",headers=owner,json={"x":"a"*C.TAILLE_MAX_CORPS}).status_code==413
-    invalid=d.model_dump(); invalid["action"]="exec_secret_sentinel"
-    response=http.post("/v1/coffre/operations",headers=owner,json=invalid)
-    assert response.status_code==400 and "exec_secret_sentinel" not in response.text
-    assert http.get("/v1/coffre/operations/pas-un-uuid",headers=owner).status_code==400
-
-
 @pytest.mark.parametrize("deja_confirme", [False, True])
 def test_reassociation_par_code_neuf_conserve_coffre_et_invalide_ancien_token(bdd,deja_confirme):
     with bdd.ouvrir() as conn:
@@ -337,32 +274,3 @@ def test_requete_authentifiee_avant_rotation_ne_reprend_pas_les_droits(bdd):
             c.resultat(conn,r["coffre_id"],rendu(d),ancienne_generation)
         assert c.operation(conn,suivante.id_operation)["etat"]=="en_attente"
         assert c.reclamer(conn,r["coffre_id"],poll,nouveau_hash)["operation"]["id_operation"]==suivante.id_operation
-
-
-def test_long_poll_ne_livre_rien_apres_rotation_pendant_attente(http,bdd,monkeypatch):
-    with bdd.ouvrir() as conn:
-        r,poll=preparer(conn)
-    origine=c.reclamer
-    appels=[]
-    suivante=[]
-    def rotation_apres_premier_tick(conn,identifiant,demande,generation):
-        appels.append(generation)
-        response=origine(conn,identifiant,demande,generation)
-        if len(appels)==1:
-            assert response["operation"] is None
-            c.revoquer(conn,identifiant,"Rotation pendant attente","proprietaire:test")
-            code=c.creer_code(conn,"proprietaire:test")["code"]
-            nouveau=c.enroler(conn,c.empreinte(code),C.Enrolement(protocole=C.PROTOCOLE,
-                version_bridge="1.2.0",coffre_id=identifiant,alias="acp"))
-            c.confirmer(conn,identifiant,nouveau["empreinte"],"proprietaire:test")
-            origine(conn,identifiant,demande,c.empreinte(nouveau["jeton"]))
-            d=nouvelle(identifiant); suivante.append(d.id_operation)
-            c.creer_operation(conn,d,"proprietaire:test")
-        return response
-    monkeypatch.setattr(c,"reclamer",rotation_apres_premier_tick)
-    response=http.post("/coffre/v1/reclamer",headers={"authorization":"Bearer "+r["jeton"]},
-                       json=poll.model_copy(update={"attente_max_s":2}).model_dump())
-    assert response.status_code==401 and response.json()["detail"]["code"]=="coffre_revoque"
-    assert appels==[c.empreinte(r["jeton"])]*2
-    with bdd.ouvrir() as conn:
-        assert c.operation(conn,suivante[0])["etat"]=="en_attente"
