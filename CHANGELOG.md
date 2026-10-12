@@ -46,7 +46,10 @@ interfaces que nomme la section 1.0.0 (D130), et une rupture de l'une d'elles ap
 - Compilation Qt 6.8.3 / MSVC Release ; 41/41 suites natives réussies en 143,16 s. Captures des quatre thèmes
   en 1280×720 et 1920×1080 contre un faux Hermes ; coffre et graphe relus.
 - Suite Python Windows : 1 407 tests et 464 sous-tests réussis, 107 ignorés selon la plateforme ou les prérequis,
-  aucun échec en 442,05 s. Derniers contrôles ciblés du coffre : 92 réussis, un ignoré en 21,68 s.
+  aucun échec en 431,08 s après séparation des tests hôte et serveur. Les trois tests HTTP tournent
+  obligatoirement dans l’image Hermes ; le ciblé réel coffre, machine et catalogue y passe : 30 tests en 47,07 s.
+- Double initialisation SQLite : 20 anciennes tables, leurs lignes et compteurs préservés ; seules les trois tables
+  du coffre et leurs index sont ajoutés. Base 1.0.1 et 1.2.0 identique avant cette extension.
 - 204 tests web et 74 tests du moteur gelé ; versions, thèmes, verrou, catalogue de 31 compétences et secrets vérifiés.
 - Runtime autonome : imports et parcours sur coffre jetable ; menu PowerShell 5.1 et lanceur CMD vérifiés.
   Aucun test de mutation sur le coffre personnel.
