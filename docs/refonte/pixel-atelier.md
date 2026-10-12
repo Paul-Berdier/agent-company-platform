@@ -1,11 +1,15 @@
 # Pixel Atelier — refonte native du workspace
 
-État local du 12 octobre 2026. Branche `codex/pixel-atelier`, issue du `origin/main`
-local `85b458b` (ACP 1.0.1). Le checkout personnel `feat/desktop-qt-railway` et ses
-modifications Pixel Office n’ont pas été repris ni écrasés. Le propriétaire a demandé
-la poursuite fonctionnelle avec commit, push, PR et fusion : le lot ouvre **1.1.0**.
-La compilation de la station, la fusion des sources et la publication des paquets
-sont des étapes distinctes ; les connexions personnelles restent à effectuer par lui.
+État du 12 octobre 2026. Le lot **1.1.0** a été fusionné dans `main` par la
+[PR #28](https://github.com/Paul-Berdier/agent-company-platform/pull/28), commit
+`028eaa5d8c211bda77abc15ecb794c20b91d7eee`, portant le tag annoté `v1.1.0`.
+La branche `codex/pixel-atelier` partait de `85b458b` (ACP 1.0.1). Le checkout
+personnel `feat/desktop-qt-railway` et ses modifications Pixel Office ont été préservés.
+Les [preuves de livraison](preuves-1.1.0.md) distinguent les quatre workflows
+complets réussis sur la tête proposée, le contenu fusionné identique, les paquets
+locaux et le brouillon GitHub. Le [guide de mise à jour](../mettre-a-jour-1.1.md)
+décrit le remplacement de la station ; les connexions personnelles, l'installation
+sur le poste du propriétaire et le déploiement Railway ne sont pas attestés ici.
 
 ## Parcours livré
 
@@ -159,7 +163,8 @@ cette image. Ils rapportent respectivement
 Les fixtures des contrats corrigés configurent la vraie table d’autorisation
 propriétaire via les routes authentifiées. Les **6 contrats ciblés** P4, P6 et P7
 et le **test navigateur P7** ci-dessus sont réussis. La suite complète Hermes sur
-GitHub reste à relancer ; aucun succès de cette prochaine validation n’est présumé.
+GitHub a depuis réussi sur `5d41008` : [run 38205074960](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/38205074960).
+Les [preuves de livraison](preuves-1.1.0.md) détaillent les compteurs et leurs limites.
 
 Le parcours navigateur utilise de faux comptes et un faux modèle, avec un vrai
 Chromium et une véritable identité Authelia jetable. Il n’atteste aucune connexion

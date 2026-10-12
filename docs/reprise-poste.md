@@ -1,17 +1,32 @@
 # Reprise du travail sur un autre poste
 
-## Priorité locale — 12 octobre 2026, Pixel Atelier
+## Priorité de reprise — 12 octobre 2026, ACP 1.1.0
 
-Une refonte native de l’interface est préparée dans le worktree `pixel-atelier`,
-branche `codex/pixel-atelier`, depuis le `origin/main` local `85b458b`.
-Lire [pixel-atelier.md](refonte/pixel-atelier.md) pour les parcours, thèmes, assets,
-preuves et limites. Les modifications personnelles de l’ancien checkout sont
-préservées. Le propriétaire a ensuite demandé les ajouts fonctionnels, commits, push,
-PR et fusion. La version **1.1.0** est ouverte (`d3185d9`) : Auto, guides assistants,
-observations d’exécution et récupération assistée complètent la refonte visuelle.
-Les validations et la publication sont en cours ; ne pas confondre les captures
-fictives avec une preuve de connexion aux comptes du propriétaire. Le déploiement
-Railway et la publication humaine du brouillon suivent les procédures du dépôt.
+Les sources de **1.1.0** sont fusionnées dans `main` : [PR #28](https://github.com/Paul-Berdier/agent-company-platform/pull/28),
+le 12 octobre à 05:50:30 UTC, commit `028eaa5d8c211bda77abc15ecb794c20b91d7eee`.
+L'étiquette annotée `v1.1.0` pointe sur ce commit. Les quatre workflows complets lancés manuellement
+ont réussi sur `5d41008`, dont l'arbre est identique à celui de la fusion. Le workflow
+[Desktop Release 38209746642](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/38209746642)
+a réussi : compilation, 36 suites Qt, empaquetage et création du brouillon. Les trois pièces jointes
+ont été téléchargées et leurs empreintes vérifiées. La release reste en brouillon, invisible dans
+le bouton de mise à jour ; l’installeur local licencié est disponible séparément.
+
+Lire les [preuves de 1.1.0](refonte/preuves-1.1.0.md), le [guide de mise à jour depuis 1.0.1](mettre-a-jour-1.1.md)
+et la [portée Pixel Atelier](refonte/pixel-atelier.md). Le lot livre le workspace par projet, les thèmes,
+l'icône, Auto dans la table autorisée, les guides d'assistants, les observations d'exécution et la
+récupération assistée par SSH/bundle. Après l'inventaire, les nouvelles entrées de routage demandent une
+validation explicite du propriétaire ; une table existante valide est conservée.
+
+**Discussion reste globale à Hermes**, sans rattachement automatique au projet. Les missions multiples
+dans un même projet, la mémoire sourcée et le journal durable des appels d'outils restent des travaux
+ultérieurs ; le lot ne termine pas tout le brief. Les brouillons restent en mémoire pendant la navigation,
+pas après la fermeture. Le détail des changements se relit dans le dépôt récupéré, hors de la station.
+
+L'installation personnelle de 1.1.0, les connexions aux comptes et les opérations Railway n'ont pas été
+exécutées pour cette livraison. Le Setup ne met à jour ni le poste/exécutant séparé ni le serveur ACP :
+suivre les contrôles du guide avant de reprendre le travail. Le décor LimeZu est réservé au build local
+licencié ; les paquets publics utilisent le décor ACP original. Les captures de fixtures ne prouvent
+aucune connexion personnelle. Le checkout personnel et ses modifications Pixel Office sont préservés.
 
 ## Priorité de reprise — 10 octobre 2026, correctif 1.0.1
 
