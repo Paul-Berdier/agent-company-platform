@@ -5,6 +5,64 @@ Le projet suit le versionnage sémantique. Tant que la version majeure restait �
 les interfaces pouvaient encore évoluer entre deux versions mineures ; depuis 1.0.0, l'engagement porte sur les
 interfaces que nomme la section 1.0.0 (D130), et une rupture de l'une d'elles appelle une nouvelle version majeure.
 
+## [1.1.0] - 2026-10-12 — Pixel Atelier et parcours de travail
+
+### Ajouté
+
+- Workspace natif organisé par projet : accueil, navigation latérale, onglets Travail, Résultats, Journal et
+  Réglages, inspecteur redimensionnable. Deux familles visuelles, Pixel Atelier et Studio, en clair et sombre.
+- Icône ACP originale ; import local du pack LimeZu fourni, crédits et décor original de remplacement pour les
+  clones sans pack. Les assets sous licence restent hors du dépôt public.
+- Guides de connexion Codex/Claude pour la machine active, distinction du compte ACP et du coordinateur Hermes,
+  vérification par un nouvel inventaire et parcours de récupération des branches signalées terminées.
+- Résultats d'exécution observés dans l'inspecteur : run courant ou dernier run fermé, branche, commits,
+  vérification et consommation rapportée. Les données absentes et non prises en charge restent explicites.
+
+### Modifié
+
+- Lancement en Auto par défaut, sans surcharge implicite issue d'une ancienne sélection manuelle. Les préférences
+  du plan Hermes ordonnent seulement les candidats valides de la table autorisée ; les verrous du propriétaire,
+  restrictions de dépôt, quotas et règles de relecture restent prioritaires.
+- Les pages visitées et brouillons de discussion restent en mémoire pendant la navigation. Les pages masquées
+  suspendent leurs lectures périodiques. Les contrôles techniques sont regroupés dans les réglages.
+
+### Corrigé
+
+- Réponses réseau obsolètes du formulaire et des résumés ignorées après une autre lecture, navigation ou déconnexion.
+- Suivi de la fin d'une nouvelle discussion sans forcer le retour en bas lors de la lecture de son historique.
+- Preuve d'arrêt Windows : délais et refus transitoires ne restent plus des échecs lorsque la convergence finale
+  est démontrée ; lecture finale après la dernière attente, sans augmenter le budget d'arrêt.
+- Assertions de version et faux processus de test adaptés au worktree et aux redirecteurs Python Windows.
+
+### Sécurité
+
+- Observations liées à la carte, au run et au verrou de machine vérifiés, avec liste fermée de métadonnées et
+  masquage ; lecture bornée à une exécution. Aucune sortie brute ni fichier distant arbitraire n'est exposé.
+- Les guides ne copient pas une commande reçue du serveur ; identifiants contrôlés, clé SSH dédiée à compléter.
+- Tous les handles de processus doivent être signalés pour prouver l'arrêt. Erreurs API, descendants nouveaux et
+  processus non arrêtés restent des refus ; aucune garde de l'exécutant n'est désactivée.
+
+### Vérifié localement
+
+- Compilation Qt 6.8.3 / MSVC 2022 ; parcours natifs sur serveur factice et captures des quatre variantes.
+- 74 tests du moteur gelé et 204 tests des greffons web réussis ; bundles régénérés pour 1.1.0.
+- 107 tests ciblés dans l'image Hermes épinglée : routage, planification, observations et routes projet.
+- Suite Python complète Windows : **1 280 tests et 464 sous-tests réussis**, 106 ignorés selon plateforme,
+  conteneur ou privilèges requis ; **36/36 suites Qt réussies**. Les contrôles Linux et les images complètes
+  sont vérifiés séparément en CI avant fusion ; leurs preuves sont publiées après livraison.
+
+### Limites connues
+
+Les connexions personnelles et une exécution payante ne sont pas testées automatiquement. Les paquets Windows
+restent non signés sans certificat ; l'installeur est compilé, pas exécuté sur le poste du propriétaire.
+Les brouillons ne survivent pas à la fermeture du client. La récupération de code demande encore SSH/bundle et
+la vérification locale du propriétaire : aucun téléchargement direct n'est simulé. Les missions multiples,
+l'activité détaillée durable des outils et la mémoire sourcée du brief restent des chantiers serveur distincts.
+Le décor LimeZu appartient au build local licencié ; la CI publique embarque le décor ACP original.
+
+Procédures : [mise à jour 1.1](docs/mettre-a-jour-1.1.md), [récupération](docs/recuperer-resultat.md),
+[parcours et portée](docs/refonte/pixel-atelier.md).
+
 ## [1.0.1] - 2026-10-10 — compatibilité avec l'init de Railway
 
 ### Corrigé
