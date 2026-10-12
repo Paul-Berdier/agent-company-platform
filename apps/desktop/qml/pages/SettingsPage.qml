@@ -73,22 +73,51 @@ ScrollView {
         Label {
             textFormat: Text.PlainText
             Layout.fillWidth: true; wrapMode: Text.WordWrap; color: Colors.textSecondary
-            text: qsTr("La vérification contacte GitHub à votre demande. Vous choisissez ensuite le paquet dans la publication ; rien n’est téléchargé ni installé automatiquement.")
+            text: Updates.installationPossible
+                ? qsTr("Mise à jour automatique : la station vérifie GitHub au démarrage puis toutes les six heures, "
+                       + "télécharge l'installeur de la publication, vérifie sa taille et son empreinte SHA-256, puis "
+                       + "l'installe au démarrage suivant et redémarre. Les paquets ne sont pas signés : l'empreinte "
+                       + "prouve l'intégrité du fichier, pas l'identité de l'éditeur.")
+                : qsTr("Installation automatique indisponible ici : elle n'existe que sous Windows, pour une station "
+                       + "posée par son installeur (pas la version portable). La vérification reste possible.")
+        }
+        CheckBox {
+            objectName: "reglages-maj-auto"
+            text: qsTr("Installer automatiquement les mises à jour")
+            visible: Updates.installationPossible
+            checked: Updates.autoInstall
+            onToggled: Updates.autoInstall = checked
         }
         CheckBox {
             text: qsTr("Inclure les préversions pour cette vérification")
-            enabled: !Updates.busy
+            enabled: !Updates.busy && !Updates.downloading
             checked: Updates.includePrereleases
             onToggled: Updates.includePrereleases = checked
         }
         RowLayout {
-            AcpButton { label: qsTr("Vérifier les mises à jour"); manualEnabled: !Updates.busy; onTriggered: Updates.check() }
+            AcpButton { label: qsTr("Vérifier les mises à jour"); manualEnabled: !Updates.busy && !Updates.downloading; onTriggered: Updates.check() }
+            AcpButton {
+                objectName: "reglages-maj-installer"
+                primary: true
+                label: Updates.readyToInstall ? qsTr("Installer maintenant (la station redémarre)")
+                                              : qsTr("Télécharger et installer")
+                visible: Updates.installationPossible && (Updates.readyToInstall || Updates.updateAvailable)
+                manualEnabled: !Updates.downloading
+                onTriggered: Updates.readyToInstall ? Updates.installNow() : Updates.downloadAndInstall()
+            }
             AcpButton { label: qsTr("Ouvrir la publication GitHub"); visible: Updates.updateAvailable; onTriggered: Updates.openRelease() }
-            BusyIndicator { running: Updates.busy; visible: running; Layout.preferredWidth: 32; Layout.preferredHeight: 32 }
+            BusyIndicator { running: Updates.busy || Updates.downloading; visible: running; Layout.preferredWidth: 32; Layout.preferredHeight: 32 }
+        }
+        Label {
+            objectName: "reglages-maj-progression"
+            visible: Updates.downloading
+            text: qsTr("Téléchargement : %1 %").arg(Updates.progress)
+            textFormat: Text.PlainText
+            color: Colors.textSecondary
         }
         Label { text: Updates.status; textFormat: Text.PlainText; Layout.fillWidth: true; wrapMode: Text.WordWrap; color: Colors.textSecondary }
         Label { visible: Updates.latestVersion.length > 0; text: qsTr("Publication vérifiée : %1").arg(Updates.latestVersion); textFormat: Text.PlainText; color: Colors.textPrimary }
-        Label { objectName: "reglages-avertissement-paquet"; textFormat: Text.PlainText; visible: Updates.updateAvailable; text: qsTr("Vérifiez l'empreinte du paquet dans SHA256SUMS.txt avant installation. Un paquet n'est signé que si les notes de sa publication le disent."); color: Colors.textSecondary; Layout.fillWidth: true; wrapMode: Text.WordWrap }
+        Label { objectName: "reglages-avertissement-paquet"; textFormat: Text.PlainText; visible: Updates.updateAvailable && !Updates.installationPossible; text: qsTr("Vérifiez l'empreinte du paquet dans SHA256SUMS.txt avant installation. Un paquet n'est signé que si les notes de sa publication le disent."); color: Colors.textSecondary; Layout.fillWidth: true; wrapMode: Text.WordWrap }
         TextArea { visible: Updates.notes.length > 0; text: Updates.notes; textFormat: TextEdit.PlainText; readOnly: true; selectByMouse: true; wrapMode: TextEdit.Wrap; color: Colors.textPrimary; Layout.fillWidth: true }
         Item { Layout.preferredHeight: Space.space8 }
     }

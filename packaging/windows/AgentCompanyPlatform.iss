@@ -88,10 +88,20 @@ Name: "{autodesktop}\{#AcpName}"; Filename: "{app}\{#AcpExeName}"; Tasks: deskto
 
 [Run]
 Filename: "{app}\{#AcpExeName}"; Description: "{cm:LaunchProgram,{#StringChange(AcpName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
+; Mise à jour automatique lancée par la station (D170 ; UpdateService::argumentsInstalleur) :
+; installation silencieuse avec /ACPRELANCER=1, puis relance de la station une fois ses fichiers remplacés.
+Filename: "{app}\{#AcpExeName}"; Flags: nowait; Check: AcpRelancerApresMiseAJour
 
 [UninstallDelete]
 ; Supprime ce que l'application a pu écrire dans son propre répertoire d'installation
-; (caches QML notamment). La configuration de l'utilisateur vit ailleurs, sous
-; %APPDATA%, et n'est volontairement PAS supprimée : réinstaller ne fait pas perdre
-; l'URL du serveur ni les préférences d'affichage.
+; (caches QML notamment). La configuration de l'utilisateur vit ailleurs (registre
+; HKCU, Gestionnaire d'identification) et n'est volontairement PAS supprimée : réinstaller
+; ne fait pas perdre l'URL du serveur ni les préférences d'affichage.
 Type: filesandordirs; Name: "{app}"
+
+[Code]
+// Vrai seulement pour une mise à jour lancée par la station : /ACPRELANCER=1 sur la ligne de commande.
+function AcpRelancerApresMiseAJour: Boolean;
+begin
+  Result := ExpandConstant('{param:ACPRELANCER|0}') = '1';
+end;

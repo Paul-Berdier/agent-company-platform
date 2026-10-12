@@ -14,6 +14,8 @@ Q_LOGGING_CATEGORY(lcSettings, "acp.settings")
 
 constexpr char kServerUrl[] = "connection/serverUrl";
 constexpr char kAllowInsecureLoopback[] = "connection/allowInsecureLoopback";
+// Mise à jour automatique de la station (D170) : un booléen, jamais une adresse ni un jeton.
+constexpr char kAutoInstall[] = "updates/autoInstall";
 constexpr char kConnexionMemorisee[] = "connexion/memorisee";
 constexpr char kTheme[] = "appearance/theme";
 constexpr char kFamily[] = "appearance/family";
@@ -51,6 +53,7 @@ const QStringList &SettingsStore::allowedKeys()
         QLatin1String(kDensity),        QLatin1String(kTextScale),
         QLatin1String(kAgentsVisible),  QLatin1String(kDrawerVisible),
         QLatin1String(kDrawerHeight),   QLatin1String(kDrawerTab),
+        QLatin1String(kAutoInstall),
     };
     return keys;
 }
@@ -238,6 +241,16 @@ void SettingsStore::setTextScale(int percent)
     if (textScale() == percent) return;
     setValue(QLatin1String(kTextScale), percent);
     emit textScaleChanged();
+}
+
+bool SettingsStore::autoInstallUpdates() const
+{
+    return value(QLatin1String(kAutoInstall), true).toBool();
+}
+
+void SettingsStore::setAutoInstallUpdates(bool enabled)
+{
+    setValue(QLatin1String(kAutoInstall), enabled);
 }
 
 bool SettingsStore::allowInsecureLoopback() const

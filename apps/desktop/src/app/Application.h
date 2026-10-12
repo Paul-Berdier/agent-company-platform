@@ -68,6 +68,10 @@ public:
         échoue — auquel cas l'application se termine, elle n'ouvre pas de fenêtre vide. */
     bool load(QQmlApplicationEngine *engine);
 
+    //! Avant toute fenêtre : installe une mise à jour téléchargée et vérifiée lors d'une session
+    //! précédente (D170). Vrai si l'installeur est lancé : la station doit alors s'arrêter.
+    bool installPendingUpdateAtStartup();
+
     /*! Restaure les préférences, sonde le serveur et reprend la session mémorisée. */
     void start();
 

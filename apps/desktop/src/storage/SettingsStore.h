@@ -91,6 +91,9 @@ public:
     static const QList<int> &textScales();
 
     /*! Vrai si l'opérateur a explicitement accepté le bouclage local en clair. */
+    //! Mise à jour automatique de la station (D170), active par défaut.
+    [[nodiscard]] bool autoInstallUpdates() const;
+    void setAutoInstallUpdates(bool enabled);
     [[nodiscard]] bool allowInsecureLoopback() const;
     void setAllowInsecureLoopback(bool allowed);
 

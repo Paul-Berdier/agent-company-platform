@@ -106,6 +106,11 @@ int main(int argc, char *argv[])
     QGuiApplication::setWindowIcon(embleme);
 
     acp::Application controller;
+    // Mise à jour téléchargée et vérifiée lors d'une session précédente : installée avant toute fenêtre,
+    // l'installeur relance la station (D170).
+    if (controller.installPendingUpdateAtStartup()) {
+        return 0;
+    }
     controller.registerQmlTypes();
 
     QQmlApplicationEngine engine;

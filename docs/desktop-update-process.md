@@ -1,76 +1,60 @@
-# Vérification des mises à jour desktop
+# Mises à jour de la station
 
-> **Refonte « Hermes au centre ».** Depuis l'étape P8 (2 octobre 2026), le client est
-> rebranché sur Hermes ([`refonte/desktop.md`](refonte/desktop.md)). Ce processus n'a pas
-> changé avec P8 ; ses relevés datés (validation du 23 septembre 2026, 0.10.0) visent le
-> client d'avant la refonte et restent consultables sous l'étiquette
-> `archive/acp-0.10.0-avant-hermes`.
+> **Depuis le 11 octobre 2026 (D170, demande du propriétaire), la station se met à jour seule.**
+> Les relevés antérieurs (vérification à la demande seulement, 0.10.0) restent consultables sous
+> l'étiquette `archive/acp-0.10.0-avant-hermes`. Rien de ce qui suit n'a encore été éprouvé sous
+> Windows : la preuve viendra de la première publication installée ainsi.
 
-Relevés ci-dessous : état du 23 septembre 2026, 0.10.0 alors en préparation ; au 9 octobre 2026, la ligne 0.10 est
-**archivée, jamais étiquetée**, et la prochaine publication est **v1.0.0**. `UpdateService` existe dans
-`apps/desktop/src/services/`. Il vérifie les publications GitHub et ouvre leur
-page officielle. **Il ne télécharge ni n'installe de paquet.** La validation du
-nouvel arbre est consignée dans le relevé daté (sous l'étiquette d'archive).
-
-## Parcours disponible
-
-La vérification part sur action de l'utilisateur depuis les réglages, sans appel
-automatique au démarrage. Le canal stable est le défaut ; inclure les préversions
-est une option explicite.
+## Ce que fait la station
 
 | Étape | Comportement |
 |---|---|
-| Stable | Lecture de `/repos/Paul-Berdier/agent-company-platform/releases/latest` sur `api.github.com` |
-| Préversions autorisées | Lecture des 100 premières publications, choix de la version admissible la plus élevée |
-| Validation | Rejet des brouillons, versions illisibles et préversions sur le canal stable |
-| Comparaison | Version sémantique, suffixes de préversion et métadonnées de build |
-| Affichage | Version distante et notes bornées en texte brut |
-| Action | Ouvrir la publication officielle si elle est plus récente que le client |
+| Quand | 30 secondes après le démarrage, puis toutes les six heures ; ou « Vérifier les mises à jour » |
+| Où | `https://api.github.com/repos/Paul-Berdier/agent-company-platform/releases/latest` (canal stable) ; avec les préversions, les 100 premières publications |
+| Quoi | La dernière publication **publiée** plus récente que la station. Un brouillon n'est jamais retenu |
+| Fichiers | `AgentCompanyPlatform-Setup-<version>-x64.exe` et `SHA256SUMS.txt`, à l'adresse exacte `https://github.com/Paul-Berdier/agent-company-platform/releases/download/<tag>/<nom>` |
+| Transport | Client séparé d'`ApiClient` : aucun cookie ni jeton ACP. Redirections suivies vers `github.com`, `objects.githubusercontent.com` et `release-assets.githubusercontent.com` seulement, en HTTPS |
+| Vérification | Taille égale à l'annonce de GitHub, SHA-256 égal à la ligne de `SHA256SUMS.txt` (et à l'empreinte que GitHub annonce, s'il la sert). Sinon le fichier est supprimé et rien n'est installé |
+| Installation | Au démarrage suivant, avant toute fenêtre, ou tout de suite par « Installer maintenant » : installeur lancé avec `/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /CLOSEAPPLICATIONS /ACPRELANCER=1`, la station s'arrête, l'installeur remplace ses fichiers puis la relance |
+| Sécurité anti-boucle | Une seule tentative automatique par version : si la station n'a pas changé de version au démarrage suivant, elle le dit et attend « Installer maintenant » |
 
-Le canal préversion peut retenir une version stable plus récente. Il ne parcourt
-pas les publications au-delà de la première page de 100.
+Le fichier téléchargé est relu juste avant son lancement : une copie modifiée depuis le
+téléchargement est supprimée. L'état (`attente.json` : version, nom, empreinte, tentatives) et
+l'installeur vivent dans `%LOCALAPPDATA%\Agent Company Platform\Station de travail\mises-a-jour`.
+Ils sont effacés dès que la station tourne dans la version téléchargée.
 
-L'URL admise est exactement une page HTTPS du dépôt
-`github.com/Paul-Berdier/agent-company-platform/releases/tag/<tag>`, sans
-utilisateur, port explicite, requête ou fragment. Une URL incluse dans les notes
-ne remplace pas cette destination. L'ouverture passe par le navigateur système
-après une action explicite.
+Préférence : **Réglages › Connexion et mises à jour › « Installer automatiquement les mises à
+jour »**, cochée par défaut (`updates/autoInstall`, liste blanche de `SettingsStore`). Décochée,
+la station ne contacte plus GitHub d'elle-même ; la vérification et « Télécharger et installer »
+restent possibles à la main.
 
-## Transport et refus
+Seulement sous Windows, pour une station posée par son installeur (présence de `unins000.exe`
+à côté de l'exécutable). La version portable et Linux vérifient, mais n'installent rien.
 
-Le client GitHub est séparé d'`ApiClient` : aucun cookie ACP, CSRF ou token GitHub.
-Les cookies et redirections sont désactivés. La réponse est bornée à 2 Mio,
-avec délai de transfert de 15 secondes et échéance globale de 20 secondes.
-Les notes sont limitées à 100 000 caractères ; elles ne deviennent jamais une commande.
+## Ce qu'il faut pour qu'une version arrive
 
-Erreur TLS, refus HTTP, absence de publication, réponse illisible ou dépassement
-de taille produisent un échec explicite. Le client n'annonce pas « à jour »
-lorsqu'il n'a pas pu comparer les versions. Il ne lance ni téléchargement
-automatique ni rétrogradation.
+1. Une étiquette `vX.Y.Z` poussée lance « Desktop Release », qui prépare un **brouillon** avec
+   l'installeur, l'archive portable et `SHA256SUMS.txt`.
+2. Le propriétaire relit le brouillon et clique « Publish release ». C'est le seul geste humain :
+   dès qu'elle est publiée, chaque station la trouve dans les six heures (ou au démarrage).
 
-## Fabrication et publication
+## Mise à jour à la main
 
-Les workflows `desktop-ci.yml` et `desktop-release.yml` existent. Ils utilisent
-`packaging/windows/toolchain.json`, MSVC/Qt et les scripts d'empaquetage Windows.
-Le workflow de publication prépare un **brouillon** depuis une étiquette.
-L'existence du workflow ne prouve pas qu'une nouvelle publication a été créée
-ou rendue publique.
-
-La ligne 0.10 n'a jamais été étiquetée ni publiée (archivée sous `archive/acp-0.10.0-avant-hermes`) ; 1.0.0 est
-préparée, sans annonce de publication finalisée.
-Fusion, artefact de CI, étiquette et publication GitHub sont des objets distincts.
-Le journal et le relevé de validation (sous l'étiquette d'archive) suivent
-les preuves finales.
-
-Les paquets restent **non signés** sans certificat configuré. Une somme de
-contrôle permet de vérifier une copie, mais ne constitue pas une signature
-de l'éditeur. Le service actuel ne télécharge ni paquet ni manifeste et ne
-vérifie donc aucun installateur à la place de l'utilisateur.
+1. Ouvrir https://github.com/Paul-Berdier/agent-company-platform/releases et télécharger
+   `AgentCompanyPlatform-Setup-<version>-x64.exe`.
+2. Fermer la station, puis lancer l'installeur. Il remplace l'installation en place ; réglages
+   (registre) et jeton (Gestionnaire d'identification) sont conservés. Binaire non signé :
+   SmartScreen avertit (« Informations complémentaires », puis « Exécuter quand même »).
 
 ## Limites
 
-Le téléchargement intégré, le manifeste de mise à jour, la vérification de
-signature et le lancement contrôlé d'un installateur restent à construire si
-ce parcours est retenu. L'ancienne conception les décrivait comme cible ;
-ils ne font pas partie du service livré. Installation et mise à jour sur
-Windows propre restent à éprouver.
+- Paquets **non signés** : aucun certificat. L'empreinte vient de la même publication que le
+  binaire ; elle prouve l'intégrité du fichier, pas l'identité de l'éditeur. Un compte GitHub
+  compromis pourrait publier un installeur que la station installerait.
+- Rien n'a été éprouvé sous Windows : installation silencieuse, fermeture par `/CLOSEAPPLICATIONS`,
+  relance par `/ACPRELANCER=1` (section `[Code]` de `packaging/windows/AgentCompanyPlatform.iss`).
+  Les tests (`apps/desktop/tests/cpp/tst_updates.cpp`) éprouvent le téléchargement, les refus et
+  l'installation au démarrage contre un faux GitHub de bouclage, avec un lanceur simulé.
+- Une station antérieure à D170 n'a pas ce mécanisme : la première mise à jour vers une version
+  qui l'a se fait à la main, une seule fois.
+- Aucune rétrogradation automatique.

@@ -35,7 +35,7 @@ function(acp_add_cpp_test name)
 endfunction()
 
 acp_add_cpp_test(tst_sse_parser)
-acp_add_cpp_test(tst_updates)
+acp_add_cpp_test(tst_updates cpp/support/FauxHermes.cpp cpp/support/FauxHermes.h)
 acp_add_cpp_test(tst_pages_bureau cpp/support/FauxHermes.cpp cpp/support/FauxHermes.h cpp/support/Fixtures.h)
 target_link_libraries(tst_pages_bureau PRIVATE Qt6::QuickControls2
     acp_designplugin acp_themeplugin acp_pixelplugin acp_controlsplugin acp_componentsplugin

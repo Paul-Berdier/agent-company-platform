@@ -39,6 +39,7 @@
 #include <QMetaType>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
+#include <QTimer>
 #include <QUrl>
 #include <QtQml>
 
@@ -195,7 +196,15 @@ Application::Application(QObject *parent, const QString &nomCoffre)
             m_passerelle->fermer();
         }
     });
-    m_updates = new UpdateService(version(), this);
+    m_updates = new UpdateService(version(), m_settings, UpdateService::Sources{}, this);
+    // Mise à jour automatique (D170) : l'installeur lancé, la station s'arrête pour qu'il remplace
+    // ses fichiers ; il la relance ensuite.
+    connect(m_updates, &UpdateService::quitRequested, this,
+            [] { QTimer::singleShot(0, QCoreApplication::instance(), &QCoreApplication::quit); });
+    connect(m_updates, &UpdateService::updateReady, this, [this](const QString &nouvelle) {
+        m_shell->notify(QStringLiteral("Mise à jour %1 téléchargée et vérifiée : elle s'installera au prochain "
+                                       "démarrage (ou maintenant : Réglages › Connexion et mises à jour).").arg(nouvelle));
+    });
     registerBuiltinCommands();
     connect(m_navigation, &NavigationModel::historyChanged, this,
             [this] { m_commands->setContext(m_commands->context()); });
@@ -281,8 +290,14 @@ bool Application::load(QQmlApplicationEngine *engine)
     return !failed && !engine->rootObjects().isEmpty();
 }
 
+bool Application::installPendingUpdateAtStartup()
+{
+    return m_updates->installPendingAtStartup();
+}
+
 void Application::start()
 {
+    m_updates->startAutomaticChecks();
     // Restauration : aucune valeur par défaut n'est inventée. Sans URL mémorisée, la
     // station ouvre son écran de première ouverture.
     m_client->setAllowInsecureLoopback(m_settings->allowInsecureLoopback());
