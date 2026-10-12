@@ -142,14 +142,35 @@ Les résultats suivants sont établis sur le lot fonctionnel 1.1.0, le 12 octobr
 | --- | --- | --- |
 | Moteur Pixel Office gelé | **74 tests réussis**, 7 fichiers | `engine-tests-1.1.0.log` |
 | Interface web Hermes | **204 tests réussis**, 21 fichiers | `interface-tests-1.1.0.log` |
-| Station native Qt | **36/36 suites CTest réussies**, 105,18 s | `desktop-tests-guides-final-1.1.0.log` |
+| Station native Qt | Compilation Release et **36/36 suites CTest réussies**, 102,84 s | `build-routage-final-1.1.0.log`, `desktop-tests-routage-corrige-1.1.0.log` |
 | Image Hermes, routage et planification ciblés | **87 tests réussis** | `hermes-routing-1.1.0.log` |
 | Image Hermes, observations et routes projet ciblées | **20 tests réussis** | `hermes-observations-1.1.0.log` |
+| Contrat P4, exploration, graphe et réclamations distantes | **3 tests réussis**, 373,72 s | `contrats-routage-p4-1.1.0.log` |
+| Contrat P6, mise en service et relecture | **2 tests réussis**, 136,58 s | `contrats-routage-p6-1.1.0.log` |
+| Contrat P7, redéploiement pendant une question | **1 test réussi**, 176,32 s | `contrats-routage-p7-1.1.0.log` |
+| Navigateur P7, parcours téléphone puis bureau | **1 test réussi**, 136,39 s ; `ACP_E2E_OBLIGATOIRE=1` | `navigateur-routage-p7-1.1.0.log` |
 
-Les deux passages ciblés de l’image Hermes totalisent **107 tests réussis** ; ils
-ne constituent pas la suite complète de cette image. Ils rapportent respectivement
+Les deux passages routage/planification et observations/routes de l’image Hermes
+totalisent **107 tests réussis** ; ils ne constituent pas la suite complète de
+cette image. Ils rapportent respectivement
 34 et 22 avertissements de dépréciation dans `plugins_manifest.py` de Hermes
 (argument `maxsplit` de `re.split` passé par position).
+
+Les fixtures des contrats corrigés configurent la vraie table d’autorisation
+propriétaire via les routes authentifiées. Les **6 contrats ciblés** P4, P6 et P7
+et le **test navigateur P7** ci-dessus sont réussis. La suite complète Hermes sur
+GitHub reste à relancer ; aucun succès de cette prochaine validation n’est présumé.
+
+Le parcours navigateur utilise de faux comptes et un faux modèle, avec un vrai
+Chromium et une véritable identité Authelia jetable. Il n’atteste aucune connexion
+personnelle. Ses captures et `releve-parcours.json` sont conservés dans
+`captures-navigateur-routage-1.1.0/p7/`. Le nettoyage local a été vérifié : aucun
+conteneur, volume ou réseau sous le préfixe `acp-contrat-pixel110-` ; les quatre
+tags d’image `acp-pixel110-*` ont été retirés.
+
+Un passage Qt intermédiaire attendait les anciens textes de routage : les
+assertions existantes ont été adaptées aux libellés clarifiés, puis les 36 suites
+ont réussi en 102,84 s.
 
 Le dernier passage Qt inclut les corrections vérifiées des réponses de formulaire
 arrivées hors ordre, de l’annulation des résumés et du défilement des discussions.
@@ -157,14 +178,17 @@ La navigation conserve le brouillon ; une molette interrompt le suivi automatiqu
 et l’ouverture d’une autre discussion retrouve ses derniers messages. Les faux
 handlers du test de discussion sont restaurés même si une assertion échoue.
 
-Les captures réelles Windows de 1.1.0 sont dans `captures-1.1.0/` : **24 vues du
-workspace**, soit Accueil, Projets et Travail dans les quatre variantes
+Les dernières captures Windows de 1.1.0 sont dans `captures-routage-1.1.0/` :
+**24 vues du workspace**, soit Accueil, Projets et Travail dans les quatre variantes
 `pixel-dark`, `pixel-light`, `studio-dark`, `studio-light`, chacune en 1280×720 et
-1920×1080. Le passage du harness est consigné dans `pages-bureau-1.1.0.log`
-(3 étapes réussies, aucune ignorée, aucun avertissement QML rapporté). Ces captures
-emploient les données du serveur local de test, pas les comptes personnels du
-propriétaire. Les limites de l’essai à 150 % décrites plus haut restent valables ;
-aucune validation supplémentaire à 125 % ou 200 % n’est revendiquée.
+1920×1080, ainsi que les pages isolées. Le harness Windows avec rendu logiciel
+conclut **3 étapes réussies, aucune ignorée et aucun avertissement en 15,210 s**
+(`pages-bureau-routage-1.1.0.log`). Les captures `Routage.png` et
+`Projets-nouveau-projet.png` ont été inspectées : leurs aides textuelles sont
+lisibles et non tronquées. Ces captures emploient les données du serveur local de
+test, pas les comptes personnels du propriétaire. Les limites de l’essai à 150 %
+décrites plus haut restent valables ; aucune validation supplémentaire à 125 % ou
+200 %, ni aucun audit complet d’accessibilité, n’est revendiqué.
 
 La suite Python finale et les paquets locaux sont documentés ci-dessous. Les workflows
 GitHub et la publication restent des validations distinctes ; ni les logs locaux ni
@@ -188,13 +212,15 @@ La chaîne `package-desktop.ps1 -DryRun` a produit le 12 octobre 2026, dans
 `dist/pixel-atelier-1.1.0/`, un installeur Inno Setup et une archive portable avec
 les DLL Qt et MSVC. Le build local embarque le décor LimeZu licencié ; le paquet CI
 public utilise le décor original ACP. Les binaires locaux sont **non signés** et
-l'installeur n'a pas été exécuté. Le journal est `package-guides-final-1.1.0.log` dans le dossier
-de vérification. Les deux fichiers finaux ont été relus pour vérifier ces SHA-256 :
+l'installeur n'a pas été exécuté. Le contrôle Authenticode du Setup donne
+`NotSigned`. Le journal de la reconstruction est `package-routage-final-1.1.0.log`
+dans le dossier de vérification. Les deux fichiers ont été relus ; leurs tailles
+et SHA-256 sont consignés dans `paquets-final-1.1.0.json` :
 
 | Fichier | Taille (octets) | SHA-256 |
 | --- | ---: | --- |
-| `AgentCompanyPlatform-Setup-1.1.0-x64.exe` | 24659455 | `48220ebb949da7753014c421bcc649c5bebccd1be6cb6a82feaa173e4750ddac` |
-| `AgentCompanyPlatform-Portable-1.1.0-x64.zip` | 37627987 | `74292906c6ae7a0492e9f83448508a84cf8799f63ff3ab7b55115591ce9356c4` |
+| `AgentCompanyPlatform-Setup-1.1.0-x64.exe` | 24659513 | `323c9f34205e20cc5c3c84b553a8d872b443e0b9609deedd1475c10831cd708b` |
+| `AgentCompanyPlatform-Portable-1.1.0-x64.zip` | 37628270 | `39e5def65b071dd97b0d5d832867100979f8cfc67aaac4ed68e90ae83a226cde` |
 
 Ces empreintes appartiennent à ce build local uniquement. Elles ne décrivent ni les
 anciens aperçus ni les artefacts GitHub fabriqués depuis les sources fusionnées.
@@ -204,8 +230,9 @@ anciens aperçus ni les artefacts GitHub fabriqués depuis les sources fusionné
 Le passage final détaillé `full-python-final-1.1.0.log` conclut : **1 280 tests réussis,
 106 ignorés et 464 sous-tests réussis en 1 128,51 s**. Les ignorés concernent les
 conditions de plateforme, de conteneur ou de privilèges indiquées par pytest ; ils
-ne sont pas comptés comme réussis. Les suites Linux et les images complètes restent
-à contrôler sur GitHub. Le ciblé runner/proof comporte **49 tests réussis en 69,05 s**
+ne sont pas comptés comme réussis. Les suites Linux et les images complètes font
+l’objet de validations GitHub distinctes, attachées à leur SHA. Le ciblé
+runner/proof comporte **49 tests réussis en 69,05 s**
 (`python-runner-final-startup-1.1.0.log`). Le budget de démarrage des Python imbriqués
 est distinct du budget d'arrêt du produit, inchangé. Les échecs des passages
 intermédiaires sont conservés dans leurs journaux ; ils ne servent pas de preuve verte.

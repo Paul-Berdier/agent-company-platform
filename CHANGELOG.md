@@ -23,6 +23,8 @@ interfaces que nomme la section 1.0.0 (D130), et une rupture de l'une d'elles ap
 - Lancement en Auto par défaut, sans surcharge implicite issue d'une ancienne sélection manuelle. Les préférences
   du plan Hermes ordonnent seulement les candidats valides de la table autorisée ; les verrous du propriétaire,
   restrictions de dépôt, quotas et règles de relecture restent prioritaires.
+- Aide à la configuration d'Auto : après l'inventaire, validation explicite de la table autorisée par le propriétaire ;
+  les tables existantes valides sont conservées, sans validation automatique des nouvelles entrées.
 - Les pages visitées et brouillons de discussion restent en mémoire pendant la navigation. Les pages masquées
   suspendent leurs lectures périodiques. Les contrôles techniques sont regroupés dans les réglages.
 
@@ -36,6 +38,8 @@ interfaces que nomme la section 1.0.0 (D130), et une rupture de l'une d'elles ap
   est démontrée ; lecture finale après la dernière attente, sans augmenter le budget d'arrêt.
 - Attentes de version des tests Windows, d’image et de contrat reliées à la version du lot ; faux processus
   de test adaptés au worktree et aux redirecteurs Python Windows.
+- Scénarios de contrat et de navigateur initialisés par la vraie API propriétaire pour autoriser leur table
+  de routage, sans assouplissement des gardes du produit.
 
 ### Sécurité
 
@@ -53,6 +57,8 @@ interfaces que nomme la section 1.0.0 (D130), et une rupture de l'une d'elles ap
   relatifs, espaces et crochets ; 36 suites Qt rejouées après la relecture des guides.
 - 74 tests du moteur gelé et 204 tests des greffons web réussis ; bundles régénérés pour 1.1.0.
 - 107 tests ciblés dans l'image Hermes épinglée : routage, planification, observations et routes projet.
+- Six contrats ciblés et le parcours navigateur téléphone → bureau réussis après validation réelle de leur table
+  de routage ; piles Docker jetables nettoyées. Aucun compte personnel utilisé.
 - Suite Python complète Windows : **1 280 tests et 464 sous-tests réussis**, 106 ignorés selon plateforme,
   conteneur ou privilèges requis ; **36/36 suites Qt réussies**. Les contrôles Linux et les images complètes
   sont vérifiés séparément en CI avant fusion ; leurs preuves sont publiées après livraison.
