@@ -202,3 +202,8 @@ def register(ctx) -> None:
         _enregistrer_p5(ctx)
     except Exception:  # noqa: BLE001 — sans fournisseur, les routes machine répondent 401 et /v1/meta le dit
         _log.exception("acp-poste : jeton machine non enregistré ; les routes du poste refusent tout (401).")
+    try:
+        from .noyau import jeton_coffre
+        jeton_coffre.enregistrer(ctx)
+    except Exception:  # sans fournisseur dédié, aucune route du coffre n’accepte de porteur
+        _log.exception("acp-poste : identité du coffre non enregistrée ; les routes du bridge refusent tout.")

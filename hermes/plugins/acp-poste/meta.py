@@ -536,6 +536,7 @@ def construire_meta(sources: SourcesMeta = SourcesMeta(), reseau: Optional[Mappi
         "deploiement": deploiement,
         # Étape P3 (ajouts, contrat acp-poste/1 inchangé) : résumé du catalogue et greffons d'interface.
         "catalogue": catalogue,
+        "capacites": {"coffre": "acp-coffre/1"},
         "interface": interface,
         # Étape P4 (ajout, contrat acp-poste/1 inchangé) : projets, pause générale et émetteur.
         "projets": projets,

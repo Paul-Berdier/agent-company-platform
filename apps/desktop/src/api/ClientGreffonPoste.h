@@ -80,6 +80,14 @@ public:
     ApiCall *meta();
     /*! Verrou du catalogue (`/v1/catalogue`) : types de projet offerts au lancement. */
     ApiCall *catalogue();
+    // Coffre Markdown ACP : bridge distinct, opérations bornées et authentifiées.
+    ApiCall *coffre();
+    ApiCall *enrolerCoffre();
+    ApiCall *confirmerCoffre(const QString &identifiant, const QString &empreinte);
+    ApiCall *revoquerCoffre(const QString &identifiant, const QString &motif);
+    ApiCall *creerOperationCoffre(const QJsonObject &operation);
+    ApiCall *operationCoffre(const QString &identifiant);
+
     ApiCall *projets();
     ApiCall *projet(const QString &identifiant);
     ApiCall *carteDuProjet(const QString &identifiant, const QString &carte);

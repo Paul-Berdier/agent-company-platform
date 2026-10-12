@@ -360,3 +360,27 @@ Captures relues (pages réelles dans une fenêtre construite comme `App.qml`) : 
 navigateur, discussion, nouveau projet, questions avant et après, sauvegarde, accueil,
 détail du projet, poste, quotas, routage, diagnostics. Ce parcours ne prouve ni Railway, ni une vraie passkey, ni le navigateur du
 système (remplacé par Chromium), ni une installation sur un Windows propre.
+
+
+## Pont coffre livré avec 1.2.0
+
+L’empaquetage desktop inclut désormais `coffre/`, son lanceur Windows et un Python
+3.12 x64 autonome. Sur la machine de **construction**, installer les dépendances du
+verrou avec `python -m pip install --no-deps --require-hashes -r requirements/poste-3.12.lock.txt`.
+Si ce Python est dans un environnement virtuel, passer son chemin à
+`package-desktop.ps1 -Python <chemin-python.exe>` ; sinon la commande `python` est
+résolue dans le PATH. Les workflows Windows effectuent cette préparation.
+
+`package-coffre.ps1` copie le runtime installé, les cinq distributions verrouillées,
+leurs licences et les sources ACP. Il refuse un répertoire de sortie déjà rempli.
+Le paquet ignore le site utilisateur et PYTHONPATH, et ne télécharge rien au
+lancement. Sa fabrication vérifie des opérations sur un coffre jetable avec le
+Python embarqué et le passage des arguments du menu sous PowerShell 5.1.
+`coffre/manifest-coffre.json` consigne versions, empreintes et résultat de cette
+preuve. L’utilisateur final n’a pas besoin d’une installation Python.
+
+Le raccourci **Coffre ACP - Obsidian** démarre un programme séparé en session
+propriétaire. Il ne crée ni compte dédié, ni tâche planifiée, ni service Windows.
+Fermer ce lanceur avec le desktop avant une mise à jour. Les notes restent hors du
+répertoire d’installation. L’association à Hermes est décrite dans le
+[guide 1.2.0](refonte/workspace-1.2.0.md).

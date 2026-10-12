@@ -60,7 +60,7 @@ def test_graphe_complet_tour_1(noyau, conn, monkeypatch):
     assert {"acp-profils", "hermes-agent"} <= set(te2.skills)
     # Synthèse : parents = tout le tour, priorité 10, 1 800 s.
     assert ts.assignee == "default" and ts.priority == 10 and ts.max_runtime_seconds == 1800
-    assert ts.skills == ["acp-synthese", "acp-routage"] and ts.status == "todo"
+    assert ts.skills == ["acp-synthese", "acp-routage", "acp-boucle-chef"] and ts.status == "todo"
     assert ts.idempotency_key == f"acp:{projet['id']}:t1:synthese"
     fiche = noyau.projets.projet(conn, projet["id"])
     assert fiche["tour"] == 1 and fiche["cartes_creees"] == 2 + 4

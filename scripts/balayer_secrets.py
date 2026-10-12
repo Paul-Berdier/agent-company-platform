@@ -50,6 +50,8 @@ MOTIFS = {
     # Étape P5 : jeton machine du poste et code d'enrôlement (préfixe puis 43 caractères base64url).
     "jeton machine ACP": re.compile(r"\bacpm_[A-Za-z0-9_-]{40,}"),
     "code d'enrôlement ACP": re.compile(r"\bacpe_[A-Za-z0-9_-]{40,}"),
+    "jeton coffre ACP": re.compile(r"\bacpct_[A-Za-z0-9_-]{40,}"),
+    "code d'enrôlement coffre ACP": re.compile(r"\bacpce_[A-Za-z0-9_-]{40,}"),
 }
 
 Constat = Tuple[str, str, str]  # (emplacement, motif, extrait masqué)

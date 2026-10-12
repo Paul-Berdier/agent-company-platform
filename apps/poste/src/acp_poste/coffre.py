@@ -27,6 +27,7 @@ from .credentials_protection import CredentialProtectionError, protect_credentia
 ENTETE = b"ACPD1"
 TAILLE_MAX = 64 * 1024
 USAGES = {
+    "jeton-coffre": ("jeton-coffre.dpapi", b"ACP bridge coffre de notes v1"),
     "jeton-machine": ("jeton-machine.dpapi", b"ACP poste jeton machine v1"),
     "jeton-claude": ("claude-oauth.dpapi", b"ACP poste jeton Claude v1"),
 }

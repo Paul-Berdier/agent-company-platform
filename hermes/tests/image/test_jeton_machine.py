@@ -251,7 +251,7 @@ resultat = [[(f.name, f.supports_token, f.supports_session) for f in ctx.fournis
 def test_register_enregistre_le_fournisseur_et_les_chemins_exacts(noyau):
     code = _CODE_REGISTER.replace("__AVEC_SESSION__", "True")
     fournisseurs, exacts, autres, messages = executer_python(code, env=dict(os.environ, HERMES_HOME=str(noyau.home)))
-    assert fournisseurs == [["acp-poste-machine", True, False]]
+    assert fournisseurs == [["acp-poste-machine", True, False], ["acp-coffre", True, False]]
     assert exacts == [True] * 9  # étape P6 : test_neuf_chemins_a_jeton
     # Chemin exact seulement ; une route non déclarée (pousser, D82) et les routes du propriétaire jamais à jeton.
     assert autres == [False] * 12
@@ -267,7 +267,7 @@ def test_register_sans_fournisseur_de_session_enregistre_quand_meme(noyau):
     sans erreur au journal."""
     code = _CODE_REGISTER.replace("__AVEC_SESSION__", "False")
     fournisseurs, exacts, autres, messages = executer_python(code, env=dict(os.environ, HERMES_HOME=str(noyau.home)))
-    assert fournisseurs == [["acp-poste-machine", True, False]]
+    assert fournisseurs == [["acp-poste-machine", True, False], ["acp-coffre", True, False]]
     assert exacts == [True] * 9 and autres == [False] * 12
     assert [m for m in messages if m[0] == "ERROR"] == []
 
@@ -310,6 +310,7 @@ resultat = [[[p.name, bool(getattr(p, "supports_session", True))] for p in list_
     assert actions == ["load_now", "load_now"]
     assert not dependances[0]  # requires_plugins retiré : il n'ordonnait rien pour un greffon groupé
     # Relecture de sécurité de P5 : le jeton machine vaut pour TOUT chemin à jeton de Hermes. Dans l'image épinglée,
-    # les seuls chemins à jeton sont les trois du poste (drain désactivé) ; une montée de version qui en ajouterait
-    # un ferait échouer ce test, à revoir alors (le fournisseur accepterait le jeton machine sur ce chemin).
-    assert tous == sorted(ROUTES)
+    # seuls les neuf chemins machine et les trois chemins du coffre sont déclarés (drain désactivé).
+    # Chaque famille refuse explicitement le provider et la portée de l’autre ; tout nouveau chemin échoue ici.
+    from acp_poste_contrat.coffre import ROUTES as ROUTES_COFFRE
+    assert tous == sorted((*ROUTES, *ROUTES_COFFRE))

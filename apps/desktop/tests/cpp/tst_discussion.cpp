@@ -164,6 +164,38 @@ struct Banc
     }
 };
 
+// Transport déterministe pour inverser de vraies réponses JSON-RPC sans délai ni processus.
+struct CanalManuel
+{
+    JsonRpcChannel *canal;
+    QList<QJsonObject> trames;
+    explicit CanalManuel(GatewayClient &passerelle) : canal(passerelle.canal())
+    {
+        canal->attacher([this](const QByteArray &texte) {
+            trames.append(QJsonDocument::fromJson(texte).object());
+            return true;
+        });
+    }
+    ~CanalManuel() { canal->detacher(QStringLiteral("Fin du scénario déterministe")); }
+    QJsonObject derniere(const QString &methode) const
+    {
+        for (auto i = trames.crbegin(); i != trames.crend(); ++i)
+            if (i->value(QStringLiteral("method")).toString() == methode) return *i;
+        return {};
+    }
+    void repondre(const QJsonObject &requete, const QJsonValue &resultat)
+    {
+        canal->recevoir(QJsonDocument(QJsonObject{{QStringLiteral("jsonrpc"), QStringLiteral("2.0")},
+            {QStringLiteral("id"), requete.value(QStringLiteral("id"))}, {QStringLiteral("result"), resultat}}).toJson(QJsonDocument::Compact));
+    }
+    void refuser(const QJsonObject &requete)
+    {
+        canal->recevoir(QJsonDocument(QJsonObject{{QStringLiteral("jsonrpc"), QStringLiteral("2.0")},
+            {QStringLiteral("id"), requete.value(QStringLiteral("id"))}, {QStringLiteral("error"), QJsonObject{
+                {QStringLiteral("code"), 5007}, {QStringLiteral("message"), QStringLiteral("Refus de test")}}}}).toJson(QJsonDocument::Compact));
+    }
+};
+
 } // namespace
 
 class TestDiscussion : public QObject
@@ -186,6 +218,13 @@ private slots:
     void clarificationsSimpleMultipleEtLot();
     void retraitParHermesEtCoupure();
     void secretToujoursRefuse();
+    void rechercheEtChargementBornes();
+    void listesInverseesEtOubli();
+    void titreEtCopieConfirmeesParHermes();
+    void gestesTardifsEtInfosIsolees();
+    void choixModeleEtConfirmationDeCout();
+    void modelesTardifsEtDonneesIllisibles();
+    void consignesPrepareesSansEnvoi();
 };
 
 void TestDiscussion::lignesDeSessionEtDeTranscription()
@@ -593,6 +632,247 @@ void TestDiscussion::brouillonsIsolesEtOublies()
     banc.discussion.oublier();
     banc.ouvrirSession(QStringLiteral("s2"));
     QCOMPARE(banc.discussion.brouillon(), QString());
+}
+
+void TestDiscussion::rechercheEtChargementBornes()
+{
+    Banc banc;
+    banc.serveur.methodes.insert(QStringLiteral("session.list"), [](const QJsonObject &params) {
+        QJsonArray sessions;
+        for (int i = 0; i < params.value(QStringLiteral("limit")).toInt(); ++i)
+            sessions.append(QJsonObject{{QStringLiteral("id"), QStringLiteral("s%1").arg(i)},
+                {QStringLiteral("title"), QStringLiteral("Discussion %1").arg(i)},
+                {QStringLiteral("preview"), i == 42 ? QStringLiteral("Recette spéciale") : QString()}});
+        return QJsonObject{{QStringLiteral("sessions"), sessions}};
+    });
+    banc.ouvrirPasserelle();
+    banc.discussion.actualiserSessions();
+    QTRY_COMPARE(banc.discussion.sessionsChargees(), 50);
+    const auto lectures = banc.serveur.tramesDeMethode(QStringLiteral("session.list")).size();
+    banc.discussion.setRechercheSessions(QStringLiteral("RECETTE"));
+    QCOMPARE(banc.discussion.sessions()->count(), 1);
+    QCOMPARE(banc.discussion.sessions()->itemAt(0).value(QStringLiteral("id")).toString(), QStringLiteral("s42"));
+    QCOMPARE(banc.discussion.sessionsChargees(), 50);
+    QCOMPARE(banc.serveur.tramesDeMethode(QStringLiteral("session.list")).size(), lectures);
+    for (int limite = 100; limite <= 500; limite += 50) {
+        QVERIFY(banc.discussion.peutChargerPlus());
+        banc.discussion.chargerPlusSessions();
+        QTRY_COMPARE(banc.discussion.sessionsChargees(), limite);
+    }
+    QVERIFY(!banc.discussion.peutChargerPlus());
+    banc.discussion.chargerPlusSessions();
+    QCOMPARE(banc.serveur.tramesDeMethode(QStringLiteral("session.list")).last().value(QStringLiteral("params")).toObject()
+                 .value(QStringLiteral("limit")).toInt(), 500);
+    banc.discussion.setRechercheSessions(QString());
+    QCOMPARE(banc.discussion.sessions()->count(), 500);
+    banc.serveur.methodes.remove(QStringLiteral("session.list"));
+    banc.discussion.actualiserSessions();
+    QTRY_VERIFY(!banc.discussion.erreurSessions().isEmpty());
+    QCOMPARE(banc.discussion.sessionsChargees(), 500);
+    QVERIFY(!banc.discussion.chargementSessions());
+}
+
+void TestDiscussion::listesInverseesEtOubli()
+{
+    Banc banc;
+    banc.ouvrirPasserelle();
+    CanalManuel manuel(banc.passerelle);
+    const auto resultat = [](const QString &id) {
+        return QJsonObject{{QStringLiteral("sessions"), QJsonArray{QJsonObject{{QStringLiteral("id"), id}}}}};
+    };
+    banc.discussion.actualiserSessions();
+    const auto ancienne = manuel.derniere(QStringLiteral("session.list"));
+    banc.discussion.actualiserSessions();
+    const auto recente = manuel.derniere(QStringLiteral("session.list"));
+    manuel.repondre(recente, resultat(QStringLiteral("recente")));
+    manuel.repondre(ancienne, resultat(QStringLiteral("ancienne")));
+    QCOMPARE(banc.discussion.sessions()->itemAt(0).value(QStringLiteral("id")).toString(), QStringLiteral("recente"));
+    banc.discussion.actualiserSessions();
+    const auto avantOubli = manuel.derniere(QStringLiteral("session.list"));
+    banc.discussion.setRechercheSessions(QStringLiteral("ancienne"));
+    banc.discussion.oublier();
+    manuel.repondre(avantOubli, resultat(QStringLiteral("serveur-oublie")));
+    QCOMPARE(banc.discussion.sessions()->count(), 0);
+    QVERIFY(!banc.discussion.sessionsLues());
+    QVERIFY(!banc.discussion.chargementSessions());
+    QVERIFY(banc.discussion.rechercheSessions().isEmpty());
+}
+
+void TestDiscussion::titreEtCopieConfirmeesParHermes()
+{
+    Banc banc;
+    banc.ouvrirPasserelle();
+    banc.ouvrirSession();
+    banc.discussion.setBrouillon(QStringLiteral("Brouillon du parent"));
+    CanalManuel manuel(banc.passerelle);
+    banc.discussion.renommer(QStringLiteral("   "));
+    QVERIFY(manuel.derniere(QStringLiteral("session.title")).isEmpty());
+    banc.discussion.renommer(QStringLiteral("  Nouveau titre  "));
+    const auto titre = manuel.derniere(QStringLiteral("session.title"));
+    QCOMPARE(titre.value(QStringLiteral("params")).toObject(), (QJsonObject{
+        {QStringLiteral("session_id"), QStringLiteral("rt-s1")}, {QStringLiteral("title"), QStringLiteral("Nouveau titre")}}));
+    QCOMPARE(banc.discussion.titreSession(), QStringLiteral("Plan du site"));
+    manuel.repondre(titre, QJsonObject{{QStringLiteral("title"), QStringLiteral("Titre normalisé")}, {QStringLiteral("pending"), true}});
+    QCOMPARE(banc.discussion.titreSession(), QStringLiteral("Titre normalisé"));
+    QVERIFY(banc.discussion.alerteGeste());
+    banc.discussion.dupliquer();
+    const auto copie = manuel.derniere(QStringLiteral("session.branch_stored"));
+    QCOMPARE(copie.value(QStringLiteral("params")).toObject(),
+        (QJsonObject{{QStringLiteral("parent_session_id"), QStringLiteral("s1")}}));
+    QCOMPARE(banc.discussion.sessionOuverte(), QStringLiteral("s1"));
+    manuel.repondre(copie, QJsonObject{{QStringLiteral("session_id"), QStringLiteral("rt-copie")},
+        {QStringLiteral("stored_session_id"), QStringLiteral("copie")}, {QStringLiteral("messages_omitted"), true}});
+    const auto reprise = manuel.derniere(QStringLiteral("session.resume"));
+    QCOMPARE(reprise.value(QStringLiteral("params")).toObject().value(QStringLiteral("session_id")).toString(), QStringLiteral("copie"));
+    QVERIFY(banc.discussion.ouverture());
+    manuel.repondre(reprise, QJsonObject{{QStringLiteral("session_id"), QStringLiteral("rt-copie")},
+        {QStringLiteral("info"), QJsonObject{{QStringLiteral("title"), QStringLiteral("Copie")}}},
+        {QStringLiteral("messages"), QJsonArray{QJsonObject{{QStringLiteral("role"), QStringLiteral("user")},
+            {QStringLiteral("text"), QStringLiteral("Historique copié par le serveur")}}}}});
+    QCOMPARE(banc.discussion.transcription()->count(), 1);
+    QCOMPARE(banc.discussion.transcription()->itemAt(0).value(QStringLiteral("texte")).toString(), QStringLiteral("Historique copié par le serveur"));
+    QCOMPARE(banc.discussion.brouillon(), QString());
+    banc.discussion.ouvrir(QStringLiteral("s1"));
+    QCOMPARE(banc.discussion.brouillon(), QStringLiteral("Brouillon du parent"));
+}
+
+void TestDiscussion::gestesTardifsEtInfosIsolees()
+{
+    Banc banc;
+    banc.ouvrirPasserelle();
+    banc.ouvrirSession();
+    banc.evenement(QStringLiteral("session.info"), QJsonObject{
+        {QStringLiteral("model"), QStringLiteral("modele-A")}, {QStringLiteral("provider"), QStringLiteral("route-A")},
+        {QStringLiteral("profile_name"), QStringLiteral("atelier")}, {QStringLiteral("system_prompt"), QStringLiteral("SECRET")},
+        {QStringLiteral("usage"), QJsonObject{{QStringLiteral("context_used"), 1200}, {QStringLiteral("context_max"), 4000},
+            {QStringLiteral("context_estimated"), true}, {QStringLiteral("private"), QStringLiteral("SECRET")}}}});
+    QTRY_COMPARE(banc.discussion.infosSession().value(QStringLiteral("model")).toString(), QStringLiteral("modele-A"));
+    const auto infos = banc.discussion.infosSession();
+    QVERIFY(!infos.contains(QStringLiteral("system_prompt")));
+    QCOMPARE(infos.value(QStringLiteral("usage")).toMap().value(QStringLiteral("context_used")).toInt(), 1200);
+    QVERIFY(!infos.value(QStringLiteral("usage")).toMap().contains(QStringLiteral("private")));
+    CanalManuel manuel(banc.passerelle);
+    banc.discussion.renommer(QStringLiteral("Ancien renommage"));
+    const auto titre = manuel.derniere(QStringLiteral("session.title"));
+    banc.discussion.ouvrir(QStringLiteral("s2"));
+    QVERIFY(!banc.discussion.gesteEnCours());
+    QVERIFY(banc.discussion.infosSession().isEmpty());
+    manuel.repondre(manuel.derniere(QStringLiteral("session.resume")), QJsonObject{
+        {QStringLiteral("session_id"), QStringLiteral("rt-s2")}, {QStringLiteral("messages"), QJsonArray{}},
+        {QStringLiteral("info"), QJsonObject{{QStringLiteral("title"), QStringLiteral("Session B")}, {QStringLiteral("model"), QStringLiteral("modele-B")}}}});
+    manuel.repondre(titre, QJsonObject{{QStringLiteral("title"), QStringLiteral("Ancien renommage")}});
+    QCOMPARE(banc.discussion.titreSession(), QStringLiteral("Session B"));
+    QVERIFY(banc.discussion.messageGeste().isEmpty());
+    banc.discussion.renommer(QStringLiteral("Refus"));
+    manuel.refuser(manuel.derniere(QStringLiteral("session.title")));
+    QCOMPARE(banc.discussion.titreSession(), QStringLiteral("Session B"));
+    QVERIFY(banc.discussion.erreurGeste().contains(QStringLiteral("Refus de test")));
+    banc.discussion.oublier();
+    QVERIFY(banc.discussion.infosSession().isEmpty());
+}
+
+void TestDiscussion::choixModeleEtConfirmationDeCout()
+{
+    Banc banc;
+    banc.ouvrirPasserelle();
+    banc.ouvrirSession();
+    CanalManuel manuel(banc.passerelle);
+    banc.discussion.actualiserModeles();
+    const auto inventaire = manuel.derniere(QStringLiteral("model.options"));
+    QCOMPARE(inventaire.value(QStringLiteral("params")).toObject(), (QJsonObject{
+        {QStringLiteral("session_id"), QStringLiteral("rt-s1")}, {QStringLiteral("include_unconfigured"), false}}));
+    manuel.repondre(inventaire, QJsonObject{{QStringLiteral("providers"), QJsonArray{
+        QJsonObject{{QStringLiteral("slug"), QStringLiteral("route")}, {QStringLiteral("name"), QStringLiteral("Route réelle")},
+            {QStringLiteral("models"), QJsonArray{QStringLiteral("modele"), QStringLiteral("indisponible"), QStringLiteral("x --global")}},
+            {QStringLiteral("unavailable_models"), QJsonArray{QStringLiteral("indisponible")}}},
+        QJsonObject{{QStringLiteral("slug"), QStringLiteral("sans-auth")}, {QStringLiteral("authenticated"), false},
+            {QStringLiteral("models"), QJsonArray{QStringLiteral("modele-prive")}}}}}});
+    QVERIFY(banc.discussion.modelesCharges());
+    QCOMPARE(banc.discussion.modelesSession()->count(), 2);
+    banc.discussion.choisirModele(QStringLiteral("route"), QStringLiteral("invente"));
+    banc.discussion.choisirModele(QStringLiteral("route"), QStringLiteral("x --global"));
+    QVERIFY(manuel.derniere(QStringLiteral("config.set")).isEmpty());
+    banc.discussion.choisirModele(QStringLiteral("route"), QStringLiteral("modele"));
+    const auto choix = manuel.derniere(QStringLiteral("config.set"));
+    QCOMPARE(choix.value(QStringLiteral("params")).toObject(), (QJsonObject{
+        {QStringLiteral("session_id"), QStringLiteral("rt-s1")}, {QStringLiteral("key"), QStringLiteral("model")},
+        {QStringLiteral("value"), QStringLiteral("modele --provider route --session")}, {QStringLiteral("confirm_expensive_model"), false}}));
+    manuel.repondre(choix, QJsonObject{{QStringLiteral("key"), QStringLiteral("model")}, {QStringLiteral("value"), QStringLiteral("modele")},
+        {QStringLiteral("confirm_required"), true}, {QStringLiteral("confirm_message"), QStringLiteral("Coût élevé : confirmer ?")}});
+    QCOMPARE(banc.discussion.confirmationModele(), QStringLiteral("Coût élevé : confirmer ?"));
+    QVERIFY(banc.discussion.alerteGeste());
+    QVERIFY(!banc.discussion.infosSession().contains(QStringLiteral("model")));
+    const auto nombre = manuel.trames.size();
+    banc.discussion.confirmerModele();
+    QCOMPARE(manuel.trames.size(), nombre + 1);
+    const auto confirme = manuel.derniere(QStringLiteral("config.set"));
+    QVERIFY(confirme.value(QStringLiteral("params")).toObject().value(QStringLiteral("confirm_expensive_model")).toBool());
+    manuel.repondre(confirme, QJsonObject{{QStringLiteral("key"), QStringLiteral("model")}, {QStringLiteral("value"), QStringLiteral("modele")},
+        {QStringLiteral("deferred"), true}});
+    QVERIFY(banc.discussion.confirmationModele().isEmpty());
+    QVERIFY(banc.discussion.messageGeste().contains(QStringLiteral("prochain tour")));
+    QVERIFY(!banc.discussion.infosSession().contains(QStringLiteral("model")));
+    banc.discussion.confirmerModele();
+    QCOMPARE(manuel.trames.size(), nombre + 1); // pas de seconde confirmation implicite
+}
+
+void TestDiscussion::modelesTardifsEtDonneesIllisibles()
+{
+    Banc banc;
+    banc.ouvrirPasserelle();
+    banc.ouvrirSession();
+    CanalManuel manuel(banc.passerelle);
+    banc.discussion.actualiserModeles();
+    const auto ancien = manuel.derniere(QStringLiteral("model.options"));
+    banc.discussion.actualiserModeles();
+    manuel.repondre(manuel.derniere(QStringLiteral("model.options")), QJsonObject{{QStringLiteral("providers"), QJsonArray{}}});
+    manuel.repondre(ancien, QJsonObject{{QStringLiteral("providers"), QJsonArray{QJsonObject{
+        {QStringLiteral("slug"), QStringLiteral("ancien")}, {QStringLiteral("models"), QJsonArray{QStringLiteral("ancien")}}}}}});
+    QVERIFY(banc.discussion.modelesCharges());
+    QCOMPARE(banc.discussion.modelesSession()->count(), 0);
+    banc.discussion.actualiserModeles();
+    manuel.repondre(manuel.derniere(QStringLiteral("model.options")), QJsonObject{});
+    QVERIFY(!banc.discussion.erreurModeles().isEmpty());
+    banc.discussion.actualiserModeles();
+    const auto avantOubli = manuel.derniere(QStringLiteral("model.options"));
+    banc.discussion.oublier();
+    manuel.refuser(avantOubli);
+    QVERIFY(banc.discussion.erreurModeles().isEmpty());
+    QVERIFY(!banc.discussion.modelesCharges());
+    QVERIFY(!banc.discussion.chargementModeles());
+}
+
+void TestDiscussion::consignesPrepareesSansEnvoi()
+{
+    Banc banc;
+    banc.discussion.preparerConsigne(QStringLiteral("Consigne hors ligne"));
+    QCOMPARE(banc.discussion.brouillon(), QStringLiteral("Consigne hors ligne"));
+    QVERIFY(banc.discussion.alerteGeste());
+    QVERIFY(banc.serveur.tramesDeMethode(QStringLiteral("session.create")).isEmpty());
+    banc.ouvrirPasserelle();
+    banc.discussion.nouvelle();
+    QTRY_COMPARE(banc.discussion.sessionVivante(), QStringLiteral("rt-nouvelle"));
+    QCOMPARE(banc.discussion.brouillon(), QStringLiteral("Consigne hors ligne"));
+    banc.discussion.preparerConsigne(QStringLiteral("Complément"));
+    QCOMPARE(banc.discussion.brouillon(), QStringLiteral("Consigne hors ligne\n\nComplément"));
+    QVERIFY(banc.serveur.tramesDeMethode(QStringLiteral("prompt.submit")).isEmpty());
+    banc.discussion.oublier();
+    QVERIFY(banc.discussion.brouillon().isEmpty());
+    CanalManuel manuel(banc.passerelle);
+    banc.discussion.preparerConsigne(QStringLiteral("À conserver malgré la reprise annulée"));
+    const auto creation = manuel.derniere(QStringLiteral("session.create"));
+    QVERIFY(!creation.isEmpty());
+    banc.discussion.quitter();
+    manuel.repondre(creation, QJsonObject{{QStringLiteral("session_id"), QStringLiteral("ancien-runtime")},
+        {QStringLiteral("stored_session_id"), QStringLiteral("ancien-stocke")}, {QStringLiteral("messages"), QJsonArray{}}});
+    QVERIFY(banc.discussion.sessionVivante().isEmpty());
+    QCOMPARE(banc.discussion.brouillon(), QStringLiteral("À conserver malgré la reprise annulée"));
+    banc.discussion.nouvelle();
+    manuel.repondre(manuel.derniere(QStringLiteral("session.create")), QJsonObject{
+        {QStringLiteral("session_id"), QStringLiteral("nouveau-runtime")}, {QStringLiteral("stored_session_id"), QStringLiteral("nouveau-stocke")},
+        {QStringLiteral("messages"), QJsonArray{}}});
+    QCOMPARE(banc.discussion.brouillon(), QStringLiteral("À conserver malgré la reprise annulée"));
+    QVERIFY(manuel.derniere(QStringLiteral("prompt.submit")).isEmpty());
 }
 
 QTEST_MAIN(TestDiscussion)

@@ -20,7 +20,7 @@ import re
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Sequence
 
-from . import base, cartes, notifications, projets, routage
+from . import base, cartes, competences_poste, notifications, projets, routage
 from . import kanban_adapter as ka
 from . import textes as T
 from .motifs_secrets import motif_trouve
@@ -153,6 +153,19 @@ def _decisions_texte(decisions: Sequence[str]) -> str:
     return "\n".join(f"- {d}" for d in decisions) if decisions else "- (aucune)"
 
 
+def _appliquer_competences_poste(fiche: Dict[str, Any], demandes: List[Dict[str, Any]]) -> None:
+    """Même consigne vérifiée pour le protocole machine et la carte lisible du propriétaire."""
+    for demande in demandes:
+        if demande["role"] not in ("implementation", "correction", "relecture"):
+            continue
+        originale = demande["consigne"]
+        complete = competences_poste.appliquer(originale, profil=fiche["profil"], classe=demande["classe"],
+                                               role=demande["role"], voie=demande["voie"])
+        demande["consigne"] = complete
+        if complete != originale:
+            demande["corps"] += complete[len(originale):]
+
+
 def composer(conn, fiche: Dict[str, Any], tour: int, plan: Dict[str, Any]) -> List[Dict[str, Any]]:
     """Résout chaque étape (refus exact au premier échec) puis compose les demandes du tour, dans
     l'ordre de création (parents d'abord), synthèse en dernier."""
@@ -219,6 +232,7 @@ def composer(conn, fiche: Dict[str, Any], tour: int, plan: Dict[str, Any]) -> Li
         depot_alias=fiche["depot_alias"], consigne=plan["resume"], parents=tout, competences=projets.COMPETENCES_SYNTHESE,
         priorite=10, duree_max=cartes.DUREE_HERMES_SYNTHESE,
         corps=T.CORPS_SYNTHESE.format(titre=fiche["titre"], r=tour, objectif=fiche["objectif"], suivant=tour + 1)))
+    _appliquer_competences_poste(fiche, demandes)
     return demandes
 
 
@@ -475,6 +489,8 @@ def inserer_correction(conn, *, tableau: str, carte_relecture: str, run_id_relec
                                             voie_relue=impl["voie"], consigne=consigne)),
     ]
     if deja is None:
+        # Un rejeu reprend la consigne déjà réservée, même si le catalogue a changé depuis.
+        _appliquer_competences_poste(fiche, demandes)
         with base.transaction(conn):
             cartes.reserver(conn, demandes)
             conn.execute("UPDATE projets SET cartes_creees = cartes_creees + 2, maj_le = ? WHERE id = ?",

@@ -356,10 +356,13 @@ ApiError ApiClient::validateBeforeSend(const ApiRequest &request) const
         // Hors session, une route protégée part en refus local, sans appel réseau.
         return ApiError::refusal(QStringLiteral("Aucune session : connectez-vous."));
     }
+    const bool operationCoffre = request.method == QByteArrayLiteral("POST")
+        && request.path == QLatin1String("/api/plugins/acp-poste/v1/coffre/operations");
+    const qsizetype maximumCorps = operationCoffre ? 192 * 1024 : kMaxWriteBodyBytes;
     if (!request.isSafeMethod() && !request.body.isNull()
-        && request.body.toJson(QJsonDocument::Compact).size() > kMaxWriteBodyBytes) {
+        && request.body.toJson(QJsonDocument::Compact).size() > maximumCorps) {
         return ApiError::refusal(QStringLiteral(
-            "Corps de plus de 64 Kio : refusé par la station avant l'envoi."));
+            "Corps de plus de %1 Kio : refusé par la station avant l'envoi.").arg(maximumCorps / 1024));
     }
     return {};
 }

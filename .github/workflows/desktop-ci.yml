@@ -31,6 +31,12 @@ name: Desktop CI
       - "scripts/build-desktop.ps1"
       - "scripts/test-desktop.ps1"
       - "scripts/package-desktop.ps1"
+      - "scripts/package-coffre.ps1"
+      - "scripts/package_coffre.py"
+      - "packaging/coffre/**"
+      - "apps/poste/src/**"
+      - "hermes/plugins/acp-poste/contrat/**"
+      - "requirements/poste-3.12.lock.txt"
       - ".github/workflows/desktop-ci.yml"
       - "VERSION"
   push:
@@ -48,6 +54,12 @@ name: Desktop CI
       - "scripts/build-desktop.ps1"
       - "scripts/test-desktop.ps1"
       - "scripts/package-desktop.ps1"
+      - "scripts/package-coffre.ps1"
+      - "scripts/package_coffre.py"
+      - "packaging/coffre/**"
+      - "apps/poste/src/**"
+      - "hermes/plugins/acp-poste/contrat/**"
+      - "requirements/poste-3.12.lock.txt"
       - ".github/workflows/desktop-ci.yml"
       - "VERSION"
 
@@ -146,6 +158,9 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+
+      - name: Installer les dépendances verrouillées du coffre
+        run: python -m pip install --no-deps --require-hashes -r requirements/poste-3.12.lock.txt
 
       - name: Inventorier les prérequis
         run: ./scripts/setup-desktop.ps1

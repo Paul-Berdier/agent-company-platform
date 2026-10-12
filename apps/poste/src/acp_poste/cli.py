@@ -124,6 +124,8 @@ def _parser() -> argparse.ArgumentParser:
     sonde = commandes.add_parser("sonde-plateforme",
                                  help="Exécutant Linux : sonde d'isolement (bubblewrap, UID), sans identifiant")
     sonde.add_argument("--json", action="store_true", help="Relevé complet en JSON (publiable : aucun identifiant)")
+    from .obsidian_bridge import ajouter_commandes
+    ajouter_commandes(commandes)
     return parser
 
 
@@ -264,6 +266,9 @@ def _sonde_plateforme(args: argparse.Namespace, contexte: Contexte) -> int:
 
 def executer(args: argparse.Namespace, contexte: Contexte) -> int:
     commande = args.commande
+    if commande == "obsidian":
+        from .obsidian_bridge import executer_cli
+        return executer_cli(args, contexte)
     if commande == "sonde-plateforme":
         return _sonde_plateforme(args, contexte)
     linux = contexte.plateforme == "linux"

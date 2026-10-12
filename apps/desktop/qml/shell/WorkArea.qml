@@ -17,7 +17,7 @@ Rectangle {
     color: Colors.surfaceCanvas
 
     Repeater {
-        model: ["home", "projects", "questions", "chat", "station", "quotas", "routing", "backup", "diagnostics", "settings"]
+        model: ["home", "projects", "questions", "chat", "tools", "vault", "station", "quotas", "routing", "backup", "diagnostics", "settings"]
         delegate: Loader {
             required property string modelData
             property bool visited: false
@@ -32,6 +32,8 @@ Rectangle {
                 case "projects": return projectsComponent;
                 case "questions": return questionsComponent;
                 case "chat": return discussionComponent;
+                case "tools": return outilsComponent;
+                case "vault": return coffreComponent;
                 case "station": return posteComponent;
                 case "quotas": return quotasComponent;
                 case "routing": return routageComponent;
@@ -48,6 +50,8 @@ Rectangle {
     Component { id: projectsComponent; ProjectsPage {} }
     Component { id: questionsComponent; QuestionsPage {} }
     Component { id: discussionComponent; DiscussionPage {} }
+    Component { id: outilsComponent; OutilsPage {} }
+    Component { id: coffreComponent; CoffrePage {} }
     Component { id: posteComponent; PostePage {} }
     Component { id: quotasComponent; QuotasPage {} }
     Component { id: routageComponent; RoutagePage {} }

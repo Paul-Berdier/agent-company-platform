@@ -80,6 +80,9 @@ Source: "*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubd
 Name: "{autoprograms}\{#AcpName}"; Filename: "{app}\{#AcpExeName}"; Check: not WizardNoIcons
 Name: "{autodesktop}\{#AcpName}"; Filename: "{app}\{#AcpExeName}"; Tasks: desktopicon; Check: not WizardNoIcons
 
+; Le pont est une application séparée, démarrée volontairement en session propriétaire.
+Name: "{autoprograms}\Coffre ACP - Obsidian"; Filename: "{app}\coffre\Lancer-Coffre-ACP.cmd"; WorkingDir: "{app}\coffre"; Check: not WizardNoIcons
+
 [Run]
 Filename: "{app}\{#AcpExeName}"; Description: "{cm:LaunchProgram,{#StringChange(AcpName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
 

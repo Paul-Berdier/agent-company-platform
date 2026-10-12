@@ -6,6 +6,10 @@
 // pire qu'un filtre absent.
 
 #include "diagnostics/Redaction.h"
+#include "api/ApiError.h"
+#include "viewmodels/PageViewModel.h"
+#include <QJsonDocument>
+#include <QJsonObject>
 
 #include <QTest>
 
@@ -26,8 +30,27 @@ private slots:
     void redactsHermesSessionSecrets();
     void redactsNativeSignInParameters();
     void redactsPluginMachineSecrets();
+    void masqueCoffreDansErreurApi();
     void ressembleAUnSecretSuitLeFiltre();
 };
+
+void TestRedaction::masqueCoffreDansErreurApi()
+{
+    const QString jeton=QStringLiteral("acpct_")+QString(43,QLatin1Char('Q'));
+    const QString code=QStringLiteral("acpce_")+QString(43,QLatin1Char('z'));
+    const QString message=QStringLiteral("Connexion refusée pour %1, code %2").arg(jeton,code);
+    const auto corps=QJsonDocument(QJsonObject{{QStringLiteral("detail"),QJsonObject{
+        {QStringLiteral("code"),QStringLiteral("coffre")},{QStringLiteral("message"),message}}}}).toJson();
+    const auto erreur=ApiError::fromResponse(409,corps);
+    const auto bandeau=PageViewModel::messageDuRefus(erreur);
+    QVERIFY(!bandeau.contains(jeton)); QVERIFY(!bandeau.contains(code));
+    QVERIFY(!erreur.detail().contains(jeton)); QVERIFY(!erreur.message().contains(code));
+    QVERIFY(bandeau.contains(QStringLiteral("Connexion refusée")));
+    QVERIFY(bandeau.contains(QString::fromUtf8(kRedactionPlaceholder)));
+    const auto rapport=redactSecrets(message);
+    QVERIFY(!rapport.contains(jeton)); QVERIFY(!rapport.contains(code));
+    QCOMPARE(redactSecrets(QStringLiteral("Préfixes acpct_ et acpce_ documentés")),QStringLiteral("Préfixes acpct_ et acpce_ documentés"));
+}
 
 void TestRedaction::redactsPluginMachineSecrets()
 {

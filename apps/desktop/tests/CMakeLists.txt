@@ -74,6 +74,14 @@ acp_add_cpp_test(tst_accueil cpp/support/FauxHermes.cpp cpp/support/FauxHermes.h
 target_compile_definitions(tst_accueil PRIVATE ACP_TEST_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures")
 acp_add_cpp_test(tst_projets cpp/support/FauxHermes.cpp cpp/support/FauxHermes.h cpp/support/Fixtures.h)
 target_compile_definitions(tst_projets PRIVATE ACP_TEST_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures")
+acp_add_cpp_test(tst_texte_discussion)
+acp_add_cpp_test(tst_catalogue cpp/support/FauxHermes.cpp cpp/support/FauxHermes.h)
+acp_add_cpp_test(tst_obsidian cpp/support/FauxHermes.cpp cpp/support/FauxHermes.h)
+acp_add_cpp_test(tst_coffre_interactions cpp/support/FauxHermes.cpp cpp/support/FauxHermes.h cpp/support/FauxCoffre.h cpp/support/Fixtures.h)
+target_link_libraries(tst_coffre_interactions PRIVATE Qt6::QuickControls2
+    acp_designplugin acp_themeplugin acp_controlsplugin acp_componentsplugin
+    acp_pagesplugin acp_stationplugin acp_desktop_qmlplugin)
+target_compile_definitions(tst_coffre_interactions PRIVATE ACP_TEST_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures")
 acp_add_cpp_test(tst_discussion cpp/support/FauxHermes.cpp cpp/support/FauxHermes.h)
 acp_add_cpp_test(tst_questions cpp/support/FauxHermes.cpp cpp/support/FauxHermes.h cpp/support/Fixtures.h)
 target_compile_definitions(tst_questions PRIVATE ACP_TEST_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures")

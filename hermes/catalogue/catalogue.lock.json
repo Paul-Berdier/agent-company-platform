@@ -49,6 +49,27 @@
       "categorie": "ecc",
       "vendorisee": true,
       "licence_fichier": "LICENSE"
+    },
+    "addyosmani/agent-skills": {
+      "url": "https://github.com/addyosmani/agent-skills",
+      "commit": "a06bc63b3f8b829c14b0bbf53d99fefc39d58092",
+      "licence": "MIT",
+      "auteur": "Addy Osmani",
+      "copyright": "Copyright (c) 2025 Addy Osmani",
+      "categorie": "addy-skills",
+      "vendorisee": true,
+      "licence_fichier": "LICENSE",
+      "etiquette": "0.6.12"
+    },
+    "DietrichGebert/ponytail": {
+      "url": "https://github.com/DietrichGebert/ponytail",
+      "commit": "9b58c1ffb790c075ca32e70a89cf1d80588f4abf",
+      "licence": "MIT",
+      "auteur": "DietrichGebert",
+      "copyright": "Copyright (c) 2026 DietrichGebert",
+      "categorie": "ponytail",
+      "vendorisee": true,
+      "licence_fichier": "LICENSE"
     }
   },
   "categories": {
@@ -100,6 +121,34 @@
           "sha256": "a0172415cd41354511291890c5ed52483a6595698c2a723a69cbeeccf19d0549"
         }
       }
+    },
+    "addy-skills": {
+      "fichiers": {
+        "LICENSE": {
+          "sha256": "6f202f8bd568cd730dbb2b0d1f8e243bc74c2fa1f64dbce9b2c7ea08bd5c9fd7",
+          "blob_git": "d67778ada6b9cda6227e9130da182c13e73c8b2e"
+        },
+        "DESCRIPTION.md": {
+          "sha256": "ebdd74ed47725a170d991ddda4502f04aa5433d6219977074a297f5e8edcc4e4"
+        },
+        "PROVENANCE.md": {
+          "sha256": "d54c06f45a6056506461f5a15d5885b2be6695d718f3f9dc0522ad067e4fbf9f"
+        }
+      }
+    },
+    "ponytail": {
+      "fichiers": {
+        "LICENSE": {
+          "sha256": "fb1bc6909ac3ef82d5c22106e32ef682b0cff66788fa915fb9b53b15c9d2f3ab",
+          "blob_git": "715d483338cea4365f0d91a27799cf61226d6bcf"
+        },
+        "DESCRIPTION.md": {
+          "sha256": "d690630031e3f7ebe63ca696586927b18505ae25d9910db09ce2c4b31be93691"
+        },
+        "PROVENANCE.md": {
+          "sha256": "3a44ca87775e69e9eec6908d6cd5875bbff42f5d7dd1b1f3c44840f072a5deb6"
+        }
+      }
     }
   },
   "skills": [
@@ -129,7 +178,7 @@
       "chemin": "acp/acp-profils",
       "fichiers": {
         "SKILL.md": {
-          "sha256": "0d19aa87f146c8728510916287cdcd1db636fb2603e4ca503b7f988d5d86edb4"
+          "sha256": "56b1a53c7f427e8084a5444a30bbc714e13bde9b63989589892ebd61dbc76b25"
         }
       },
       "execution": "aucune",
@@ -630,6 +679,453 @@
       ],
       "description_fr": "Mesure de performances et détection de régressions.",
       "raison": "Exécute des mesures. Relève du poste : candidate, non planifiée."
+    },
+    {
+      "nom": "planning-and-task-breakdown",
+      "source": "addyosmani/agent-skills",
+      "chemin_amont": "skills/planning-and-task-breakdown",
+      "cible": "hermes",
+      "etat": "livree",
+      "chemin": "addy-skills/planning-and-task-breakdown",
+      "fichiers": {
+        "references/amont/skills/planning-and-task-breakdown/SOURCE.md": {
+          "sha256": "ed0f90cc5951ddd4bcab7f871f64efec93a49af9279ef93bc470da77ad8da3f7",
+          "blob_git": "296249b64334bcfd1aeaefd27b9e3e5494e38ec0",
+          "chemin_amont": "skills/planning-and-task-breakdown/SKILL.md"
+        },
+        "references/amont/references/definition-of-done.md": {
+          "sha256": "d1c75d2ae65d2c7a9cd01f93fa8de63e00e75f2fe5d08be224d576157054dcee",
+          "blob_git": "35e39f9e15f6dd0ff4725a6e5cbce7f2aa69064a",
+          "chemin_amont": "references/definition-of-done.md"
+        },
+        "SKILL.md": {
+          "sha256": "c7534aa86f779c17949c900294c21586a2ff6447376c99a1a0f2b85d1d68362a",
+          "origine": "adaptation-acp"
+        },
+        "POSTE.md": {
+          "sha256": "5eff450f1f5f1a35e44e1aab329cd91706443e794a9fbe4fa89974514cda1aa9",
+          "origine": "adaptation-acp"
+        }
+      },
+      "execution": "aucune",
+      "profils": [
+        "web",
+        "donnees",
+        "recherche"
+      ],
+      "description_fr": "Planification et critères de fin. Source intégrale et application ACP en français.",
+      "raison": "Texte seul épinglé ; cadrage Hermes et application à la mission de l’exécutant, sans plugin ni hook.",
+      "enveloppe_acp": {
+        "schema": "acp-competence-texte/1",
+        "source": "references/amont/skills/planning-and-task-breakdown/SOURCE.md"
+      },
+      "application_poste": {
+        "fichier": "POSTE.md",
+        "classes": [
+          "architecture",
+          "documentation"
+        ],
+        "roles": [
+          "implementation",
+          "correction"
+        ]
+      }
+    },
+    {
+      "nom": "incremental-implementation",
+      "source": "addyosmani/agent-skills",
+      "chemin_amont": "skills/incremental-implementation",
+      "cible": "hermes",
+      "etat": "livree",
+      "chemin": "addy-skills/incremental-implementation",
+      "fichiers": {
+        "references/amont/skills/incremental-implementation/SOURCE.md": {
+          "sha256": "df66536610071727feae1ca95f3c391c248ad828041750ccd3699cce763aa00b",
+          "blob_git": "9c4f49bc841adb3c0f98baaa9eabd435a5b64ef9",
+          "chemin_amont": "skills/incremental-implementation/SKILL.md"
+        },
+        "references/amont/references/definition-of-done.md": {
+          "sha256": "d1c75d2ae65d2c7a9cd01f93fa8de63e00e75f2fe5d08be224d576157054dcee",
+          "blob_git": "35e39f9e15f6dd0ff4725a6e5cbce7f2aa69064a",
+          "chemin_amont": "references/definition-of-done.md"
+        },
+        "SKILL.md": {
+          "sha256": "86d89116f25149f23f51da28189edc9332879be2251e728f7fe54dab7ee13940",
+          "origine": "adaptation-acp"
+        },
+        "POSTE.md": {
+          "sha256": "f2f55d3bd0dfb49ebb0a45ef2bcf107412b84793e3e029a609507a9675d683bc",
+          "origine": "adaptation-acp"
+        }
+      },
+      "execution": "aucune",
+      "profils": [
+        "web",
+        "donnees"
+      ],
+      "description_fr": "Implémentation progressive. Source intégrale et application ACP en français.",
+      "raison": "Texte seul épinglé ; cadrage Hermes et application à la mission de l’exécutant, sans plugin ni hook.",
+      "enveloppe_acp": {
+        "schema": "acp-competence-texte/1",
+        "source": "references/amont/skills/incremental-implementation/SOURCE.md"
+      },
+      "application_poste": {
+        "fichier": "POSTE.md",
+        "classes": [
+          "implementation",
+          "petite_tache"
+        ],
+        "roles": [
+          "implementation",
+          "correction"
+        ]
+      }
+    },
+    {
+      "nom": "addy-test-driven-development",
+      "source": "addyosmani/agent-skills",
+      "chemin_amont": "skills/test-driven-development",
+      "cible": "hermes",
+      "etat": "livree",
+      "chemin": "addy-skills/addy-test-driven-development",
+      "fichiers": {
+        "references/amont/skills/test-driven-development/SOURCE.md": {
+          "sha256": "7c0c6ac057c19d7f8be65d9f49c3a638703b868f4625c78b70da5439d5d74fca",
+          "blob_git": "8898bcbba4c4f6acca473ece95e82105bd9cfea0",
+          "chemin_amont": "skills/test-driven-development/SKILL.md"
+        },
+        "references/amont/references/testing-patterns.md": {
+          "sha256": "f0bf05acd0edcadc27297ad5b74f104c8103ccfedba1a05cd6d6ae4af8364c56",
+          "blob_git": "bc96e271ad241ca567f06d21c6ecc001455b80f1",
+          "chemin_amont": "references/testing-patterns.md"
+        },
+        "SKILL.md": {
+          "sha256": "f6fb75917cc9cb3e22c649d42dd5823b99cfd4bf6851796df20d76150b7b4ac7",
+          "origine": "adaptation-acp"
+        },
+        "POSTE.md": {
+          "sha256": "bc7db9e945a5364350b3241b2e1295b795ee23e228cd7df30c9c86c15d083ab7",
+          "origine": "adaptation-acp"
+        }
+      },
+      "execution": "aucune",
+      "profils": [
+        "web",
+        "donnees"
+      ],
+      "description_fr": "Tests qui prouvent le comportement. Source intégrale et application ACP en français.",
+      "raison": "Texte seul épinglé ; cadrage Hermes et application à la mission de l’exécutant, sans plugin ni hook.",
+      "enveloppe_acp": {
+        "schema": "acp-competence-texte/1",
+        "source": "references/amont/skills/test-driven-development/SOURCE.md"
+      },
+      "application_poste": {
+        "fichier": "POSTE.md",
+        "classes": [
+          "implementation",
+          "debogage_tests"
+        ],
+        "roles": [
+          "implementation",
+          "correction"
+        ]
+      }
+    },
+    {
+      "nom": "code-review-and-quality",
+      "source": "addyosmani/agent-skills",
+      "chemin_amont": "skills/code-review-and-quality",
+      "cible": "hermes",
+      "etat": "livree",
+      "chemin": "addy-skills/code-review-and-quality",
+      "fichiers": {
+        "references/amont/skills/code-review-and-quality/SOURCE.md": {
+          "sha256": "2db1e850379f255fd3091ef278cde24cd6c7d2ba23e360cc52ea522c40d4396e",
+          "blob_git": "08209ff2208d2883d48d945f7754c428b77f8d87",
+          "chemin_amont": "skills/code-review-and-quality/SKILL.md"
+        },
+        "references/amont/references/security-checklist.md": {
+          "sha256": "37774056502fe8970dcd2fd27dca5fa31f2a55232649fc3056c89c3af7d62755",
+          "blob_git": "fc5e29b92c183fa69e0952b61a99761dc48b4c0b",
+          "chemin_amont": "references/security-checklist.md"
+        },
+        "references/amont/references/performance-checklist.md": {
+          "sha256": "40f564d1e62341e277c01ba42c42d95264b9ef3b8e5a23249dc6e121a7e70067",
+          "blob_git": "ba9744fe60dbe4f04f3f907029638d923158d7a2",
+          "chemin_amont": "references/performance-checklist.md"
+        },
+        "SKILL.md": {
+          "sha256": "86ac2f0e2734c359bf38e7da3cac28e4779be3b7937f8e348ac0686e64102803",
+          "origine": "adaptation-acp"
+        },
+        "POSTE.md": {
+          "sha256": "2b66c1795417603e4e3e799f82df08c820614d23fa5d2d5e29e4722495a944de",
+          "origine": "adaptation-acp"
+        }
+      },
+      "execution": "aucune",
+      "profils": [
+        "web",
+        "donnees",
+        "recherche"
+      ],
+      "description_fr": "Relecture du code et de ses risques. Source intégrale et application ACP en français.",
+      "raison": "Texte seul épinglé ; cadrage Hermes et application à la mission de l’exécutant, sans plugin ni hook.",
+      "enveloppe_acp": {
+        "schema": "acp-competence-texte/1",
+        "source": "references/amont/skills/code-review-and-quality/SOURCE.md"
+      },
+      "application_poste": {
+        "fichier": "POSTE.md",
+        "classes": [
+          "relecture"
+        ],
+        "roles": [
+          "relecture"
+        ]
+      }
+    },
+    {
+      "nom": "frontend-ui-engineering",
+      "source": "addyosmani/agent-skills",
+      "chemin_amont": "skills/frontend-ui-engineering",
+      "cible": "hermes",
+      "etat": "livree",
+      "chemin": "addy-skills/frontend-ui-engineering",
+      "fichiers": {
+        "references/amont/skills/frontend-ui-engineering/SOURCE.md": {
+          "sha256": "549044e9bd8d7fe993ce8e5c0d2b0f5465650676dc15805329973f936179eb1e",
+          "blob_git": "eaf0fa163876a5274674f42ea208742c50f27119",
+          "chemin_amont": "skills/frontend-ui-engineering/SKILL.md"
+        },
+        "references/amont/references/accessibility-checklist.md": {
+          "sha256": "61c759d94d52296231f5f310b92b401f56c44e4430dc3cc95ebac5d7b1d5ffac",
+          "blob_git": "c8c61e5f3d5a010a0d0ecb918bfaffe6c76fca78",
+          "chemin_amont": "references/accessibility-checklist.md"
+        },
+        "SKILL.md": {
+          "sha256": "ef863197f865b8d46facdc1d21839d2a2b5b18506425ada1e2ce0d95e88a1161",
+          "origine": "adaptation-acp"
+        },
+        "POSTE.md": {
+          "sha256": "fe26926944f1fce7111f043d533397269dbd5a8951dcd1e441c78c1cb6d2ee5a",
+          "origine": "adaptation-acp"
+        }
+      },
+      "execution": "aucune",
+      "profils": [
+        "web"
+      ],
+      "description_fr": "Interface, clavier et accessibilité. Source intégrale et application ACP en français.",
+      "raison": "Texte seul épinglé ; cadrage Hermes et application à la mission de l’exécutant, sans plugin ni hook.",
+      "enveloppe_acp": {
+        "schema": "acp-competence-texte/1",
+        "source": "references/amont/skills/frontend-ui-engineering/SOURCE.md"
+      },
+      "application_poste": {
+        "fichier": "POSTE.md",
+        "classes": [
+          "implementation"
+        ],
+        "roles": [
+          "implementation",
+          "correction"
+        ]
+      }
+    },
+    {
+      "nom": "debugging-and-error-recovery",
+      "source": "addyosmani/agent-skills",
+      "chemin_amont": "skills/debugging-and-error-recovery",
+      "cible": "hermes",
+      "etat": "livree",
+      "chemin": "addy-skills/debugging-and-error-recovery",
+      "fichiers": {
+        "references/amont/skills/debugging-and-error-recovery/SOURCE.md": {
+          "sha256": "21f3960f5d7ae2cc95c40896545004dbbcbbd752ea65fc2d53962554d4174220",
+          "blob_git": "356da20365a7cd6825b4ffad14be39280c92cdfc",
+          "chemin_amont": "skills/debugging-and-error-recovery/SKILL.md"
+        },
+        "SKILL.md": {
+          "sha256": "b13b866f08876b1f43e7df0ec247af92508881df1e1c71960f92545f32dffb9b",
+          "origine": "adaptation-acp"
+        },
+        "POSTE.md": {
+          "sha256": "1bfbcd796069751dd256e586cb879f805549ecfdb1566fa7a7bd6431b3680375",
+          "origine": "adaptation-acp"
+        }
+      },
+      "execution": "aucune",
+      "profils": [
+        "web",
+        "donnees"
+      ],
+      "description_fr": "Diagnostic et correction de la cause. Source intégrale et application ACP en français.",
+      "raison": "Texte seul épinglé ; cadrage Hermes et application à la mission de l’exécutant, sans plugin ni hook.",
+      "enveloppe_acp": {
+        "schema": "acp-competence-texte/1",
+        "source": "references/amont/skills/debugging-and-error-recovery/SOURCE.md"
+      },
+      "application_poste": {
+        "fichier": "POSTE.md",
+        "classes": [
+          "debogage_tests"
+        ],
+        "roles": [
+          "implementation",
+          "correction"
+        ]
+      }
+    },
+    {
+      "nom": "ponytail",
+      "source": "DietrichGebert/ponytail",
+      "chemin_amont": "skills/ponytail",
+      "cible": "hermes",
+      "etat": "livree",
+      "chemin": "ponytail/ponytail",
+      "fichiers": {
+        "references/amont/skills/ponytail/SOURCE.md": {
+          "sha256": "ba68ff26239c3c3b05b2a9a47ee0d9a6b93a69639a2555ec87a5d44bffaf2f0c",
+          "blob_git": "b76922f76ec6f4db532203c55d710b749fa1f6af",
+          "chemin_amont": "skills/ponytail/SKILL.md"
+        },
+        "SKILL.md": {
+          "sha256": "bb8e6074c0cb43953c5529124cf444381c2f6b6199cd9acc39354e65e84e31ec",
+          "origine": "adaptation-acp"
+        },
+        "POSTE.md": {
+          "sha256": "acca8f093226bdf45e30ff7cb26f122e1fec77e5468ac0e525411ba305910c3c",
+          "origine": "adaptation-acp"
+        }
+      },
+      "execution": "aucune",
+      "profils": [
+        "web",
+        "donnees"
+      ],
+      "description_fr": "Changement minimal et complet. Source intégrale et application ACP en français.",
+      "raison": "Texte seul épinglé ; cadrage Hermes et application à la mission de l’exécutant, sans plugin ni hook.",
+      "enveloppe_acp": {
+        "schema": "acp-competence-texte/1",
+        "source": "references/amont/skills/ponytail/SOURCE.md"
+      },
+      "application_poste": {
+        "fichier": "POSTE.md",
+        "classes": [
+          "implementation",
+          "petite_tache",
+          "debogage_tests"
+        ],
+        "roles": [
+          "implementation",
+          "correction"
+        ]
+      }
+    },
+    {
+      "nom": "ponytail-review",
+      "source": "DietrichGebert/ponytail",
+      "chemin_amont": "skills/ponytail-review",
+      "cible": "hermes",
+      "etat": "livree",
+      "chemin": "ponytail/ponytail-review",
+      "fichiers": {
+        "references/amont/skills/ponytail-review/SOURCE.md": {
+          "sha256": "33fe4ebe22a460924e5d4a261e223df22e409cc94ab76182bee9fb91a3ef022e",
+          "blob_git": "a50e3ac6ded6fccc9edae34ce37877bbce11e3fa",
+          "chemin_amont": "skills/ponytail-review/SKILL.md"
+        },
+        "SKILL.md": {
+          "sha256": "899864c313774401ad88ef94f74c3f73d92230b400bc10aaa5fba8040a814b30",
+          "origine": "adaptation-acp"
+        },
+        "POSTE.md": {
+          "sha256": "2e57eae3e1d790b4d952a6731f3cc857ad874d3db838dbdcdef2073778b7bb57",
+          "origine": "adaptation-acp"
+        }
+      },
+      "execution": "aucune",
+      "profils": [
+        "web",
+        "donnees",
+        "recherche"
+      ],
+      "description_fr": "Relecture minimale sans modification. Source intégrale et application ACP en français.",
+      "raison": "Texte seul épinglé ; cadrage Hermes et application à la mission de l’exécutant, sans plugin ni hook.",
+      "enveloppe_acp": {
+        "schema": "acp-competence-texte/1",
+        "source": "references/amont/skills/ponytail-review/SOURCE.md"
+      },
+      "application_poste": {
+        "fichier": "POSTE.md",
+        "classes": [
+          "relecture"
+        ],
+        "roles": [
+          "relecture"
+        ]
+      }
+    },
+    {
+      "nom": "ponytail-audit",
+      "source": "DietrichGebert/ponytail",
+      "chemin_amont": "skills/ponytail-audit",
+      "cible": "hermes",
+      "etat": "livree",
+      "chemin": "ponytail/ponytail-audit",
+      "fichiers": {
+        "references/amont/skills/ponytail-audit/SOURCE.md": {
+          "sha256": "2b3223a02c386d1263e1b08343cb8eb3a53e444cdafb1d79e26c8ec2a8fcad28",
+          "blob_git": "ff9a95480700600fe2664d2d0906a4d750b2da0b",
+          "chemin_amont": "skills/ponytail-audit/SKILL.md"
+        },
+        "SKILL.md": {
+          "sha256": "ca852f7787a8948e418d1f7f03e91e95b5e19615d5c553b5f2ceb87a682cf746",
+          "origine": "adaptation-acp"
+        },
+        "POSTE.md": {
+          "sha256": "50229cdf75dd212fef92369888206ce71b9cec14c057f58909ff995c18ece52e",
+          "origine": "adaptation-acp"
+        }
+      },
+      "execution": "aucune",
+      "profils": [
+        "web",
+        "donnees",
+        "recherche"
+      ],
+      "description_fr": "Audit de cohérence sans modification. Source intégrale et application ACP en français.",
+      "raison": "Texte seul épinglé ; cadrage Hermes et application à la mission de l’exécutant, sans plugin ni hook.",
+      "enveloppe_acp": {
+        "schema": "acp-competence-texte/1",
+        "source": "references/amont/skills/ponytail-audit/SOURCE.md"
+      },
+      "application_poste": {
+        "fichier": "POSTE.md",
+        "classes": [
+          "relecture"
+        ],
+        "roles": [
+          "relecture"
+        ]
+      }
+    },
+    {
+      "nom": "acp-boucle-chef",
+      "source": "acp",
+      "cible": "hermes",
+      "etat": "livree",
+      "chemin": "acp/acp-boucle-chef",
+      "fichiers": {
+        "SKILL.md": {
+          "sha256": "d2e45f62d9e5ad925093dec4f1c41ecf3c758944d4cfac911bd8e9659571b33b"
+        }
+      },
+      "execution": "aucune",
+      "profils": [],
+      "description_fr": "Déléguer, vérifier les résultats et reprendre dans les plafonds réels du projet.",
+      "raison": "Compétence maison chargée par les cartes de planification et de synthèse ; aucun nouvel outil d’exécution."
     }
   ],
   "livrees": {
@@ -1137,7 +1633,8 @@
       "mcp_hermes": [
         "context7"
       ],
-      "poste": []
+      "poste": [],
+      "skills_poste": []
     },
     "web": {
       "libelle": "Site web",
@@ -1153,7 +1650,16 @@
         "minimalist-ui",
         "high-end-visual-design",
         "security-review",
-        "accessibility"
+        "accessibility",
+        "planning-and-task-breakdown",
+        "incremental-implementation",
+        "addy-test-driven-development",
+        "code-review-and-quality",
+        "frontend-ui-engineering",
+        "debugging-and-error-recovery",
+        "ponytail",
+        "ponytail-review",
+        "ponytail-audit"
       ],
       "mcp_hermes": [
         "context7"
@@ -1171,29 +1677,68 @@
         "benchmark",
         "playwright",
         "figma"
+      ],
+      "skills_poste": [
+        "planning-and-task-breakdown",
+        "incremental-implementation",
+        "addy-test-driven-development",
+        "code-review-and-quality",
+        "frontend-ui-engineering",
+        "debugging-and-error-recovery",
+        "ponytail",
+        "ponytail-review",
+        "ponytail-audit"
       ]
     },
     "recherche": {
       "libelle": "Recherche",
       "skills_hermes": [
         "arxiv",
-        "competitor-news-monitor"
+        "competitor-news-monitor",
+        "planning-and-task-breakdown",
+        "code-review-and-quality",
+        "ponytail-review",
+        "ponytail-audit"
       ],
       "mcp_hermes": [
         "context7"
       ],
-      "poste": []
+      "poste": [],
+      "skills_poste": [
+        "planning-and-task-breakdown",
+        "code-review-and-quality",
+        "ponytail-review",
+        "ponytail-audit"
+      ]
     },
     "donnees": {
       "libelle": "Données",
       "skills_hermes": [
         "mle-workflow",
-        "python-patterns"
+        "python-patterns",
+        "planning-and-task-breakdown",
+        "incremental-implementation",
+        "addy-test-driven-development",
+        "code-review-and-quality",
+        "debugging-and-error-recovery",
+        "ponytail",
+        "ponytail-review",
+        "ponytail-audit"
       ],
       "mcp_hermes": [
         "context7"
       ],
-      "poste": []
+      "poste": [],
+      "skills_poste": [
+        "planning-and-task-breakdown",
+        "incremental-implementation",
+        "addy-test-driven-development",
+        "code-review-and-quality",
+        "debugging-and-error-recovery",
+        "ponytail",
+        "ponytail-review",
+        "ponytail-audit"
+      ]
     }
   },
   "exclus": [

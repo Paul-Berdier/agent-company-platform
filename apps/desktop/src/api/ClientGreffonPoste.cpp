@@ -130,6 +130,57 @@ ApiCall *ClientGreffonPoste::accueil()
 }
 
 ApiCall *ClientGreffonPoste::catalogue() { return lire(QStringLiteral("/v1/catalogue")); }
+
+namespace {
+bool uuidCoffre(const QString &valeur)
+{
+    static const QRegularExpression forme(QStringLiteral("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"));
+    return forme.match(valeur).hasMatch();
+}
+}
+ApiCall *ClientGreffonPoste::coffre() { return lire(QStringLiteral("/v1/coffre")); }
+ApiCall *ClientGreffonPoste::enrolerCoffre() { return ecrire(QStringLiteral("/v1/coffre/enrolement"), {}); }
+ApiCall *ClientGreffonPoste::confirmerCoffre(const QString &identifiant, const QString &empreinte)
+{
+    if (!uuidCoffre(identifiant)) return refuserIdentifiant(QStringLiteral("coffre"));
+    static const QRegularExpression forme(QStringLiteral("^[0-9A-F]{4}-[0-9A-F]{4}$"));
+    if (!forme.match(empreinte).hasMatch())
+        return m_client->reject(ApiError::refusal(QStringLiteral("Empreinte de coffre illisible : confirmation refusée.")));
+    return ecrire(QStringLiteral("/v1/coffre/confirmer"), QJsonObject{
+        {QStringLiteral("coffre_id"), identifiant}, {QStringLiteral("empreinte"), empreinte}});
+}
+ApiCall *ClientGreffonPoste::revoquerCoffre(const QString &identifiant, const QString &motif)
+{
+    if (!uuidCoffre(identifiant)) return refuserIdentifiant(QStringLiteral("coffre"));
+    if (motif.trimmed().isEmpty() || motif.size() > 200)
+        return m_client->reject(ApiError::refusal(QStringLiteral("Indiquez un motif de révocation de 1 à 200 caractères.")));
+    return ecrire(QStringLiteral("/v1/coffre/revoquer"), QJsonObject{
+        {QStringLiteral("coffre_id"), identifiant}, {QStringLiteral("motif"), motif}});
+}
+ApiCall *ClientGreffonPoste::creerOperationCoffre(const QJsonObject &operation)
+{
+    static const QStringList champs{QStringLiteral("id_operation"), QStringLiteral("coffre_id"),
+        QStringLiteral("action"), QStringLiteral("parametres")};
+    for (auto it = operation.constBegin(); it != operation.constEnd(); ++it)
+        if (!champs.contains(it.key()))
+            return m_client->reject(ApiError::refusal(QStringLiteral("Champ inconnu dans l’opération du coffre.")));
+    static const QStringList actions{QStringLiteral("lister"), QStringLiteral("lire"), QStringLiteral("rechercher"),
+        QStringLiteral("creer"), QStringLiteral("ecrire"), QStringLiteral("archiver"), QStringLiteral("renommer"),
+        QStringLiteral("backlinks"), QStringLiteral("graphe")};
+    if (operation.size() != 4 || !uuidCoffre(operation.value(QStringLiteral("id_operation")).toString())
+        || !uuidCoffre(operation.value(QStringLiteral("coffre_id")).toString())
+        || !actions.contains(operation.value(QStringLiteral("action")).toString())
+        || !operation.value(QStringLiteral("parametres")).isObject())
+        return m_client->reject(ApiError::refusal(QStringLiteral("Opération du coffre invalide : aucun envoi.")));
+    // L’UUID est dans le corps : on ne rejoue jamais automatiquement une écriture incertaine.
+    return ecrire(QStringLiteral("/v1/coffre/operations"), operation);
+}
+ApiCall *ClientGreffonPoste::operationCoffre(const QString &identifiant)
+{
+    if (!uuidCoffre(identifiant)) return refuserIdentifiant(QStringLiteral("opération du coffre"));
+    return lire(QStringLiteral("/v1/coffre/operations/%1").arg(identifiant));
+}
+
 ApiCall *ClientGreffonPoste::projets() { return lire(QStringLiteral("/v1/projets")); }
 ApiCall *ClientGreffonPoste::questions() { return lire(QStringLiteral("/v1/questions")); }
 ApiCall *ClientGreffonPoste::poste() { return lire(QStringLiteral("/v1/poste")); }

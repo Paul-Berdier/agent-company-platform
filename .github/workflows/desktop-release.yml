@@ -149,6 +149,14 @@ jobs:
           cache: true
           cache-key-prefix: desktop-qt-${{ env.ACP_QT_VERSION }}-${{ env.ACP_QT_ARCH }}
 
+      - name: Installer Python 3.12 pour le coffre autonome
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Installer les dépendances verrouillées du coffre
+        run: python -m pip install --no-deps --require-hashes -r requirements/poste-3.12.lock.txt
+
       - name: Compiler en Release
         run: ./scripts/build-desktop.ps1 -Configuration Release
 

@@ -64,6 +64,7 @@ class TestClientGreffon : public QObject
 
 private slots:
     void lecturesSurLesBonsChemins();
+    void coffreRoutesEtBornes();
     void ecrituresAvecLesCorpsExacts();
     void lancementSeulAvecCleDIdempotence();
     void identifiantsIllisiblesRefusesSansEnvoi();
@@ -361,6 +362,62 @@ void TestClientGreffon::routesDeP7RefuseesQuandLeVerdictLesDitAbsentes()
         Banc::attendre(banc.greffon.clore(QStringLiteral("p")));
         QCOMPARE(static_cast<int>(banc.serveur.requetes.size()), avant + 2);
     }
+}
+
+
+// Une note de 128 Kio passe par la seule route du coffre ; une mutation en erreur
+// ne repart jamais automatiquement, même si son UUID peut servir à la retrouver.
+void TestClientGreffon::coffreRoutesEtBornes()
+{
+    Banc b;
+    const QString racine = kP + QStringLiteral("/v1/coffre");
+    const QString coffre = QStringLiteral("01234567-89ab-4cde-8fab-0123456789ab");
+    const QString operation = QStringLiteral("11234567-89ab-4cde-8fab-0123456789ab");
+    for (const QString &suite : {QString(), QStringLiteral("/operations/") + operation}) {
+        b.serveur.route("GET", racine + suite, [](const RequeteRecue &) { return ReponseFaux::json(200, {}); });
+    }
+    for (const QString &suite : {QStringLiteral("/enrolement"), QStringLiteral("/confirmer"), QStringLiteral("/revoquer"), QStringLiteral("/operations")}) {
+        b.serveur.route("POST", racine + suite, [](const RequeteRecue &) { return ReponseFaux::json(200, {}); });
+    }
+    QVERIFY(!Banc::attendre(b.greffon.coffre()).isError());
+    QVERIFY(!Banc::attendre(b.greffon.enrolerCoffre()).isError());
+    QVERIFY(!Banc::attendre(b.greffon.confirmerCoffre(coffre, QStringLiteral("ABCD-1234"))).isError());
+    QCOMPARE(QJsonDocument::fromJson(b.serveur.requetes.last().corps).object(),
+             (QJsonObject{{QStringLiteral("coffre_id"), coffre}, {QStringLiteral("empreinte"), QStringLiteral("ABCD-1234")}}));
+    QVERIFY(!Banc::attendre(b.greffon.revoquerCoffre(coffre, QStringLiteral("Essai"))).isError());
+    QJsonObject corps{{QStringLiteral("id_operation"), operation}, {QStringLiteral("coffre_id"), coffre},
+                      {QStringLiteral("action"), QStringLiteral("creer")},
+                      {QStringLiteral("parametres"), QJsonObject{{QStringLiteral("chemin"), QStringLiteral("Essai.md")},
+                          {QStringLiteral("contenu"), QString(128 * 1024, QLatin1Char('n'))}}}};
+    QVERIFY(!Banc::attendre(b.greffon.creerOperationCoffre(corps)).isError());
+    QCOMPARE(QJsonDocument::fromJson(b.serveur.requetes.last().corps).object(), corps);
+    QVERIFY(!Banc::attendre(b.greffon.operationCoffre(operation)).isError());
+    QCOMPARE(b.serveur.requetes.last().chemin, racine + QStringLiteral("/operations/") + operation);
+    QCOMPARE(b.serveur.requetes.size(), 6);
+    for (const RequeteRecue &r : b.serveur.requetes) {
+        QCOMPARE(r.entete("authorization"), QByteArrayLiteral("Bearer jeton-a"));
+        QVERIFY(!r.aEntete("idempotency-key"));
+        QVERIFY(!r.aEntete("origin"));
+    }
+    QVERIFY(Banc::attendre(b.greffon.operationCoffre(QStringLiteral("../ailleurs"))).isError());
+    QVERIFY(Banc::attendre(b.greffon.confirmerCoffre(coffre, QStringLiteral("mauvaise"))).isError());
+    auto inconnu = corps;
+    inconnu.insert(QStringLiteral("autre"), true);
+    QVERIFY(Banc::attendre(b.greffon.creerOperationCoffre(inconnu)).isError());
+    auto enorme = corps;
+    enorme.insert(QStringLiteral("parametres"), QJsonObject{{QStringLiteral("contenu"), QString(192 * 1024, QLatin1Char('x'))}});
+    QVERIFY(Banc::attendre(b.greffon.creerOperationCoffre(enorme)).isError());
+    ApiRequest ordinaire;
+    ordinaire.method = QByteArrayLiteral("POST");
+    ordinaire.path = kP + QStringLiteral("/v1/autre");
+    ordinaire.body = QJsonDocument(corps);
+    QVERIFY(Banc::attendre(b.client.send(ordinaire)).isError());
+    QCOMPARE(b.serveur.requetes.size(), 6);
+    b.serveur.route("POST", racine + QStringLiteral("/operations"), [](const RequeteRecue &) {
+        return ReponseFaux::json(503, QJsonObject{{QStringLiteral("error"), QStringLiteral("indisponible")}});
+    });
+    QVERIFY(Banc::attendre(b.greffon.creerOperationCoffre(corps)).isError());
+    QCOMPARE(b.serveur.requetes.size(), 7);
 }
 
 QTEST_GUILESS_MAIN(TestClientGreffon)

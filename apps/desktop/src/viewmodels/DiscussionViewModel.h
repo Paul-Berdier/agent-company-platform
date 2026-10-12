@@ -20,7 +20,8 @@
 //    Les autres événements sont comptés et ignorés : aucun rendu deviné.
 //  - Quitter une session qui ne tourne pas la ferme (`session.close`) ; une session dont un
 //    tour est en cours n'est jamais fermée par la station.
-//  - Pas de choix de modèle ni de profil : la session prend le défaut du profil de Hermes.
+//  - Modèle de la discussion : inventaire `model.options`, puis `config.set` explicitement
+//    limité à la session ; les confirmations de coût restent décidées par Hermes.
 //
 // Les demandes de l'agent (`approval`, `clarify`) sont tenues par DemandesAgent.
 
@@ -33,6 +34,7 @@
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QJsonValue>
+#include <QVariantMap>
 
 namespace acp {
 
@@ -43,6 +45,16 @@ class DiscussionViewModel : public PageViewModel
 {
     Q_OBJECT
     Q_PROPERTY(JsonListModel *sessions READ sessions CONSTANT)
+    Q_PROPERTY(QString rechercheSessions READ rechercheSessions WRITE setRechercheSessions NOTIFY sessionsChange)
+    Q_PROPERTY(int sessionsChargees READ sessionsChargees NOTIFY sessionsChange)
+    Q_PROPERTY(bool chargementSessions READ chargementSessions NOTIFY sessionsChange)
+    Q_PROPERTY(bool peutChargerPlus READ peutChargerPlus NOTIFY sessionsChange)
+    Q_PROPERTY(QVariantMap infosSession READ infosSession NOTIFY infosSessionChange)
+    Q_PROPERTY(JsonListModel *modelesSession READ modelesSession CONSTANT)
+    Q_PROPERTY(bool modelesCharges READ modelesCharges NOTIFY modelesChange)
+    Q_PROPERTY(bool chargementModeles READ chargementModeles NOTIFY modelesChange)
+    Q_PROPERTY(QString erreurModeles READ erreurModeles NOTIFY modelesChange)
+    Q_PROPERTY(QString confirmationModele READ confirmationModele NOTIFY modelesChange)
     Q_PROPERTY(bool sessionsLues READ sessionsLues NOTIFY sessionsChange)
     Q_PROPERTY(QString erreurSessions READ erreurSessions NOTIFY sessionsChange)
     Q_PROPERTY(QString attenteInconnue READ attenteInconnue NOTIFY sessionsChange)
@@ -65,6 +77,19 @@ public:
     ~DiscussionViewModel() override;
 
     [[nodiscard]] JsonListModel *sessions() const { return m_sessions; }
+    [[nodiscard]] const QString &rechercheSessions() const { return m_rechercheSessions; }
+    void setRechercheSessions(const QString &texte);
+    [[nodiscard]] int sessionsChargees() const { return static_cast<int>(m_lignes.size()); }
+    [[nodiscard]] bool chargementSessions() const { return m_chargementSessions; }
+    [[nodiscard]] bool peutChargerPlus() const { return m_peutChargerPlus; }
+    // Sous-ensemble de SessionLiveInfo : model, provider, profile_name, reasoning_effort,
+    // reasoning_effort_wire et usage (métriques connues uniquement). Une clé absente est inconnue.
+    [[nodiscard]] QVariantMap infosSession() const { return m_infosSession.toVariantMap(); }
+    [[nodiscard]] JsonListModel *modelesSession() const { return m_modelesSession; }
+    [[nodiscard]] bool modelesCharges() const { return m_modelesCharges; }
+    [[nodiscard]] bool chargementModeles() const { return m_chargementModeles; }
+    [[nodiscard]] const QString &erreurModeles() const { return m_erreurModeles; }
+    [[nodiscard]] const QString &confirmationModele() const { return m_confirmationModele; }
     [[nodiscard]] bool sessionsLues() const { return m_sessionsLues; }
     [[nodiscard]] const QString &erreurSessions() const { return m_erreurSessions; }
     /*!
@@ -89,9 +114,17 @@ public:
     void setBrouillon(const QString &texte);
 
     Q_INVOKABLE void actualiserSessions();
+    Q_INVOKABLE void chargerPlusSessions();
+    Q_INVOKABLE void renommer(const QString &titre);
+    Q_INVOKABLE void dupliquer();
+    Q_INVOKABLE void actualiserModeles();
+    Q_INVOKABLE void choisirModele(const QString &fournisseur, const QString &modele);
+    Q_INVOKABLE void confirmerModele();
+    Q_INVOKABLE void annulerChoixModele();
     /*! Ouvre une session par son identifiant STOCKÉ (liste, accueil). */
     Q_INVOKABLE void ouvrir(const QString &identifiantStocke);
     Q_INVOKABLE void nouvelle();
+    Q_INVOKABLE void preparerConsigne(const QString &texte);
     /*! Vrai si le message est parti vers Hermes (la zone de saisie peut alors être vidée). */
     Q_INVOKABLE bool envoyer(const QString &texte);
     Q_INVOKABLE void arreter();
@@ -111,6 +144,8 @@ public:
 
 signals:
     void sessionsChange();
+    void infosSessionChange();
+    void modelesChange();
     void brouillonChange();
     void sessionChange();
     void tourChange();
@@ -132,15 +167,36 @@ private:
     void majTour(bool enCours);
     //! Marque les lignes lues d'après les discussions en attente (après chaque lecture de l'une ou de l'autre).
     void appliquerAttente();
+    void lireSessions(int limite);
+    void mettreAJourInfos(const QJsonObject &info);
+    void reinitialiserOptionsSession();
+    void appliquerModele(const QString &fournisseur, const QString &modele, bool confirme);
+    bool sessionModifiable();
 
     GatewayClient *m_passerelle = nullptr;
     JsonListModel *m_sessions = nullptr;
     JsonListModel *m_transcription = nullptr;
+    JsonListModel *m_modelesSession = nullptr;
+    QString m_rechercheSessions;
+    int m_limiteSessions = 50;
+    bool m_chargementSessions = false;
+    bool m_peutChargerPlus = false;
+    quint64 m_generationListe = 0;
+    quint64 m_generationModeles = 0;
+    QJsonObject m_infosSession;
+    bool m_modelesCharges = false;
+    bool m_chargementModeles = false;
+    QString m_erreurModeles;
+    QString m_confirmationModele;
+    QString m_fournisseurAConfirmer;
+    QString m_modeleAConfirmer;
     bool m_sessionsLues = false;
     QJsonArray m_lignes; //!< lignes lues de `session.list`, avant marque
     QString m_erreurSessions;
     // Brouillons en mémoire, isolés par discussion ; oubliés à la déconnexion.
     QHash<QString, QString> m_brouillons;
+    QString m_consigneEnAttente;
+    quint64 m_generationConsigne = 0;
     QString m_stockee;
     QString m_vivante;
     QString m_titre;

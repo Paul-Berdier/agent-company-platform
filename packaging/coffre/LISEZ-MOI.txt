@@ -1,0 +1,33 @@
+Coffre ACP — bridge local pour Obsidian
+
+Double-cliquez Lancer-Coffre-ACP.cmd dans votre session Windows habituelle.
+Le menu permet de créer un dossier neuf, de saisir le code d’association de façon
+masquée, puis de démarrer le bridge. Comparez l’empreinte dans ACP avant de confirmer.
+Laissez sa fenêtre ouverte pendant l’utilisation depuis ACP ; fermez-la pour arrêter.
+Aucun compte administrateur, service ou démarrage automatique n’est installé.
+Après une révocation, arrêtez le bridge puis choisissez « Oublier une ancienne
+association locale » dans le menu ; les notes restent conservées. Générez ensuite
+un nouveau code dans ACP et choisissez à nouveau « Associer ce coffre à Hermes ».
+Le lanceur utilise PowerShell avec une autorisation limitée à ce processus pour son
+script local ; il ne modifie pas la politique d’exécution enregistrée de Windows.
+
+Obsidian n’a pas besoin d’être lancé. Vous pouvez ouvrir le dossier créé comme coffre
+dans Obsidian ; aucun plugin ni clé API Obsidian n’est nécessaire. L’identité du
+bridge est protégée par DPAPI dans votre compte Windows, séparée de l’exécutant ACP.
+Aucun jeton ne doit être copié dans une commande, un fichier texte ou une capture.
+
+Les notes sont du Markdown UTF-8, au plus 128 Kio chacune. ACP lit, recherche, crée,
+modifie, archive et renomme ces notes. Toute édition exige l’empreinte de la lecture.
+Les versions remplacées et notes archivées restent sous .acp/archives dans le coffre.
+Pour récupérer une archive, copiez son fichier .md vers un nouveau nom de note ;
+le fichier .json voisin indique son chemin d’origine. Ne supprimez pas le journal
+.acp/operations : il empêche la répétition d’une opération interrompue.
+
+Le renommage déplace la note sans réécrire les liens dans les autres notes. Le graphe
+couvre les liens Markdown et wikiliens textuels ; les extensions et tous les détails
+du cache Obsidian ne sont pas interprétés. Les liens ambigus restent non résolus.
+En cas de panne pendant une écriture, le résultat reste indéterminé : relisez la note
+et les archives avant de demander un nouveau geste. Aucun faux succès n’est affiché.
+
+Ce paquet embarque son Python et ses dépendances ; aucun téléchargement au démarrage.
+Les licences sont dans licences/ et les preuves d’empaquetage dans manifest-coffre.json.

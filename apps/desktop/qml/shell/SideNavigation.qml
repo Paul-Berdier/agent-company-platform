@@ -147,6 +147,18 @@ Rectangle {
             label: qsTr("Discussions"); iconName: "chat"; selected: Navigation.currentRoute === "chat"
             onActivated: Navigation.setCurrentRoute("chat")
         }
+        NavEntry {
+            Layout.fillWidth: true; objectName: "navigation-tools"
+            label: qsTr("Outils et compétences"); iconName: "command"
+            selected: Navigation.currentRoute === "tools"
+            onActivated: Navigation.setCurrentRoute("tools")
+        }
+        NavEntry {
+            Layout.fillWidth: true; objectName: "navigation-vault"
+            label: qsTr("Coffre ACP"); iconName: "folder"
+            selected: Navigation.currentRoute === "vault"
+            onActivated: Navigation.setCurrentRoute("vault")
+        }
         SectionLabel { Layout.fillWidth: true; text: qsTr("PROJETS") }
         NavEntry {
             Layout.fillWidth: true; objectName: "navigation-projects"
