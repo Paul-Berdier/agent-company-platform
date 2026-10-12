@@ -78,6 +78,19 @@ int main(int argc, char *argv[])
     QGuiApplication::setApplicationName(QStringLiteral("Station de travail"));
     QGuiApplication::setApplicationVersion(QString::fromLatin1(ACP_DESKTOP_VERSION));
 
+#ifdef Q_OS_WIN
+    // Installeur en cours (SetupMutex de AgentCompanyPlatform.iss) : la station ne démarre pas pendant
+    // qu'il remplace ses fichiers. Seule la relance par l'installeur lui-même (--apres-mise-a-jour) passe.
+    if (!QCoreApplication::arguments().contains(QStringLiteral("--apres-mise-a-jour"))) {
+        if (HANDLE installeur = ::OpenMutexW(SYNCHRONIZE, FALSE, L"AcpStationInstallation")) {
+            ::CloseHandle(installeur);
+            ::MessageBoxW(nullptr, L"Une mise à jour de la station est en cours d'installation : elle se relancera "
+                                   L"d'elle-même.", L"Station de travail", MB_OK | MB_ICONINFORMATION);
+            return acp::GardeInstance::kCodeSecondeInstance;
+        }
+    }
+#endif
+
     // Une seule station par poste : deux instances rejoueraient le même jeton de
     // rafraîchissement, et Authelia révoquerait la session (identite.md § 12.1).
     acp::GardeInstance garde(acp::GardeInstance::cheminParDefaut());

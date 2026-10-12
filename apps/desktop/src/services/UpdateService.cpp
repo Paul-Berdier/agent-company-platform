@@ -13,6 +13,7 @@
 #include <QProcess>
 #include <QRegularExpression>
 #include <QSaveFile>
+#include <QSettings>
 #include <QStandardPaths>
 #include <QTimer>
 
@@ -116,9 +117,10 @@ QString UpdateService::empreinteDans(const QByteArray &sommes, const QString &no
     return trouvee;
 }
 QStringList UpdateService::argumentsInstalleur() {
-    // Inno Setup : installation sans fenêtre ni question, fermeture de la station si elle tourne,
-    // relance par l'installeur une fois les fichiers remplacés (ACPRELANCER, AgentCompanyPlatform.iss).
-    return {QStringLiteral("/VERYSILENT"), QStringLiteral("/SUPPRESSMSGBOXES"), QStringLiteral("/NORESTART"),
+    // Inno Setup : installation sans question mais avec sa fenêtre de progression (l'utilisateur voit
+    // que la station s'installe), fermeture de la station si elle tourne, relance par l'installeur une
+    // fois les fichiers remplacés (ACPRELANCER, AgentCompanyPlatform.iss).
+    return {QStringLiteral("/SILENT"), QStringLiteral("/SUPPRESSMSGBOXES"), QStringLiteral("/NORESTART"),
             QStringLiteral("/CLOSEAPPLICATIONS"), QStringLiteral("/ACPRELANCER=1")};
 }
 bool UpdateService::autoInstall() const {
@@ -129,13 +131,26 @@ void UpdateService::setAutoInstall(bool enabled) {
     if (m_settings) m_settings->setAutoInstallUpdates(enabled); else m_autoInstallMemoire = enabled;
     if (enabled) startAutomaticChecks();
     else if (m_timer) m_timer->stop();
+    if (!enabled && m_downloading && !m_installAfter)
+        abandonDownload(QStringLiteral("Installation automatique désactivée : téléchargement annulé."));
     emit changed();
 }
 bool UpdateService::installationPossible() const {
     if (m_sources.installationPermise.has_value()) return *m_sources.installationPermise;
 #ifdef Q_OS_WIN
-    // Seule une station posée par son installeur se met à jour ainsi ; la version portable, non.
-    return QFileInfo::exists(QCoreApplication::applicationDirPath() + QStringLiteral("/unins000.exe"));
+    // Seule une station posée par son installeur POUR L'UTILISATEUR COURANT se met à jour ainsi : la
+    // version portable n'a pas de désinstalleur, et une installation pour toute la machine (/ALLUSERS)
+    // serait doublée par un installeur relancé sans droits. L'entrée de désinstallation d'Inno Setup
+    // (AppId de AgentCompanyPlatform.iss) doit exister sous HKCU et désigner ce dossier.
+    if (!QFileInfo::exists(QCoreApplication::applicationDirPath() + QStringLiteral("/unins000.exe"))) return false;
+    const QSettings desinstallation(QStringLiteral("HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\"
+                                                   "Uninstall\\{53810A6E-FA9C-4595-9C53-74A78EB4D1A8}_is1"),
+                                    QSettings::NativeFormat);
+    QString emplacement = desinstallation.value(QStringLiteral("InstallLocation")).toString();
+    while (emplacement.endsWith(QLatin1Char('\\')) || emplacement.endsWith(QLatin1Char('/'))) emplacement.chop(1);
+    return !emplacement.isEmpty()
+        && QDir::toNativeSeparators(QDir::cleanPath(emplacement)).compare(
+               QDir::toNativeSeparators(QDir::cleanPath(QCoreApplication::applicationDirPath())), Qt::CaseInsensitive) == 0;
 #else
     return false;
 #endif
@@ -152,16 +167,24 @@ void UpdateService::setIncludePrereleases(bool enabled) {
     emit changed();
 }
 void UpdateService::startAutomaticChecks() {
-    if (!autoInstall()) return;
+    // Version portable, installation pour toute la machine, Linux : vérification à la demande seulement.
+    if (!autoInstall() || !installationPossible()) return;
     if (!m_timer) {
         m_timer = new QTimer(this);
         connect(m_timer, &QTimer::timeout, this, [this] {
             m_timer->setInterval(IntervalleVerificationMs);
-            if (!autoInstall()) { m_timer->stop(); return; }
+            if (!autoInstall() || !installationPossible()) { m_timer->stop(); return; }
             if (!busy() && !m_downloading) check();
         });
     }
-    if (!m_timer->isActive()) { m_timer->setInterval(PremiereVerificationMs); m_timer->start(); }
+    if (!m_timer->isActive()) {
+        m_timer->setInterval(PremiereVerificationMs);
+        m_timer->start();
+        if (!busy() && !m_downloading && !m_ready) {
+            m_status = QStringLiteral("Vérification automatique 30 secondes après le démarrage, puis toutes les six heures.");
+            emit changed();
+        }
+    }
 }
 QNetworkReply *UpdateService::get(const QUrl &url, const QByteArray &accept, int transferTimeoutMs) {
     QNetworkRequest request(url);
@@ -256,11 +279,24 @@ void UpdateService::accept(const QByteArray &body) {
     const int comparison = compareVersions(m_latest, m_current, &valid);
     if (!valid) { fail(QStringLiteral("Version locale illisible ; comparaison impossible.")); return; }
     m_available = comparison > 0;
+    // Une version téléchargée qui n'est plus la publication retenue (retirée, ou remplacée par une plus
+    // ancienne) n'est jamais installée : elle est effacée.
+    QString retiree;
+    if (m_ready) {
+        bool comparable = false;
+        if (compareVersions(m_pendingVersion, m_latest, &comparable) > 0 && comparable) {
+            retiree = m_pendingVersion;
+            clearPending();
+        }
+    }
     m_releaseUrl = QUrl(selected.value(QStringLiteral("html_url")).toString());
     m_notes = selected.value(QStringLiteral("body")).toString().left(100000);
     m_status = m_available ? QStringLiteral("Une version plus récente est publiée.")
         : comparison == 0 ? QStringLiteral("La version installée correspond à la publication vérifiée.")
         : QStringLiteral("La version installée est plus récente que la publication vérifiée.");
+    if (!retiree.isEmpty())
+        m_status = QStringLiteral("La version %1 téléchargée n'est plus publiée : supprimée, rien n'est installé. %2")
+                       .arg(retiree, m_status);
     if (m_available) {
         // Fichiers joints admis : nom exact, adresse exacte de téléchargement de CETTE publication.
         m_installerName = nomInstalleur(m_latest);
@@ -286,7 +322,8 @@ void UpdateService::accept(const QByteArray &body) {
                                       "vérifiables : installez-la à la main depuis sa page.");
         } else if (m_ready && m_pendingVersion == m_latest) {
             m_status = QStringLiteral("Version %1 déjà téléchargée et vérifiée.").arg(m_latest);
-        } else if (autoInstall() && installationPossible()) {
+        } else if (autoInstall() && installationPossible() && !m_prereleases) {
+            // Canal stable seulement : une préversion ne se télécharge que par « Télécharger et installer ».
             emit changed();
             download(false);
             return;
@@ -296,7 +333,10 @@ void UpdateService::accept(const QByteArray &body) {
 }
 void UpdateService::openRelease() {
     if (!m_available || m_releaseUrl.isEmpty()) return;
-    if (!QDesktopServices::openUrl(m_releaseUrl)) fail(QStringLiteral("Impossible d'ouvrir la publication dans le navigateur."));
+    if (!QDesktopServices::openUrl(m_releaseUrl)) {
+        m_status = QStringLiteral("Impossible d'ouvrir la publication dans le navigateur.");
+        emit changed();
+    }
 }
 void UpdateService::downloadAndInstall() {
     download(true);
@@ -310,7 +350,11 @@ void UpdateService::download(bool installAfter) {
         emit changed();
         return;
     }
-    if (!m_available || m_installerUrl.isEmpty() || m_sumsUrl.isEmpty()) return;
+    if (!installerAvailable()) {
+        m_status = QStringLiteral("Aucun installeur vérifiable dans cette publication : installez-la à la main depuis sa page.");
+        emit changed();
+        return;
+    }
     m_downloading = true;
     m_installAfter = installAfter;
     m_progress = 0;
@@ -499,14 +543,15 @@ bool UpdateService::installPendingAtStartup() {
     m_pendingFile = dossierTelechargements() + QLatin1Char('/') + fichier;
     m_pendingSha256 = sha256;
     m_status = QStringLiteral("Version %1 téléchargée et vérifiée : « Installer maintenant » pour l'installer.").arg(version);
-    if (!autoInstall() || !installationPossible()) { emit changed(); return false; }
     if (etat.value(QStringLiteral("tentatives")).toInt() >= 1) {
         // L'installeur a déjà été lancé pour cette version et la station n'a pas changé : pas de boucle.
-        m_status = QStringLiteral("L'installation automatique de la version %1 n'a pas abouti : « Installer "
-                                  "maintenant » pour réessayer, ou installez-la à la main.").arg(version);
+        m_status = QStringLiteral("L'installation de la version %1 n'a pas abouti : « Installer maintenant » pour "
+                                  "réessayer, ou installez-la à la main.").arg(version);
         emit changed();
+        emit installationFailed(version);
         return false;
     }
+    if (!autoInstall() || !installationPossible()) { emit changed(); return false; }
     bool lancee = false;
     const auto connexion = connect(this, &UpdateService::quitRequested, this, [&lancee] { lancee = true; });
     installNow();

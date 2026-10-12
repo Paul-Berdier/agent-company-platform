@@ -101,7 +101,7 @@ ScrollView {
                 primary: true
                 label: Updates.readyToInstall ? qsTr("Installer maintenant (la station redémarre)")
                                               : qsTr("Télécharger et installer")
-                visible: Updates.installationPossible && (Updates.readyToInstall || Updates.updateAvailable)
+                visible: Updates.installationPossible && (Updates.readyToInstall || Updates.installerAvailable)
                 manualEnabled: !Updates.downloading
                 onTriggered: Updates.readyToInstall ? Updates.installNow() : Updates.downloadAndInstall()
             }

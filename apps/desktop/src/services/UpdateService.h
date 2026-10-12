@@ -37,6 +37,7 @@ class UpdateService : public QObject {
     Q_PROPERTY(int progress READ progress NOTIFY changed)
     Q_PROPERTY(bool readyToInstall READ readyToInstall NOTIFY changed)
     Q_PROPERTY(QString pendingVersion READ pendingVersion NOTIFY changed)
+    Q_PROPERTY(bool installerAvailable READ installerAvailable NOTIFY changed)
 public:
     //! Origines admises. Production par défaut ; les tests visent un faux GitHub de bouclage.
     struct Sources {
@@ -71,6 +72,8 @@ public:
     int progress() const { return m_progress; }
     bool readyToInstall() const { return m_ready; }
     QString pendingVersion() const { return m_pendingVersion; }
+    //! La publication retenue joint un installeur et SHA256SUMS.txt admissibles.
+    bool installerAvailable() const { return m_available && !m_installerUrl.isEmpty() && !m_sumsUrl.isEmpty(); }
     QString dossierTelechargements() const;
 
     Q_INVOKABLE void check();
@@ -100,6 +103,8 @@ signals:
     void updateReady(const QString &version);
     //! L'installeur est lancé : la station doit s'arrêter pour le laisser remplacer ses fichiers.
     void quitRequested();
+    //! L'installeur lancé pour cette version n'a pas mis la station à jour.
+    void installationFailed(const QString &version);
 private:
     void fail(const QString &reason);
     void accept(const QByteArray &body);

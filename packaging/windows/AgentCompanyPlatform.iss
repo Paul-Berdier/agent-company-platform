@@ -69,6 +69,9 @@ PrivilegesRequiredOverridesAllowed=commandline
 AllowNoIcons=yes
 CloseApplications=yes
 RestartApplications=no
+; Verrou tenu pendant l'installation (D170) : la station refuse de démarrer tant qu'il existe, sauf
+; lancée par cet installeur avec --apres-mise-a-jour (apps/desktop/src/main.cpp).
+SetupMutex=AcpStationInstallation
 
 [Languages]
 Name: "french"; MessagesFile: "compiler:Languages\French.isl"
@@ -87,10 +90,10 @@ Name: "{autoprograms}\{#AcpName}"; Filename: "{app}\{#AcpExeName}"; Check: not W
 Name: "{autodesktop}\{#AcpName}"; Filename: "{app}\{#AcpExeName}"; Tasks: desktopicon; Check: not WizardNoIcons
 
 [Run]
-Filename: "{app}\{#AcpExeName}"; Description: "{cm:LaunchProgram,{#StringChange(AcpName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\{#AcpExeName}"; Parameters: "--apres-mise-a-jour"; Description: "{cm:LaunchProgram,{#StringChange(AcpName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
 ; Mise à jour automatique lancée par la station (D170 ; UpdateService::argumentsInstalleur) :
-; installation silencieuse avec /ACPRELANCER=1, puis relance de la station une fois ses fichiers remplacés.
-Filename: "{app}\{#AcpExeName}"; Flags: nowait; Check: AcpRelancerApresMiseAJour
+; installation silencieuse (/SILENT) avec /ACPRELANCER=1, puis relance de la station une fois ses fichiers remplacés.
+Filename: "{app}\{#AcpExeName}"; Parameters: "--apres-mise-a-jour"; Flags: nowait; Check: AcpRelancerApresMiseAJour
 
 [UninstallDelete]
 ; Supprime ce que l'application a pu écrire dans son propre répertoire d'installation

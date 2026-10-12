@@ -31,6 +31,7 @@ struct Banc {
     QByteArray redirection;
     QList<Lancement> lancements;
     bool lanceurReussit = true;
+    int delaiInstalleurMs = 0;
     Banc() {
         sommes = empreinte.toLatin1() + "  " + kInstalleur.toLatin1() + "\n"
             + QByteArray(64, 'a') + "  AgentCompanyPlatform-Portable-1.2.0-x64.zip\n";
@@ -40,10 +41,15 @@ struct Banc {
         redirection = (base() + QStringLiteral("/objets/installeur")).toUtf8();
         serveur.route("GET", QStringLiteral("/repos") + kDepot + QStringLiteral("/releases/latest"),
                       [this](const RequeteRecue &) { return ReponseFaux::json(200, publication()); });
+        serveur.route("GET", QStringLiteral("/repos") + kDepot + QStringLiteral("/releases"), [this](const RequeteRecue &) {
+            QJsonObject preversion = publication();
+            preversion.insert(QStringLiteral("prerelease"), true);
+            return ReponseFaux::json(200, QJsonArray{preversion});
+        });
         serveur.route("GET", kDepot + QStringLiteral("/releases/download/v1.2.0/") + kInstalleur,
                       [this](const RequeteRecue &) { return ReponseFaux::redirection(redirection); });
         serveur.route("GET", QStringLiteral("/objets/installeur"), [this](const RequeteRecue &) {
-            ReponseFaux reponse; reponse.corps = installeur; return reponse;
+            ReponseFaux reponse; reponse.corps = installeur; reponse.delaiMs = delaiInstalleurMs; return reponse;
         });
         serveur.route("GET", kDepot + QStringLiteral("/releases/download/v1.2.0/SHA256SUMS.txt"),
                       [this](const RequeteRecue &) { ReponseFaux reponse; reponse.corps = sommes; return reponse; });
@@ -156,7 +162,7 @@ private slots:
         QCOMPARE(banc.lancements.size(), 1);
         QCOMPARE(QDir::cleanPath(banc.lancements.first().programme), QDir::cleanPath(banc.dossier.filePath(kInstalleur)));
         QCOMPARE(banc.lancements.first().arguments, UpdateService::argumentsInstalleur());
-        QVERIFY(banc.lancements.first().arguments.contains(QStringLiteral("/VERYSILENT")));
+        QVERIFY(banc.lancements.first().arguments.contains(QStringLiteral("/SILENT")));
         QVERIFY(banc.lancements.first().arguments.contains(QStringLiteral("/ACPRELANCER=1")));
         QCOMPARE(quitter.count(), 1);
     }
@@ -276,6 +282,77 @@ private slots:
         QVERIFY(banc.lancements.isEmpty());
         QVERIFY(!service.readyToInstall());
         QVERIFY(!QFile::exists(banc.dossier.filePath(kInstalleur)));
+    }
+    void preversionJamaisTelechargeeSansGeste() {
+        Banc banc;
+        UpdateService service(QStringLiteral("1.0.1"), nullptr, banc.sources());
+        service.setIncludePrereleases(true);
+        service.check();
+        QTRY_VERIFY(service.updateAvailable());
+        QVERIFY(service.installerAvailable());
+        QTest::qWait(100);
+        QCOMPARE(banc.telechargements(), 0);
+        QVERIFY(!service.readyToInstall());
+    }
+    void versionRetireeEffaceeALaVerificationSuivante() {
+        Banc banc;
+        UpdateService service(QStringLiteral("1.0.1"), nullptr, banc.sources());
+        service.check();
+        QTRY_VERIFY(service.readyToInstall());
+        // La publication 1.2.0 est retirée : la dernière publiée redevient 1.0.1.
+        banc.serveur.route("GET", QStringLiteral("/repos") + kDepot + QStringLiteral("/releases/latest"), [&banc](const RequeteRecue &) {
+            QJsonObject ancienne = banc.publication();
+            ancienne.insert(QStringLiteral("tag_name"), QStringLiteral("v1.0.1"));
+            ancienne.insert(QStringLiteral("html_url"), banc.depot() + QStringLiteral("/releases/tag/v1.0.1"));
+            ancienne.insert(QStringLiteral("assets"), QJsonArray{});
+            return ReponseFaux::json(200, ancienne);
+        });
+        service.check();
+        QTRY_VERIFY(service.status().contains(QStringLiteral("n'est plus publiée")));
+        QVERIFY(!service.readyToInstall());
+        QVERIFY(!QFile::exists(banc.dossier.filePath(kInstalleur)));
+        QVERIFY(!service.installPendingAtStartup());
+        QVERIFY(banc.lancements.isEmpty());
+    }
+    void sansInstalleurLeBoutonNeFaitPasSemblant() {
+        Banc banc;
+        banc.urlInstalleur = banc.base() + QStringLiteral("/autre/") + kInstalleur;
+        UpdateService service(QStringLiteral("1.0.1"), nullptr, banc.sources());
+        service.check();
+        QTRY_VERIFY(service.updateAvailable());
+        QVERIFY(!service.installerAvailable());
+        service.downloadAndInstall();
+        QVERIFY(service.status().contains(QStringLiteral("Aucun installeur vérifiable")));
+        QVERIFY(banc.lancements.isEmpty());
+    }
+    void desactiverPendantLeTelechargementLAnnule() {
+        Banc banc;
+        banc.delaiInstalleurMs = 1500;
+        UpdateService service(QStringLiteral("1.0.1"), nullptr, banc.sources());
+        service.check();
+        QTRY_VERIFY(service.downloading());
+        service.setAutoInstall(false);
+        QVERIFY(!service.downloading());
+        QVERIFY(service.status().contains(QStringLiteral("téléchargement annulé")));
+        QTest::qWait(1700);
+        QVERIFY(!service.readyToInstall());
+        QVERIFY(!QFile::exists(banc.dossier.filePath(kInstalleur)));
+    }
+    void echecPrecedentSignaleMemeSansInstallationAutomatique() {
+        Banc banc;
+        {
+            UpdateService service(QStringLiteral("1.0.1"), nullptr, banc.sources());
+            service.check();
+            QTRY_VERIFY(service.readyToInstall());
+            service.installNow();
+            QCOMPARE(banc.lancements.size(), 1);
+        }
+        UpdateService service(QStringLiteral("1.0.1"), nullptr, banc.sources());
+        service.setAutoInstall(false);
+        QSignalSpy echec(&service, &UpdateService::installationFailed);
+        QVERIFY(!service.installPendingAtStartup());
+        QCOMPARE(echec.count(), 1);
+        QVERIFY(service.status().contains(QStringLiteral("n'a pas abouti")));
     }
     void etatAltereNeSupprimeQueLInstalleur() {
         Banc banc;

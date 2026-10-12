@@ -201,10 +201,9 @@ Application::Application(QObject *parent, const QString &nomCoffre)
     // ses fichiers ; il la relance ensuite.
     connect(m_updates, &UpdateService::quitRequested, this,
             [] { QTimer::singleShot(0, QCoreApplication::instance(), &QCoreApplication::quit); });
-    connect(m_updates, &UpdateService::updateReady, this, [this](const QString &nouvelle) {
-        m_shell->notify(QStringLiteral("Mise à jour %1 téléchargée et vérifiée : elle s'installera au prochain "
-                                       "démarrage (ou maintenant : Réglages › Connexion et mises à jour).").arg(nouvelle));
-    });
+    // Le statut du service dit déjà si l'installation se fera au prochain démarrage ou sur geste.
+    connect(m_updates, &UpdateService::updateReady, this, [this](const QString &) { m_shell->notify(m_updates->status()); });
+    connect(m_updates, &UpdateService::installationFailed, this, [this](const QString &) { m_shell->notify(m_updates->status()); });
     registerBuiltinCommands();
     connect(m_navigation, &NavigationModel::historyChanged, this,
             [this] { m_commands->setContext(m_commands->context()); });
