@@ -5,7 +5,7 @@ Le projet suit le versionnage sémantique. Tant que la version majeure restait �
 les interfaces pouvaient encore évoluer entre deux versions mineures ; depuis 1.0.0, l'engagement porte sur les
 interfaces que nomme la section 1.0.0 (D130), et une rupture de l'une d'elles appelle une nouvelle version majeure.
 
-## [1.2.0] - 2026-10-12 — workspace Hermes et coffre Obsidian
+## [1.2.0] - 2026-10-14 — workspace Hermes et coffre Obsidian
 
 ### Ajouté
 
@@ -46,11 +46,14 @@ interfaces que nomme la section 1.0.0 (D130), et une rupture de l'une d'elles ap
 - Compilation Qt 6.8.3 / MSVC Release ; 41/41 suites natives réussies en 143,16 s. Captures des quatre thèmes
   en 1280×720 et 1920×1080 contre un faux Hermes ; coffre et graphe relus.
 - Suite Python Windows : 1 407 tests et 464 sous-tests réussis, 107 ignorés selon la plateforme ou les prérequis,
-  aucun échec en 431,08 s après séparation des tests hôte et serveur. Les trois tests HTTP tournent
+  aucun échec en 443,99 s après correction des attentes du catalogue navigateur. Les trois tests HTTP tournent
   obligatoirement dans l’image Hermes ; le ciblé réel coffre, machine et catalogue y passe : 30 tests en 47,07 s.
 - Double initialisation SQLite : 20 anciennes tables, leurs lignes et compteurs préservés ; seules les trois tables
   du coffre et leurs index sont ajoutés. Base 1.0.1 et 1.2.0 identique avant cette extension.
 - 204 tests web et 74 tests du moteur gelé ; versions, thèmes, verrou, catalogue de 31 compétences et secrets vérifiés.
+- Banc navigateur : attentes strictes de 31 compétences Hermes et 41 entrées du catalogue ; plafond des captures
+  porté à 20 000 px CSS, avec refus des pages tronquées conservé. Les trois tests PNG passent ; ils ne
+  remplacent pas la validation complète du parcours dans le navigateur.
 - Runtime autonome : imports et parcours sur coffre jetable ; menu PowerShell 5.1 et lanceur CMD vérifiés.
   Aucun test de mutation sur le coffre personnel.
 
@@ -59,6 +62,9 @@ interfaces que nomme la section 1.0.0 (D130), et une rupture de l'une d'elles ap
 CRM, REA, Douyin/TikTok, ML Intern, Hackingtool, Graphify et OmniRoute restent documentés mais non déployés
 ni connectés. ML Intern est archivé. Les textes Addy/Ponytail ne sont pas leurs exécutables ou hooks.
 Aucun compte personnel n’a été connecté par les tests.
+
+Les neuf actions du coffre sont déclenchées par le propriétaire dans le desktop ; aucun outil de lecture
+ou d’écriture du coffre n’est exposé aux agents Hermes ni à Discussion dans ce lot.
 
 Le coffre exige le serveur ACP 1.2.0 et son association volontaire. Les notes demandées transitent par Hermes ;
 ses sauvegardes SQLite peuvent conserver des copies après purge applicative. Le pont ne reprend pas les extensions,
