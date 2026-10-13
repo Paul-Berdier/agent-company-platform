@@ -95,6 +95,10 @@ construit à partir des liens réellement trouvés. Le graphe dessiné montre un
 sous-ensemble borné ; la liste des liens reste consultable. Les résultats limités
 ou non résolus sont signalés.
 
+Ces neuf actions sont déclenchées par le propriétaire dans le desktop. Aucun outil
+de lecture ou d’écriture du coffre n’est exposé aux agents Hermes ni à Discussion
+dans cette version.
+
 Les notes demandées transitent par Hermes. Ses paramètres et résultats ont une
 rétention bornée, avec purge lors des accès au coffre ; les sauvegardes SQLite
 peuvent conserver des copies plus longtemps. Voir le

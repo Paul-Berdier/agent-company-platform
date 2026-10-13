@@ -48,6 +48,21 @@ from pile_identite import EMETTEUR, URL_HERMES, docker, empreinte_argon2, monter
 RACINE = Path(__file__).resolve().parents[3]
 
 
+def _skills_attendues() -> tuple[List[str], List[str]]:
+    """Le verrou source fixe les noms attendus, indépendamment de la réponse HTTP vérifiée."""
+    verrou = json.loads((RACINE / "hermes" / "catalogue" / "catalogue.lock.json").read_text(encoding="utf-8"))
+    skills = verrou["skills"]
+    hermes = sorted(s["nom"] for s in skills if s["cible"] == "hermes")
+    poste = sorted(s["nom"] for s in skills if s["cible"] == "poste")
+    toutes = sorted(s["nom"] for s in skills)
+    # Lot 1.2.0 : 21 textes Hermes existants, neuf adaptations Addy/Ponytail et le chef ACP.
+    # Les dix candidates poste restent des entrées distinctes du résumé des textes actifs.
+    assert len(hermes) == 31 and len(poste) == 10, (hermes, poste)
+    assert len(toutes) == len(set(toutes)) == 41, toutes
+    assert toutes == sorted(hermes + poste), toutes
+    return hermes, toutes
+
+
 def _primaire_des_jetons() -> str:
     jetons = json.loads((RACINE / "design" / "tokens" / "colors.json").read_text(encoding="utf-8"))
     return jetons["tokens"]["accent.primary"]["dark"].lower()
@@ -70,6 +85,7 @@ def test_interface_francaise_telephone_et_bureau(playwright_sync, pile):
     image_tests = image("ACP_IMAGE_TESTS")
     image_identite = image("ACP_IMAGE_IDENTITE")
     catalogue = catalogue_francais()
+    skills_hermes, skills_catalogue = _skills_attendues()
     primaire = _primaire_des_jetons()
     noms = monter_pile(pile, image_identite, image_tests, empreinte_argon2(image_identite), publier=True)
     identite, hermes, port = noms["identite"], noms["hermes"], noms["port"]
@@ -128,11 +144,12 @@ def test_interface_francaise_telephone_et_bureau(playwright_sync, pile):
                 "getComputedStyle(document.documentElement).getPropertyValue('--color-primary').trim()")
             assert str(bilan["primaire"]).lower() == primaire, bilan["primaire"]
             bilan["accueil"] = verifier_page_acp(page, "accueil", format_, catalogue)
-            # Étape P3 (seconde partie) : résumé du catalogue servi par /v1/meta (21 skills d'ACP actives
-            # depuis P4 : 16 en P3, plus les cinq skills maison des projets).
-            carte_catalogue = page.inner_text("#acp-accueil-catalogue >> xpath=..")
-            bilan["accueil_catalogue"] = carte_catalogue
-            assert re.search(r"(?<!\d)21(?!\d).*(?<!\d)21(?!\d)", carte_catalogue, re.S), carte_catalogue
+            # Le résumé /v1/meta compte seulement les textes Hermes : lire ses deux données
+            # DOM (actives puis attendues), pas un nombre qui apparaîtrait ailleurs dans la carte.
+            carte_catalogue = page.locator("#acp-accueil-catalogue >> xpath=..")
+            bilan["accueil_catalogue"] = carte_catalogue.inner_text()
+            compteurs = carte_catalogue.locator(".acp-ligne dd").first.locator("[data-acp-donnee]").all_inner_texts()
+            assert compteurs == [str(len(skills_hermes)), str(len(skills_hermes))], compteurs
             capture(page, "accueil", complete=True)
 
             # Verrou : « en » forcé, page rechargée ⇒ retour au français.
@@ -162,7 +179,12 @@ def test_interface_francaise_telephone_et_bureau(playwright_sync, pile):
             assert bilan["catalogue_route_v1"] == "servie"
             entrees = page.locator("#acp-catalogue-skills >> xpath=.. >> li.acp-entree")
             bilan["catalogue_entrees"] = entrees.count()
-            assert entrees.count() == 31, entrees.count()  # 21 livrées dans l'image + 10 candidates pour le poste
+            assert entrees.count() == len(skills_catalogue), entrees.count()
+            # EntreeSkill rend le nom dans h3.acp-entree__nom ; les descriptions, profils et
+            # autres occurrences du même texte ne doivent pas masquer une entrée absente.
+            noms_affiches = sorted(entrees.locator("h3.acp-entree__nom").all_inner_texts())
+            assert noms_affiches == skills_catalogue, noms_affiches
+            bilan["catalogue_noms"] = noms_affiches
             texte_catalogue = page.inner_text('[data-acp-racine="catalogue"]')
             assert "acp-redaction" in texte_catalogue and "context7" in texte_catalogue
             bilan["catalogue"] = verifier_page_acp(page, "catalogue", format_, catalogue)
