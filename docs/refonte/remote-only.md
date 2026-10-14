@@ -3,6 +3,9 @@
 Mission du propriétaire du 14 octobre 2026. Base relue : main
 `e99b4968758458c73591f9f1cd7c8c6535795486`. Branche : `codex/remote-workspace`.
 Version de travail : **2.0.0**, non publiée et non déployée.
+La [PR 34](https://github.com/Paul-Berdier/agent-company-platform/pull/34) est
+ouverte en brouillon sur `codex/remote-workspace`. Le bilan fonctionnel ci-dessous
+porte sur `f3bb19df1fd5c94c7f2cc88ec21e9144fc90a2f4` ; le chantier continue.
 Le retrait de l'exécution Windows constitue une rupture du contrat produit ;
 les données et les identités anciennes restent conservées.
 
@@ -95,14 +98,23 @@ et le déploiement.
 Les essais de CLI et de services de projet se font sur Linux distant jetable,
 jamais en lançant un agent de projet sur le PC utilisateur.
 
-## Préparation d'un essai isolé
+## Budget nul et prochain parcours distant
+
+Le propriétaire a confirmé le 14 octobre **un budget supplémentaire nul** et
+ne possède aucun VPS : seul son Railway existant est disponible. Aucun achat,
+nouvel environnement payant ou remplacement par une API facturée n'est prévu.
+Les configurations VPS étudiées restent une piste différée, pas la prochaine
+étape imposée pour utiliser ACP. Le propriétaire confirme aussi disposer d’un
+abonnement Claude Pro ou Max ; ses droits, modèles, quotas et sa connexion
+depuis ce serveur n’ont pas encore été vérifiés.
 
 Le connecteur Railway confirme l'accès au projet personnel, pas l'existence
 d'une préproduction. La documentation officielle
 [des environnements](https://docs.railway.com/environments#create-an-environment)
 indique qu'une duplication copie aussi les variables et la configuration.
-Il faut donc un environnement vide et des volumes neufs, avec un compte de test ;
-ne pas dupliquer aveuglément les secrets ni restaurer les données de production.
+Aucune duplication n'est autorisée par ces notes. Les essais de développement
+continuent sur des données jetables ; la production personnelle ne devient pas
+un banc de test pour éviter le coût d'une infrastructure supplémentaire.
 
 La lecture ciblée des journaux du service executant le 14 octobre confirme
 la preuve déjà consignée dans [init-plateforme.md](init-plateforme.md) : le
@@ -111,29 +123,47 @@ bubblewrap refusé, UID séparés**. Source : projet ACP, service
 `49473bee-5140-4e98-8fb8-7e5cdf99402e`, dernier déploiement
 `33a6951f-f577-48fc-a59c-f07caf58d316`. Lecture seulement, aucun redémarrage.
 Codex reste fermé en écriture sur cet environnement. Un nouvel environnement
-Railway ne constitue donc pas à lui seul une solution au blocage observé.
+Railway ne constitue pas à lui seul une solution au blocage observé.
 
-Railway documente des
-[conteneurs non privilégiés](https://docs.railway.com/guides/github-actions-runners#known-limitations).
-Il faut maintenant un exécutant Linux distant dont la configuration permet
-réellement la sonde A. Un VPS avec Docker par défaut peut aussi échouer : ni son
-nom commercial ni sa déclaration dans l’inventaire ne prouvent l’isolation.
-Avant tout compte et dépôt, exécuter la sonde sans identifiants sur ce serveur
-neuf. Ne pas retirer une garde, désactiver globalement AppArmor/seccomp ou
-monter un socket Docker dans les agents pour forcer une réussite.
+La sonde A reste nécessaire pour ouvrir Codex en écriture avec la politique
+actuelle. Cette exigence ne ferme pas toute la voie Claude : les gardes
+existantes prévoient Claude Code en régime B, sous ses propres conditions,
+restrictions et contrôles. Ne pas retirer une garde, désactiver globalement
+AppArmor/seccomp ou monter un socket Docker dans les agents pour forcer Codex.
 
-Le propriétaire confirme n’avoir aucun VPS personnel, seulement Railway.
-Aucune création facturée n’est encore autorisée. Un VPS Linux x86_64 de 8 Go
-constitue une **configuration candidate**, à mesurer et non une capacité prouvée.
-La page officielle [OVHcloud VPS](https://www.ovhcloud.com/fr/vps/) consultée
-le 14 octobre affiche le VPS-2 (4 vCores, 8 Go, 75 Go) à partir de **8,65 € TTC/mois** ;
-prix et engagement exacts doivent être vérifiés au panier avant toute commande.
-L’offre Hetzner CX33 est affichée indisponible sur sa
-[page officielle](https://www.hetzner.com/cloud/cost-optimized/) à cette même lecture.
-Ces tarifs n’incluent pas une nouvelle pile de test Hermes/identité sur Railway.
-Ne pas utiliser la production contenant les données personnelles comme banc
-pour éviter ce coût. Le provisionnement, la configuration d’isolation du VPS
-et la connexion personnelle restent des étapes à réaliser sous autorisation.
+Le **prochain incrément candidat** est donc le parcours officiel Claude Code
+sur le serveur existant. Il n'est ni implémenté ni éprouvé dans cette branche :
+la page Comptes le dit indisponible, et les sondes/lancements actuels dépendent
+encore du jeton Claude historique. Une connexion officielle réussie ne suffirait
+pas, à elle seule, à rendre ce chemin d'exécution compatible avec le magasin
+natif. Il reste à vérifier et protéger ce magasin, adapter les sondes et le
+lancement, puis afficher l'état réel dans Qt. Aucun collage de jeton ou moteur
+sur le PC ne doit remplacer ce travail.
+
+Le plus petit parcours utile à viser, après ces corrections, est :
+
+1. Vérifier séparément l'accès ACP, le fournisseur de coordination Hermes et
+   le compte Claude Code associé à l’abonnement déclaré, avec leur mode de
+   facturation réel.
+   Aucun basculement vers une API ou un dépassement payant ; l'existence d'un
+   abonnement ne prouve pas les modèles accessibles ni une capacité restante.
+2. Depuis Qt, accomplir le parcours Anthropic officiel exécuté sur le serveur,
+   puis relever son état et les capacités admises. Le moteur officiel possède
+   ses identifiants ; ACP ne collecte ni mot de passe ni jeton de navigateur.
+3. Donner à Hermes une petite mission d'analyse en lecture seule sur un dépôt
+   jetable explicitement autorisé, avec durée et nombre de tours bornés.
+   La synthèse textuelle et le journal constituent le résultat de cet incrément.
+4. Fermer le desktop pendant la tâche, lire le même projet depuis le web, puis
+   rouvrir Qt et retrouver le même résultat et les mêmes identifiants, sans
+   relance. Conserver les preuves du moteur et du modèle réellement observés.
+
+Ce parcours personnel reste dans le périmètre autorisé, après préparation
+et revue des sauvegardes et du déploiement compatible.
+Il n'a pas eu lieu. Le budget nul n'est pas une preuve d'absence de coût :
+l'essai doit rester dans les ressources et droits déjà autorisés, sinon il
+s'arrête explicitement. Une mission de modification de code exige en plus la
+livraison des fichiers/diffs/artefacts dans ACP, encore indisponible ; les seules
+références de branche ne satisfont pas ce critère de la mission complète.
 
 Pour le futur déploiement, l'ordre sera Hermes, puis l'exécutant, puis le desktop,
 sur des révisions compatibles et après sauvegarde. Le client 2.0 indique
@@ -222,8 +252,8 @@ le propriétaire peut annuler cette opération puis en demander une nouvelle.
   Rapport : `apps/desktop/build/verification/remote-workspace-python-final.xml` et
   journal de même nom en `.log`. Deux avertissements Starlette/httpx existants.
   La correction finale de projection des comptes, apportée pendant cette suite,
-  est revalidée séparément dans les 309 tests ciblés ci-dessous ; la CI Linux
-  doit vérifier ensemble tous les correctifs.
+  est revalidée séparément dans les 309 tests ciblés ci-dessous ; la campagne
+  finale Linux décrite plus bas a vérifié ensemble tous les correctifs.
 - Contrôles ciblés après relecture : comptes/contrat 312 tests réussis ; journal,
   file et contrat 279 tests réussis ; derniers contrôles défi/fixtures 15 tests
   réussis. Doubles de CLI et de réseau, vraie SQLite
@@ -253,6 +283,44 @@ le propriétaire peut annuler cette opération puis en demander une nouvelle.
   96 tests réussis, les mêmes deux contrôles POSIX ignorés.
 - Contrôles versions, thèmes, catalogue, verrous Python et moteur Pixel Office
   gelé réussis. Balayage des fichiers suivis et nouveaux : aucun motif de secret.
+
+## Campagnes finales et PR en cours
+
+La [PR 34](https://github.com/Paul-Berdier/agent-company-platform/pull/34) reste
+**en brouillon, non fusionnée**. Les campagnes finales ont réussi sur
+`f3bb19df1fd5c94c7f2cc88ec21e9144fc90a2f4`. Son seul écart avec
+`237f25794bfc09fc7a6f19769512acf942c43e96` concerne deux fichiers de tests :
+les preuves Desktop et exécutant sur 237 portent sur le même code de production.
+
+| Campagne | Révision | Résultat |
+|---|---|---|
+| [CI générale 38522643484](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/38522643484) | f3bb19d | Linux : 1 575 réussis, 62 ignorés ; Windows : 1 525 réussis, 112 ignorés ; 464 sous-tests par système. Interface, moteur gelé et installation simulée PowerShell 7/5.1 réussis. |
+| [Image Hermes 38522640761](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/38522640761) | f3bb19d | 907 tests image ; 205 contrats, 19 désélectionnés ; 10 parcours navigateur, 1 désélectionné. Restauration : 13 contrats, 211 désélectionnés, puis 1 parcours navigateur, 10 désélectionnés. Nettoyage confirmé. |
+| [Migration 38525696602](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/38525696602) | e99b496 → f3bb19d | 6 tests réussis, 218 désélectionnés, aucun ignoré ; volumes jetables, références Git et identité machine conservées, reprise de l'ancienne session et nouvelle mission terminées. Nettoyage confirmé. |
+| [Migration 1.0.1 38584859352](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/38584859352) | 85b458b → f3bb19d | 6 tests réussis, 218 désélectionnés, aucun ignoré, en 265,47 s. Lectures égales, jeton/empreinte/références conservés, session ancienne reprise puis terminée et nouvelle mission terminée ; aucun défaut. Nettoyage confirmé. |
+| [Desktop CI 38517196960](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/38517196960) | 237f257 | MSVC/Qt 6.8.3 : 43/43 suites en 143,20 s, empaquetage réussi. |
+| [Image exécutant 38517199214](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/38517199214) | 237f257 | 46 tests image, dont schéma officiel Codex 0.156.1 ; 1 008 tests root, 24 ignorés propres à Windows. Nettoyage confirmé. |
+
+Deux témoins couvrent désormais ACP 1.2.0 (`e99b496`) et ACP 1.0.1
+(`85b458bbffbfb6dffe1fc40b8c3885f11b779ac7`, révision relevée sur Railway)
+vers `f3bb19df1fd5c94c7f2cc88ec21e9144fc90a2f4`. Ils utilisent des volumes
+jetables peuplés par les anciennes images et des comptes/moteurs simulés.
+Le [rapport du témoin 1.0.1](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/38584859352/artifacts/11904767982)
+contient `resume.md` et `resultat.json` (conservation trente jours) ; il confirme
+le passage du greffon 1.0.1 à 2.0.0 et la reprise de la session avant création
+d'une nouvelle mission, sans perte détectée dans les lectures comparées.
+La version de Hermes et le schéma SQLite 4 sont inchangés : ces essais ne
+prouvent pas une transformation de schéma. Ils ne valident ni les volumes
+personnels Railway, ni une migration Authelia, ni un retour arrière.
+Le témoin optionnel de montée de version amont Hermes n'a pas été exécuté.
+
+Les tests image exécutent le binaire officiel sans compte personnel. La sonde
+A de CI utilise un témoin aux protections desserrées ; elle ne valide pas une
+configuration de production. Les parcours métier et les captures Qt restent
+simulés côté fournisseur. Aucun compte personnel ni inférence réelle n'a été
+validé. Les [paquets Desktop de test](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/38517196960/artifacts/11872443335)
+sont non signés, non installés et conservés sept jours ; aucune release ni
+mise à jour des services personnels n'a été publiée par ces campagnes.
 
 ## Première campagne GitHub Actions
 

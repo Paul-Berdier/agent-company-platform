@@ -16,14 +16,52 @@ La première verticale traite le compte Codex distant, le refus d'attribution au
 anciens postes Windows, le journal durable et une interface native utilisable.
 Les autres lots de la mission ne sont pas déclarés terminés.
 
+État validé : `f3bb19df1fd5c94c7f2cc88ec21e9144fc90a2f4`, dans la
+[PR 34 en brouillon](https://github.com/Paul-Berdier/agent-company-platform/pull/34),
+non fusionnée. La CI finale passe : Linux 1 575 tests (62 ignorés), Windows
+1 525 (112 ignorés), 464 sous-tests par système ; Hermes 907 tests image,
+205 contrats et 10 parcours navigateur. Restauration : 13 contrats et 1 parcours
+navigateur. Deux montées de données jetables passent chacune 6 tests
+(218 désélectionnés, aucun ignoré), avec moteurs simulés : `e99b496` → `f3bb19d`
+et [1.0.1 `85b458b` → `f3bb19d`](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/38584859352).
+Ce second témoin part du code réellement relevé sur Railway ; il conserve les
+lectures, le jeton, l'empreinte et les références Git, reprend l'ancienne session
+et termine une nouvelle mission. Il ne valide ni les volumes personnels,
+ni une migration Authelia, ni un retour arrière ; le schéma reste 4.
+Desktop (43/43 suites et empaquetage) et exécutant (46 tests image et 1 008 tests
+root) sont verts sur `237f257`, dont le code de production est identique à f3 ;
+seuls deux fichiers de tests ont changé. Liens, exclusions et limites dans
+[le bilan final](refonte/remote-only.md#campagnes-finales-et-pr-en-cours).
+Aucun Setup 2.0 installé, aucune release 2.0 publiée et aucune connexion ou
+inférence personnelle validée.
+
 Le projet Railway personnel indiqué par Paul ne contient actuellement que
 `production` ; aucun environnement de test séparé n'a été identifié. Aucun
 déploiement, changement de variable, création de ressource payante ou essai sur
 les données de production n'a eu lieu pour ce chantier. Les journaux réels du
-10 octobre confirment le régime B ; Codex y reste fermé. Paul ne dispose
-d’aucun VPS. La déclaration d’un futur serveur Linux est préparée dans
-[la politique VPS](refonte/vps-declaration.md), sans achat ni installation.
-Les premières CI et leurs corrections sont détaillées dans le bilan remote-only.
+10 octobre confirment le régime B ; Codex y reste fermé en écriture. Paul ne
+dispose d'aucun VPS et a fixé **un budget supplémentaire nul** le 14 octobre.
+Il confirme un abonnement Claude Pro ou Max ; droits, modèles et quotas sur le
+serveur restent à vérifier, sans connexion personnelle déjà prouvée.
+Ne pas proposer un achat de VPS, une nouvelle pile payante ou une API facturée
+comme prochaine étape nécessaire. La déclaration VPS préparée reste facultative
+et n'ouvre aucune garde à elle seule.
+
+La piste suivante est **Claude Code sur le Railway existant**, conditionnelle
+aux gardes du régime B et aux droits réels du compte Claude Code déclaré. Le nouveau
+parcours officiel de connexion n'est ni implémenté ni testé : la sonde et le
+lancement dépendent encore du jeton historique, et la protection du magasin
+natif doit être vérifiée avant son adoption. Ne pas demander une CLI ou un
+collage de jeton sur le PC. Séparer les comptes ACP, coordinateur Hermes et
+Claude ; ne jamais remplacer silencieusement un abonnement par une API payante.
+Le premier essai utile proposé est une petite analyse en lecture seule avec
+synthèse et journal dans ACP, puis fermeture/reconnexion du client sans relance.
+L'essai personnel reste dans le périmètre autorisé, après préparation et revue
+des sauvegardes et du déploiement compatible ; les CI simulées ne le remplacent pas.
+La livraison des fichiers, diffs et artefacts reste nécessaire pour déclarer
+un parcours de modification de code complet. Lire
+[le parcours conditionnel](refonte/remote-only.md#budget-nul-et-prochain-parcours-distant)
+avant toute action sur les services existants.
 
 Le coffre `C:/Users/Paul/Documents/ACP-notes`, les assets privés LimeZu et le
 checkout personnel restent préservés. Ne pas réinstaller ni publier 1.2.0 comme
