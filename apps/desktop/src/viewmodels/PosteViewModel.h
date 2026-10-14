@@ -125,7 +125,6 @@ public:
     [[nodiscard]] const QVariantMap &guide() const { return m_guide; }
     [[nodiscard]] const QString &copieGuide() const { return m_copieGuide; }
     Q_INVOKABLE void ouvrirGuide(const QString &fournisseur);
-    Q_INVOKABLE void ouvrirGuideRecuperation(const QString &projet, const QString &branche, const QString &tete);
     Q_INVOKABLE void fermerGuide();
     //! Copie uniquement une commande statique du guide ; aucun processus n'est lancé.
     Q_INVOKABLE void copierEtape(int index);

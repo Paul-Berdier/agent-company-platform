@@ -143,7 +143,7 @@ export interface BranchePrete {
   branche?: string;
   tete?: string | null;
   termine_le?: number | null;
-  commande?: string;
+  livraison?: { etat: "non_disponible"; message?: string };
 }
 
 export interface CarteVoieFermee {

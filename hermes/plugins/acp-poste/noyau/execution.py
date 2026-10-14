@@ -775,7 +775,10 @@ FONCTIONS: Dict[str, Callable[[str, Any], Dict[str, Any]]] = {
 
 # ------------------------------------------------------------------ page Poste et /v1/meta (cahier P6 § 4.4, § 9.3)
 
-COMMANDE_RECUPERATION = "railway ssh -i <clé dédiée> --service executant -- acp-poste bundle {alias} {branche}"
+LIVRAISON_INDISPONIBLE = (
+    "La livraison du résultat dans ACP n’est pas encore disponible. "
+    "Les références de la branche restent consultables."
+)
 
 
 def _charger(texte: Optional[str]) -> Any:
@@ -812,8 +815,11 @@ def _carte_en_main(conn, machine: Dict[str, Any]) -> Optional[Dict[str, Any]]:
 
 
 def branches_pretes(conn) -> List[Dict[str, Any]]:
-    """Branches intégrées (cartes d'intégration terminées), avec la commande de récupération à copier (cahier P6
-    § 12.2) ; aucun bouton « Pousser » (D82 : aucun identifiant d'écriture en P6)."""
+    """Références des branches intégrées ; leur livraison dans ACP n'est pas implémentée.
+
+    Aucun accès distant n'est déduit de la machine active : elle peut avoir changé
+    depuis l'intégration. Les références et dates restent consultables sans action SSH.
+    """
     resultat = []
     for d in [base.ligne_en_dict(l) for l in conn.execute(
             "SELECT d.*, p.titre AS projet_titre FROM demandes d JOIN projets p ON p.id = d.projet_id WHERE "
@@ -827,7 +833,7 @@ def branches_pretes(conn) -> List[Dict[str, Any]]:
             fini = None
         resultat.append({"projet": d["projet_id"], "projet_titre": d["projet_titre"], "depot": d["depot_alias"],
                          "branche": d["branche"], "tete": d["tete"], "termine_le": fini,
-                         "commande": COMMANDE_RECUPERATION.format(alias=d["depot_alias"], branche=d["branche"])})
+                         "livraison": {"etat": "non_disponible", "message": LIVRAISON_INDISPONIBLE}})
     return resultat
 
 

@@ -322,8 +322,8 @@ QJsonObject QuestionsViewModel::construireBloquee(const QJsonObject &carte)
         aideAlerte = true;
     } else if (integration) {
         aide = QStringLiteral("Carte d'intégration, sans agent : « Relancer » rejoue la même fusion des branches, sans consigne. "
-                              "Un conflit revient tant qu'aucune branche ne change : récupérez les branches sur l'exécutant "
-                              "(git bundle) pour trancher, ou clôturez le projet.");
+                              "Un conflit revient tant qu'aucune branche ne change. La résolution des conflits dans ACP "
+                              "n'est pas encore disponible dans cette version. Vous pouvez clôturer le projet.");
     } else if (executant) {
         aide = QStringLiteral("L'agent repart d'une session neuve, sur la branche déjà commencée.");
     }

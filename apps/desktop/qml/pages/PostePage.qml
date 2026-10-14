@@ -182,8 +182,12 @@ Item {
                 objectName: "poste-resultats"
                 Layout.fillWidth: true
                 visible: Poste.lue
-                titre: qsTr("Résultats à récupérer")
-                sousTitre: qsTr("Branches signalées terminées par Hermes. Leur présence sur l'exécutant est contrôlée lors de la génération du bundle.")
+                titre: qsTr("Résultats sur le serveur")
+                sousTitre: qsTr("Branches et commits signalés terminés par Hermes.")
+                Discret {
+                    objectName: "poste-resultats-livraison"
+                    text: qsTr("Le téléchargement depuis le serveur n'est pas encore disponible dans cette version.")
+                }
                 Discret {
                     objectName: "poste-resultats-message"
                     visible: Poste.resultatsMessage.length > 0
@@ -198,14 +202,8 @@ Item {
                         visible: index < 3 || page.resultatsDeveloppes
                         spacing: Space.space2
                         SectionHeader { Layout.fillWidth: true; title: modelData.titre; subtitle: qsTr("Dépôt %1 · terminé le %2").arg(modelData.depot).arg(modelData.termineLe) }
-                        BlocTexte { Layout.fillWidth: true; libelle: qsTr("Branche locale"); texte: modelData.branche; monospace: true }
-                        BlocTexte { Layout.fillWidth: true; libelle: qsTr("Commit attendu"); texte: modelData.tete; monospace: true }
-                        AcpButton {
-                            objectName: "poste-recuperer-resultat-" + index
-                            label: qsTr("Préparer la récupération")
-                            manualEnabled: Poste.erreur.length === 0
-                            onTriggered: Poste.ouvrirGuideRecuperation(modelData.projet, modelData.branche, modelData.tete)
-                        }
+                        BlocTexte { objectName: "poste-resultat-branche-" + index; Layout.fillWidth: true; libelle: qsTr("Branche sur le serveur"); texte: modelData.branche; monospace: true }
+                        BlocTexte { objectName: "poste-resultat-commit-" + index; Layout.fillWidth: true; libelle: qsTr("Commit rapporté"); texte: modelData.tete; monospace: true }
                         Item { Layout.preferredHeight: Space.space3 }
                     }
                 }

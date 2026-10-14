@@ -178,8 +178,11 @@ def test_alerte_a_trente_jours_de_l_echeance_du_jeton_claude(noyau, conn):
         modifier=lambda i: i["connexions"].update(claude_echeance="2027-09-30")))
     loin = noyau.inventaire.alertes_de(inventaire, aujourdhui=date(2027, 8, 30))
     proche = noyau.inventaire.alertes_de(inventaire, aujourdhui=date(2027, 9, 1))
-    assert not any("Jeton Claude" in a for a in loin)
-    assert ("Jeton Claude de l'exécutant : expiration estimée le 2027-09-30 (setup-token valable un an) ; renouvelez-le"
-            in " ".join(proche))
+    assert not any("Connexion Claude" in a for a in loin)
+    message = " ".join(proche)
+    assert "Connexion Claude de l'exécutant : expiration estimée le 2027-09-30" in message
+    assert "procédure officielle Claude Code sur le serveur" in message
+    assert "connexion graphique Claude n'est pas encore disponible" in message
+    assert not any(conseil in message for conseil in ("sur votre PC", "setup-token", "railway ssh"))
     machine, _reponse = _executant(noyau, conn, modifier=lambda i: i["connexions"].update(claude_echeance="2026-10-15"))
     assert any("expiration estimée le 2026-10-15" in a for a in noyau.inventaire.dernier(conn, machine)["alertes"])

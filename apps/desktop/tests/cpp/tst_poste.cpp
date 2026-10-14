@@ -134,8 +134,8 @@ private slots:
     void assistantsSeparentLaMachineEtLesComptes();
     void guidesCopientSeulementDesCommandesConnues();
     void resultatsRefusentDesIdentifiantsEtCommandesArbitraires();
-    void recuperationGuideLeResultatReelEtSeFermeSurChangement();
-    void recuperationDistingueInconnuVideEtIncomplet();
+    void resultatsGardentMetadonneesSansGuideLocal();
+    void resultatsDistinguentInconnuVideEtIncomplet();
     void verificationAttendUnNouvelInventaireDeLaMemeMachine();
     void verificationDistingueRetardEtReponseIllisible();
     void verificationInterrompueSurChangementDeMachine();
@@ -886,58 +886,28 @@ void TestPoste::resultatsRefusentDesIdentifiantsEtCommandesArbitraires()
     QCOMPARE(PosteViewModel::construireResultats(vue).size(), 20);
 }
 
-void TestPoste::recuperationGuideLeResultatReelEtSeFermeSurChangement()
+void TestPoste::resultatsGardentMetadonneesSansGuideLocal()
 {
     Banc banc;
     banc.ouvrirLaPage(QStringLiteral("poste-assistants-railway.json"));
     QJsonObject branche = branchePrete();
     poserBranches(banc.vue, QJsonArray{branche});
     banc.relire();
-    const auto ouvrir = [&] {
-        banc.poste.ouvrirGuideRecuperation(branche.value(QStringLiteral("projet")).toString(),
-            branche.value(QStringLiteral("branche")).toString(), branche.value(QStringLiteral("tete")).toString());
-    };
-    ouvrir();
-    const QVariantList etapes = banc.poste.guide().value(QStringLiteral("etapes")).toList();
-    QCOMPARE(etapes.size(), 6);
-    QCOMPARE(etapes.at(1).toMap().value(QStringLiteral("aCompleter")).toBool(), true);
-    const QString commande = QStringLiteral("railway ssh -i \"<chemin-cle-SSH>\" --service executant -- acp-poste bundle jetable hermes/projet-demo");
-    QCOMPARE(etapes.at(1).toMap().value(QStringLiteral("commande")).toString(), commande);
-    QVERIFY(etapes.at(4).toMap().value(QStringLiteral("texte")).toString().contains(QString(40, QLatin1Char('a'))));
-    const QString cloture = etapes.last().toMap().value(QStringLiteral("texte")).toString();
-    QVERIFY(cloture.contains(QStringLiteral("railway ssh keys remove --2fa-code <code>")));
-    QVERIFY(cloture.contains(QStringLiteral("railway ssh keys est vide")));
-    QVERIFY(cloture.contains(QStringLiteral("railway logout")));
-    QVERIFY(etapes.last().toMap().value(QStringLiteral("commande")).toString().isEmpty());
-    banc.poste.copierEtape(0); // Le fichier et l'instance sont inconnus : pas de commande fabriquée.
-    banc.poste.copierEtape(2);
-    banc.poste.copierEtape(5); // Le rappel de clôture n'ajoute aucune commande de compte copiable.
+    QCOMPARE(banc.poste.resultats().size(), 1);
+    const QVariantMap resultat = banc.poste.resultats().first().toMap();
+    QCOMPARE(resultat.value(QStringLiteral("branche")).toString(), QStringLiteral("hermes/projet-demo"));
+    QCOMPARE(resultat.value(QStringLiteral("tete")).toString(), QString(40, QLatin1Char('a')));
+    QVERIFY(!resultat.contains(QStringLiteral("commande")));
+    QVERIFY(banc.poste.metaObject()->indexOfMethod("ouvrirGuideRecuperation(QString,QString,QString)") < 0);
+    QVERIFY(banc.poste.guide().isEmpty());
+    banc.poste.copierEtape(0);
     QVERIFY(banc.copies.isEmpty());
-    banc.poste.copierEtape(1);
-    QCOMPARE(banc.copies, QStringList{commande});
-    QVERIFY(banc.poste.copieGuide().contains(QStringLiteral("complétez")));
     QCOMPARE(banc.serveur.compter("POST", kP + QStringLiteral("/poste/releve")), 0);
-    banc.relire();
-    QVERIFY(!banc.poste.guide().isEmpty()); // Un même relevé ne ferme pas les instructions en cours.
-    branche.insert(QStringLiteral("tete"), QString(40, QLatin1Char('b')));
-    poserBranches(banc.vue, QJsonArray{branche});
-    banc.relire();
-    QVERIFY(banc.poste.guide().isEmpty());
-    ouvrir();
-    QVERIFY(!banc.poste.guide().isEmpty());
-    banc.poste.setPageVisible(false);
-    QVERIFY(banc.poste.guide().isEmpty());
-    ouvrir();
-    QVERIFY(banc.poste.guide().isEmpty());
-    banc.poste.setPageVisible(true);
-    ouvrir();
-    banc.flux.arreter();
-    QVERIFY(banc.poste.guide().isEmpty());
-    banc.poste.oublier(); // Application efface les pages après avoir arrêté le flux à la déconnexion.
+    banc.poste.oublier();
     QVERIFY(banc.poste.resultats().isEmpty());
 }
 
-void TestPoste::recuperationDistingueInconnuVideEtIncomplet()
+void TestPoste::resultatsDistinguentInconnuVideEtIncomplet()
 {
     Banc banc;
     banc.ouvrirLaPage(QStringLiteral("poste-en-ligne.json"));
@@ -949,7 +919,6 @@ void TestPoste::recuperationDistingueInconnuVideEtIncomplet()
     banc.relire();
     QVERIFY(banc.poste.resultatsMessage().contains(QStringLiteral("incomplètes")));
     QVERIFY(banc.poste.resultats().isEmpty());
-    banc.poste.ouvrirGuideRecuperation(QStringLiteral("p_0123456789ab"), QStringLiteral("hermes/projet-demo"), QString(40, QLatin1Char('a')));
     QVERIFY(banc.poste.guide().isEmpty());
 }
 

@@ -659,8 +659,11 @@ def test_integration_servie_sur_poste_integration(pile_machine, executant, proje
     assert f"branche {servie['branche']} prête sur l'exécutant" in texte
     poste = pile_machine.get("/api/plugins/acp-poste/v1/poste").json()["executant"]
     assert [(b["branche"], b["tete"]) for b in poste["branches_pretes"]] == [(servie["branche"], "2" * 40)]
-    assert poste["branches_pretes"][0]["commande"] == (
-        f"railway ssh -i <clé dédiée> --service executant -- acp-poste bundle jetable {servie['branche']}")
+    resultat = poste["branches_pretes"][0]
+    assert "commande" not in resultat
+    assert resultat["livraison"]["etat"] == "non_disponible"
+    assert "pas encore disponible" in resultat["livraison"]["message"]
+    assert resultat["depot"] == "jetable" and resultat["projet"] == projet["id"]
 
 
 def test_projet_simule_sans_branche_rapportee_termine_sans_integration(pile_machine, projet, monkeypatch):
@@ -706,8 +709,8 @@ def test_meta_resume_l_executant(pile_machine, executant, projet):
     executant.reclamer(attente=5)
     bloc, _alertes = meta.bloc_machine()
     assert bloc["executant"]["peut_executer"] is True and bloc["executant"]["voies_disponibles"] == ["poste-claude"]
-    assert bloc["executant"]["plateforme"] == "windows"  # aucun inventaire encore : la valeur par défaut de P5
-    assert all(bloc["chemins_a_jeton"].values()) and len(bloc["chemins_a_jeton"]) == 9
+    assert bloc["executant"]["plateforme"] == "linux"  # inventaire distant simulé de la fixture executant
+    assert all(bloc["chemins_a_jeton"].values()) and len(bloc["chemins_a_jeton"]) == 10
 
 
 # Journal distant : vrai transport HTTP et vrai SQLite ; CLI remplacée par ces événements factices.

@@ -411,8 +411,8 @@ REVUE_CHANGEE = "la carte {c} n'est plus en revue (statut : {s}) : rechargez la 
 REVUE_ACCEPTEE = "Revue des fichiers de pilotage acceptée par le propriétaire."
 MOTIF_REFUS_REVUE = "le motif du refus compte de 1 à 1000 caractères."
 COMMENTAIRE_REFUS_REVUE = "Revue des fichiers de pilotage refusée par le propriétaire : {motif}"
-DIFF_SUR_L_EXECUTANT = ("Le diff reste sur l'exécutant (branche locale) : ACP n'en affiche aucun aperçu ; récupérez la "
-                        "branche pour le lire.")
+DIFF_SUR_L_EXECUTANT = ("L'aperçu du diff et sa livraison dans ACP ne sont pas encore disponibles. "
+                        "Les références de la branche restent consultables.")
 # Présence de l'exécutant (cahier P6 § 5.8).
 NOTIF_HORS_LIGNE_EXECUTANT = "ACP — Exécutant Railway hors ligne depuis {heure} (Europe/Paris), {cartes} en attente. {lien}"
 POSTE_ETAT_REDEPLOIEMENT = ("Exécutant en redéploiement depuis {heure} (arrêt propre annoncé) : la notification « hors "
@@ -420,9 +420,9 @@ POSTE_ETAT_REDEPLOIEMENT = ("Exécutant en redéploiement depuis {heure} (arrêt
 # Inventaire de l'exécutant Linux (cahier P6 § 4.4, § 7.3).
 ALERTE_ISOLEMENT = "Écriture {clis} non admise sur l'exécutant (régime {regime}) : {raison}"
 ALERTE_CONDITIONS = "Conditions d'usage de {cli} non décidées dans la politique de l'exécutant : voie fermée."
-ALERTE_JETON_CLAUDE = ("Jeton Claude de l'exécutant : expiration estimée le {date} (setup-token valable un an) ; "
-                       "renouvelez-le : « claude setup-token » sur votre PC, puis « acp-poste connexion claude --stdin » "
-                       "dans une session railway ssh.")
+ALERTE_JETON_CLAUDE = ("Connexion Claude de l'exécutant : expiration estimée le {date}. "
+                       "Renouvelez-la par la procédure officielle Claude Code sur le serveur. "
+                       "La connexion graphique Claude n'est pas encore disponible dans ACP.")
 NOTIF_ISOLEMENT = "ACP — Isolement de l'exécutant changé (régime {regime}) : {raison} {lien}"
 # Notifications de l'exécution (cahier P6 § 9.2) : contenu minimal (D32), jamais la consigne ni un diff.
 NOTIF_REVUE = ("ACP — Projet « {titre} » : la carte « {carte} » touche des fichiers de pilotage et attend votre revue. "
@@ -467,8 +467,9 @@ CONSIGNE_RELANCE = "la consigne de relance doit compter de 1 à 4000 caractères
 # fusion déterministe (apps/poste, Execution._integrer) et ne lit aucune consigne.
 CONSIGNE_SANS_OBJET_INTEGRATION = ("la carte d'intégration {carte} n'a pas d'agent : aucune consigne n'y serait lue. "
                                    "« Relancer » rejoue la même fusion des branches ; un conflit revient tant "
-                                   "qu'aucune branche ne change. Relancez sans consigne, ou clôturez le projet : les "
-                                   "branches restent sur l'exécutant, récupérables par git bundle.")
+                                   "qu'aucune branche ne change. Relancez sans consigne, ou clôturez le projet. "
+                                   "La résolution graphique du conflit et la livraison des branches dans ACP "
+                                   "ne sont pas encore disponibles.")
 # Section ajoutée EN TÊTE de la consigne d'une carte de l'exécutant (la réduction à 60 Kio coupe la fin : K4).
 SECTION_RELANCE = "## Consigne du propriétaire (relance du {date})\n{consigne}\n\n## Consigne initiale\n"
 MENTION_TRONQUE_RELANCE = ("\n\n[… consigne initiale tronquée par ACP pour tenir, avec la relance, dans les {n} caractères "

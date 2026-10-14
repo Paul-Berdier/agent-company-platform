@@ -32,6 +32,7 @@
 #include <QCoreApplication>
 #include <QDir>
 #include <QGuiApplication>
+#include <QImage>
 #include <QKeySequence>
 #include <QJsonArray>
 #include <QPointer>
@@ -112,6 +113,7 @@ private slots:
     void pastilleDesQuestionsDitCeQuElleCompte();
     void greffonSansEtapeP7NiAccueilNiGestes();
     // En dernier : charge la fenêtre racine (App.qml).
+    void resultatsServeurSansRecuperationLocale();
     void comptesDistantsParLesVraisBoutons();
     void chaqueRaccourciDeLaPaletteAgit();
 
@@ -1433,6 +1435,96 @@ void TestPagesInteractions::chaqueRaccourciDeLaPaletteAgit()
     racine->close();
 }
 
+
+void TestPagesInteractions::resultatsServeurSansRecuperationLocale()
+{
+    auto *poste = m_application->findChild<PosteViewModel *>();
+    QVERIFY(poste);
+    const QString captures = qEnvironmentVariable("ACP_CAPTURES_DIR");
+    const QSize tailleInitiale = m_fenetre->size();
+    const auto restaurerTaille = qScopeGuard([this, tailleInitiale] { m_fenetre->resize(tailleInitiale); });
+    std::unique_ptr<QObject> marquage;
+    std::unique_ptr<QObject> fond;
+    if (!captures.isEmpty()) {
+        QVERIFY(QDir().mkpath(captures));
+        m_fenetre->resize(1366, 768);
+        QQmlComponent fondComposant(m_moteur.get());
+        fondComposant.setData(QByteArrayLiteral("import QtQuick; import Acp.Design; Rectangle { anchors.fill: parent; z: -100; color: Colors.surfaceCanvas }"), QUrl());
+        QVERIFY2(fondComposant.isReady(), qPrintable(fondComposant.errorString()));
+        fond.reset(fondComposant.createWithInitialProperties({{QStringLiteral("parent"), QVariant::fromValue(m_fenetre->contentItem())}}));
+        QVERIFY(fond);
+        QQmlComponent etiquette(m_moteur.get());
+        etiquette.setData(QByteArrayLiteral("import QtQuick; Rectangle { z: 100000; anchors.top: parent.top; anchors.right: parent.right; anchors.margins: 4; width: 220; height: 22; color: '#25313d'; radius: 3; Text { anchors.centerIn: parent; text: 'TEST · DONNÉES SIMULÉES'; color: '#ffffff'; font.pixelSize: 11 } }"), QUrl());
+        QVERIFY2(etiquette.isReady(), qPrintable(etiquette.errorString()));
+        marquage.reset(etiquette.createWithInitialProperties({{QStringLiteral("parent"), QVariant::fromValue(m_fenetre->contentItem())}}));
+        auto *etiquetteItem = qobject_cast<QQuickItem *>(marquage.get());
+        QVERIFY(etiquetteItem);
+        etiquetteItem->setParentItem(m_fenetre->contentItem());
+    }
+    for (const QString &hote : {QStringLiteral("railway"), QStringLiteral("vps")}) {
+        poste->oublier();
+        QJsonObject vue = fixture(QStringLiteral("poste-assistants-railway.json"));
+        QJsonObject enveloppeMachine = vue.value(QStringLiteral("machine")).toObject();
+        QJsonObject machine = enveloppeMachine.value(QStringLiteral("machine")).toObject();
+        machine.insert(QStringLiteral("hote"), hote);
+        enveloppeMachine.insert(QStringLiteral("machine"), machine);
+        vue.insert(QStringLiteral("machine"), enveloppeMachine);
+        QJsonObject executant = vue.value(QStringLiteral("executant")).toObject();
+        executant.insert(QStringLiteral("hote"), hote);
+        executant.insert(QStringLiteral("branches_pretes"), QJsonArray{QJsonObject{
+            {QStringLiteral("projet"), QStringLiteral("p_0123456789ab")},
+            {QStringLiteral("projet_titre"), QStringLiteral("Résultat simulé")},
+            {QStringLiteral("depot"), QStringLiteral("jetable")},
+            {QStringLiteral("branche"), QStringLiteral("hermes/projet-demo")},
+            {QStringLiteral("tete"), QString(40, QLatin1Char('a'))},
+            {QStringLiteral("termine_le"), 1790451600},
+            // Un ancien serveur peut encore publier une commande ; elle reste ignorée.
+            {QStringLiteral("commande"), QStringLiteral("railway ssh -- acp-poste bundle")}}});
+        vue.insert(QStringLiteral("executant"), executant);
+        m_serveur->route("GET", kP + QStringLiteral("/poste"), [vue](const RequeteRecue &) {
+            return ReponseFaux::json(200, vue);
+        });
+        auto page = charger(QStringLiteral("PostePage"));
+        QVERIFY(page);
+        auto *racine = qobject_cast<QQuickItem *>(page.get());
+        QTRY_COMPARE(poste->resultats().size(), 1);
+        QCOMPARE(poste->assistantMachine().value(QStringLiteral("hote")).toString(), hote);
+        QQuickItem *livraison = parNom(racine, QStringLiteral("poste-resultats-livraison"));
+        QVERIFY(livraison && livraison->isVisible());
+        QCOMPARE(livraison->property("text").toString(),
+                 QStringLiteral("Le téléchargement depuis le serveur n'est pas encore disponible dans cette version."));
+        QQuickItem *branche = parNom(racine, QStringLiteral("poste-resultat-branche-0"));
+        QQuickItem *commit = parNom(racine, QStringLiteral("poste-resultat-commit-0"));
+        QVERIFY(branche && commit);
+        QCOMPARE(branche->property("texte").toString(), QStringLiteral("hermes/projet-demo"));
+        QCOMPARE(commit->property("texte").toString(), QString(40, QLatin1Char('a')));
+        QVERIFY(!parNom(racine, QStringLiteral("poste-recuperer-resultat-0")));
+        QVERIFY(poste->guide().isEmpty());
+        if (!captures.isEmpty()) {
+            // Défilement et pixels du vrai panneau QML, avec le marquage du harnais uniquement.
+            QQuickItem *panneau = parNom(racine, QStringLiteral("poste-resultats"));
+            QVERIFY(panneau);
+            QTest::qWait(100); // Laisse le layout calculer contentHeight avant de défiler.
+            for (QQuickItem *parent = panneau->parentItem(); parent; parent = parent->parentItem()) {
+                if (parent->inherits("QQuickFlickable")) {
+                    auto *contenu = parent->property("contentItem").value<QQuickItem *>();
+                    const double haut = panneau->mapToItem(contenu, QPointF(0, 0)).y();
+                    const double maximum = std::max(0.0, parent->property("contentHeight").toDouble() - parent->height());
+                    parent->setProperty("contentY", std::clamp(haut - 40.0, 0.0, maximum));
+                    break;
+                }
+            }
+            QTest::qWait(100);
+            QVERIFY(QRectF(QPointF(0, 0), m_fenetre->size()).contains(commit->mapRectToScene(commit->boundingRect())));
+            QVERIFY(m_fenetre->grabWindow().save(captures + QStringLiteral("/Resultats-simules-%1-1366x768.png").arg(hote)));
+        }
+        QVERIFY2(m_avertissements.isEmpty(), qPrintable(m_avertissements.join(QLatin1Char('\n'))));
+        page.reset();
+    }
+    m_serveur->route("GET", kP + QStringLiteral("/poste"), [](const RequeteRecue &) {
+        return ReponseFaux::json(200, fixture(QStringLiteral("poste-non-configure.json")));
+    });
+}
 
 void TestPagesInteractions::comptesDistantsParLesVraisBoutons()
 {

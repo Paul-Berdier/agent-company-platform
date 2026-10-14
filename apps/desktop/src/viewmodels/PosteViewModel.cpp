@@ -234,10 +234,6 @@ void PosteViewModel::lire(const QJsonObject &vue)
         poserVerification(QStringLiteral("interrompue"), QStringLiteral("La machine active a changé. Relancez la vérification."));
         m_machineVerifiee.clear();
     }
-    if (m_guide.value(QStringLiteral("type")).toString() == QLatin1String("recuperation")
-        && !construireResultats(vue).contains(m_guide.value(QStringLiteral("resultat")))) {
-        fermerGuide();
-    }
     m_vue = vue;
     m_etat = construireEtat(vue);
     m_machine = construireMachine(vue);
@@ -338,48 +334,8 @@ QString PosteViewModel::resultatsMessage() const
     if (!branches.isArray()) return QStringLiteral("Hermes ne publie pas de liste de branches terminées pour cet exécutant.");
     if (branches.toArray().isEmpty()) return QStringLiteral("Aucune branche signalée terminée pour le moment.");
     if (resultats().size() < branches.toArray().size())
-        return QStringLiteral("Certaines branches publiées sont incomplètes ou illisibles ; leur récupération ne peut pas être préparée.");
+        return QStringLiteral("Certaines branches publiées sont incomplètes ou illisibles ; leurs métadonnées ne peuvent pas être affichées.");
     return {};
-}
-
-void PosteViewModel::ouvrirGuideRecuperation(const QString &projet, const QString &branche, const QString &tete)
-{
-    fermerGuide();
-    if (!m_lue || !pageVisible() || !flux()->sessionOuverte() || !erreur().isEmpty()) return;
-    QVariantMap resultat;
-    for (const QVariant &candidat : resultats()) {
-        const QVariantMap b = candidat.toMap();
-        if (b.value(QStringLiteral("projet")).toString() == projet
-            && b.value(QStringLiteral("branche")).toString() == branche
-            && b.value(QStringLiteral("tete")).toString() == tete) {
-            resultat = b;
-            break;
-        }
-    }
-    if (resultat.isEmpty()) return;
-    QVariantList etapes;
-    const auto ajouter = [&etapes](const QString &titre, const QString &texte, const QString &commande = {}, bool aCompleter = false) {
-        etapes.append(QVariantMap{{QStringLiteral("titre"), titre}, {QStringLiteral("texte"), texte},
-                                 {QStringLiteral("commande"), commande}, {QStringLiteral("aCompleter"), aCompleter}});
-    };
-    ajouter(QStringLiteral("Retrouver l'exécutant qui porte la branche"),
-            QStringLiteral("Hermes a enregistré cette branche comme terminée. Ce relevé ne prouve pas qu'elle est encore présente sur la machine actuelle. Dans votre session Railway, vérifiez le projet ACP, l'environnement et le service executant qui ont produit ce résultat. Gardez votre clé SSH dédiée dans votre console."));
-    ajouter(QStringLiteral("Générer le bundle de cette branche"),
-            QStringLiteral("Depuis votre PC, remplacez <chemin-cle-SSH> par le chemin réel de votre clé. Cette commande vérifie la branche et balaie les secrets avant de créer le bundle sur l'exécutant. Relevez le nom de fichier, le SHA-256 et la tête réellement affichés ; aucun téléchargement n'a encore eu lieu."),
-            QStringLiteral("railway ssh -i \"<chemin-cle-SSH>\" --service executant -- acp-poste bundle %1 %2")
-                .arg(resultat.value(QStringLiteral("depot")).toString(), branche), true);
-    ajouter(QStringLiteral("Transférer le fichier indiqué"),
-            QStringLiteral("Copiez l'identifiant réel de l'instance depuis Railway (« Copy Service Instance ID »). Utilisez scp avec votre clé dédiée pour rapatrier le fichier exact annoncé, dans /donnees/acp/bundles/. Le nom du bundle et l'identifiant d'instance ne sont pas transmis à ACP : suivez le guide d'exploitation Railway, § 13.7, avec ces valeurs réelles."));
-    ajouter(QStringLiteral("Vérifier le fichier et son historique"),
-            QStringLiteral("Sur votre PC, calculez le SHA-256 du fichier et comparez-le à celui affiché par l'exécutant. Dans votre dépôt local, lancez git bundle verify avec le chemin réel du bundle. Si l'empreinte ou la vérification ne concorde pas, ne récupérez pas la branche."));
-    ajouter(QStringLiteral("Importer puis comparer le commit"),
-            QStringLiteral("Dans votre dépôt local, git fetch suivi du chemin du bundle et de %1:%1 importe la branche sans la fusionner. Vérifiez avec git rev-parse %1 que la tête importée est exactement %2. La revue et une éventuelle publication restent vos actions explicites.").arg(branche, tete));
-    // Ce parcours récupère une branche sur Railway, même si la machine active a changé depuis.
-    ajouter(QStringLiteral("Clore l'accès Railway"), clotureRailway());
-    m_guide = {{QStringLiteral("type"), QStringLiteral("recuperation")}, {QStringLiteral("resultat"), resultat},
-               {QStringLiteral("titre"), QStringLiteral("Récupérer %1").arg(resultat.value(QStringLiteral("titre")).toString())},
-               {QStringLiteral("etapes"), etapes}};
-    emit guideChange();
 }
 
 QVariantMap PosteViewModel::construirePreparation(const QJsonObject &vue, bool lue, const QString &erreur)
@@ -1094,11 +1050,6 @@ void PosteViewModel::fermerGuide()
 
 void PosteViewModel::copierEtape(int index)
 {
-    if (m_guide.value(QStringLiteral("type")).toString() == QLatin1String("recuperation")
-        && (!pageVisible() || !flux()->sessionOuverte() || !erreur().isEmpty())) {
-        fermerGuide();
-        return;
-    }
     const QVariantList etapes = m_guide.value(QStringLiteral("etapes")).toList();
     if (index < 0 || index >= etapes.size()) {
         return;
