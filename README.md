@@ -21,6 +21,9 @@ des travaux distincts. Les limites et les preuves sont suivies dans
 **État observé le 14 octobre 2026** : le projet Railway ACP contient uniquement
 l'environnement nommé `production`. Hermes et l'exécutant restent épinglés sur
 ACP 1.0.1 (`85b458b`). La branche 2.0 n'est ni fusionnée ni déployée.
+Les sondes réelles de cet exécutant ont confirmé le régime B : Codex y reste
+fermé en écriture. La [déclaration explicite d’un futur VPS Linux](docs/refonte/vps-declaration.md)
+est préparée ; aucun VPS n’est installé ni sa capacité d’isolation prouvée.
 Les essais avec des doubles de CLI ou de compte ne prouvent pas une
 authentification ou une inférence réelle.
 

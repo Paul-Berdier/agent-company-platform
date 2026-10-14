@@ -19,7 +19,11 @@ Les autres lots de la mission ne sont pas déclarés terminés.
 Le projet Railway personnel indiqué par Paul ne contient actuellement que
 `production` ; aucun environnement de test séparé n'a été identifié. Aucun
 déploiement, changement de variable, création de ressource payante ou essai sur
-les données de production n'a eu lieu pour ce chantier.
+les données de production n'a eu lieu pour ce chantier. Les journaux réels du
+10 octobre confirment le régime B ; Codex y reste fermé. Paul ne dispose
+d’aucun VPS. La déclaration d’un futur serveur Linux est préparée dans
+[la politique VPS](refonte/vps-declaration.md), sans achat ni installation.
+Les premières CI et leurs corrections sont détaillées dans le bilan remote-only.
 
 Le coffre `C:/Users/Paul/Documents/ACP-notes`, les assets privés LimeZu et le
 checkout personnel restent préservés. Ne pas réinstaller ni publier 1.2.0 comme
