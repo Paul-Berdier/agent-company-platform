@@ -46,7 +46,8 @@ depuis la version réellement installée. La seule mention « 2.0 » ne suffit p
 2. Mettez à jour **l’exécutant** vers la révision compatible validée et vérifiez
    son retour en ligne. Gardez son identité existante : aucun nouvel enrôlement
    de machine n’est prévu. Le service d’identité et vos moyens de connexion
-   restent conservés.
+   restent conservés. Gardez la pause jusqu’au retour de l’inventaire de
+   l’exécutant 2.0 : Hermes peut refuser temporairement l’ancien relevé Claude.
 3. Seulement ensuite, fermez ACP et installez le **futur client desktop 2.0**
    validé, avec le même compte Windows et le même mode d’installation.
    Le lien et l’empreinte du paquet doivent avoir été fournis avant cette étape.

@@ -20,12 +20,13 @@ redémarre LES MÊMES VOLUMES avec les images « APRÈS » (ACP_IMAGE_TESTS, ACP
    après et « migration de schéma : oui/non » (changements absents du contrôle) ; DÉFAUTS : base, table ou colonne
    d'avant disparue, ligne d'avant perdue ou modifiée dans une table que le contrôle ne change pas (hors ligne de
    version de ``meta_schema``), compteur ``AUTOINCREMENT`` revenu en arrière, intégrité perdue ; lectures égales à la
-   référence ;
+   référence, sauf transition Claude héritée précisément vérifiée avant son nouvel inventaire ;
 5. exécutant APRÈS sur son même volume : prêt, enrôlé, revu par Hermes depuis son démarrage (présence rafraîchie :
    la vue de Hermes garde sinon la machine et l'inventaire de l'exécutant d'avant) ; jeton, empreinte et références
-   git égales ;
+   git égales ; compte officiel simulé lu par l’API, schéma après activation relevé ;
 6. le travail REPREND : réponse à B → fil repris (``--resume`` d'une session ouverte par l'exécutant AVANT) →
    terminée ; nouveau projet E → terminé, un commit d'exploration ; aucun jeton dans les journaux, aucun push.
+   Journal relu par l’API ; schéma final et intégrité contrôlés, sans objet historique retiré ou modifié.
 
 Autorité de test : chaque image de test génère la sienne à sa construction. Le banc (faux IdP, faux ntfy, dépôt
 factice, bords) tourne avec celle de l'image AVANT ; l'image de test APRÈS est donc dérivée ici avec la MÊME autorité
@@ -156,6 +157,37 @@ def _sans_exemples(ecarts: Dict[str, Any]) -> Dict[str, Any]:
     return resume
 
 
+def _verifier_transition_claude_heritee(reference, lu, routage_avant, routage_apres,
+                                        inventaire_avant, inventaire_apres, version_avant, version_apres):
+    """Seule transition admise : 1.0.1 → 2.0.0, ancien jeton Claude, avant l’inventaire neuf."""
+    assert (version_avant, version_apres) == ("1.0.1", "2.0.0")
+    assert inventaire_avant == inventaire_apres and len(inventaire_avant) == 1
+    ancien = json.loads(inventaire_avant[0]["contenu"])
+    assert ancien.get("connexions", {}).get("claude") == "jeton_reconnu"
+    assert inventaire_avant[0]["machine_id"] == reference["machine"]["id"]
+    assert reference["routage_valide"] == {"exploration": [("poste-claude", "opus", "low")]}
+    assert lu["routage_valide"] == {}
+    # Aucun autre champ de lecture ne bénéficie de cette transition, configuration comprise.
+    assert {k: v for k, v in lu.items() if k != "routage_valide"} == {
+        k: reference[k] for k in lu if k != "routage_valide"}
+    assert routage_avant["releves"] == routage_apres["releves"]
+    assert set(routage_avant["classes"]) == set(routage_apres["classes"])
+    for classe, avant in routage_avant["classes"].items():
+        apres = routage_apres["classes"][classe]
+        if classe == "exploration":
+            assert avant["etat"] == "validee" and apres["etat"] == "a_revalider"
+            assert len(avant["entrees"]) == len(apres["entrees"]) == 1
+            assert avant["entrees"][0]["admise"] is True
+            entree = apres["entrees"][0]
+            assert entree["admise"] is False and entree["code"] == "voie_non_connectee"
+            assert "jeton_reconnu" in entree["message"]
+        else:
+            assert avant["etat"] == apres["etat"]
+            assert [(e.get("admise"), e.get("code")) for e in avant["entrees"]] == [
+                (e.get("admise"), e.get("code")) for e in apres["entrees"]]
+    return "routage conservé ; ancien relevé jeton_reconnu refusé jusqu’au nouvel inventaire compte_claude"
+
+
 class Montee:
     """État partagé des étapes (le test est une suite ordonnée, comme R1)."""
 
@@ -166,6 +198,8 @@ class Montee:
         self.cartes: Dict[str, str] = {}
         self.question_b: Dict[str, Any] = {}
         self.reference: Dict[str, Any] = {}
+        self.routage_reference: Dict[str, Any] = {}
+        self.inventaire_reference: List[Dict[str, Any]] = []
         self.remote_avant = ""
         self.volumes: Dict[str, str] = {}
         self.versions: Dict[str, Optional[str]] = {}
@@ -187,6 +221,33 @@ class Montee:
         sortie = self.banc.hermes.executer([PYTHON, "-c", code, requete, *parametres], utilisateur="hermes",
                                            verifier=True)
         return json.loads(sortie.stdout)
+
+    def dernier_inventaire(self) -> List[Dict[str, Any]]:
+        return self.sql("SELECT id, machine_id, contenu FROM inventaires ORDER BY id DESC LIMIT 1")
+
+    def relever_schema_active(self, phase: str, tables_attendues: set[str]) -> None:
+        """Après activation : intégrité et objets historiques ; les lignes ont pu évoluer avec le travail."""
+        with a_chaud([self.banc.executant, self.banc.hermes.nom]):
+            apres = lignes(self.outils, self.volumes["hermes"], self.projection)
+        avant = self.avant["hermes"]["lignes"]
+        schemas = comparer_schemas(avant, apres)
+        propres = changements_propres(schemas, self.controle["schemas"])
+        for nom, contenu in apres["bases"].items():
+            assert contenu.get("integrite") == "ok", (phase, nom)
+        for nom in avant["bases"]:
+            assert nom in apres["bases"], (phase, nom, "base historique absente")
+            ecart = schemas.get(nom) or {}
+            assert not ecart.get("objets_retires") and not ecart.get("objets_modifies"), (phase, nom, ecart)
+        assert tables_attendues <= set(apres["bases"][BASE_GREFFON]["objets"]), phase
+        migration = any(e.get("base") != "nouvelle" for e in propres.values())
+        self.resultat.setdefault("schemas_apres_activation", {})[phase] = {
+            "migration_de_schema": "oui" if migration else "non", "changements": propres,
+            "integrite": "ok", "objets_historiques": "conservés sans modification"}
+        self.resultat["migration_de_schema"] = "oui" if migration else ("non" if phase == "journal_final" else "inconnue")
+        self.resultat["changements_de_schema"] = {b: e for b, e in propres.items() if e.get("base") != "nouvelle"}
+        self.resultat["bases_nouvelles"] = sorted(b for b, e in propres.items() if e.get("base") == "nouvelle")
+        self.ecrire_resultat()
+        afficher(f"Montée — schéma après activation {phase}", _json(self.resultat["schemas_apres_activation"][phase]))
 
     def reglage(self, cle: str) -> Any:
         lignes_ = self.sql("SELECT valeur FROM reglages WHERE cle = ?", cle)
@@ -279,6 +340,11 @@ class Montee:
             "projets": {p["id"]: {"titre": p["titre"]} for p in projets["projets"]},
             "questions_ouvertes": sorted((q["id"], q["carte"], q["texte"]) for q in questions["questions"]),
             "machine": {k: machine.get(k) for k in ("id", "etat", "empreinte")},
+            "routage_configure": {c: {
+                **{k: v.get(k) for k in ("source", "valide_le", "valide_par")},
+                "entrees": [{k: valeur for k, valeur in e.items() if k not in ("admise", "code", "message")}
+                            for e in v.get("entrees", [])]}
+                for c, v in routage.get("classes", {}).items()},
             "routage_valide": {c: [(e["voie"], e["modele"], e["effort"]) for e in (v.get("entrees") or [])]
                                for c, v in (routage.get("classes") or {}).items() if v.get("etat") == "validee"},
             "reglages": {c: self.reglage(c) for c in REGLAGES_LUS},
@@ -332,6 +398,10 @@ class Montee:
             "- tables vivantes au contrôle (même image redémarrée) : "
             f"{len(r.get('tables_vivantes_au_controle') or [])}",
             f"- lectures après la montée face à la référence : {r.get('lectures', 'non mesuré')}",
+            f"- transition de routage avant inventaire neuf : {r.get('transition_routage', 'aucune')}",
+            f"- schéma au seul démarrage : {r.get('schema_au_demarrage', 'non mesuré')}",
+            f"- schémas après activation comptes/journal : {r.get('schemas_apres_activation', 'non mesurés')}",
+            f"- lectures API comptes/journal : {r.get('api_comptes', 'non mesurée')} ; {r.get('api_journal', 'non mesurée')}",
             f"- exécutant après : {r.get('executant', 'non mesuré')}",
             f"- travail repris : {r['travail_repris']}",
         ]
@@ -469,6 +539,9 @@ def test_m3_controle_redemarrage_avec_l_image_avant(montee: Montee):
     m.conteneurs["hermes"].append(b.hermes.nom)
     passes = m.attendre_deux_passes(depuis)
     lu = m.releve(executant=False)
+    # L’exécutant est arrêté : ces références viennent de la copie exacte du volume M2, sans battement concurrent.
+    m.routage_reference = m.lire("/v1/routage")
+    m.inventaire_reference = m.dernier_inventaire()
     with a_chaud([b.hermes.nom]):
         releve = lignes(m.outils, volume, m.projection)
     duree = time.monotonic() - debut
@@ -523,7 +596,8 @@ def test_m4_montee_hermes_apres_sur_le_meme_volume(montee: Montee):
     ecarts_lectures = m.ecarts(lu)
     migration = any(e.get("base") != "nouvelle" for e in propres.values())
     m.resultat.update({
-        "migration_de_schema": "oui" if migration else "non",
+        "migration_de_schema": "oui" if migration else "inconnue",
+        "schema_au_demarrage": {"migration_de_schema": "oui" if migration else "non", "changements": propres},
         "changements_de_schema": {base: e for base, e in propres.items() if e.get("base") != "nouvelle"},
         "bases_nouvelles": sorted(base for base, e in propres.items() if e.get("base") == "nouvelle"),
         "defauts": defauts, "lectures": "égales" if not ecarts_lectures else ecarts_lectures,
@@ -560,7 +634,16 @@ def test_m4_montee_hermes_apres_sur_le_meme_volume(montee: Montee):
     assert "[acp] REFUS" not in journal
     assert (apres["bases"].get(BASE_GREFFON) or {}).get("meta_schema") == m.versions["apres"], m.versions
     assert defauts == [], defauts
-    assert ecarts_lectures == {}, ecarts_lectures
+    if ecarts_lectures:
+        assert set(ecarts_lectures) == {"routage_valide"}, ecarts_lectures
+        m.resultat["transition_routage"] = _verifier_transition_claude_heritee(
+            m.reference, lu, m.routage_reference, m.lire("/v1/routage"),
+            m.inventaire_reference, m.dernier_inventaire(),
+            m.resultat["avant"]["meta"]["greffon"], meta["greffon"])
+        # Le diff réel reste dans le rapport : il n’est ni effacé ni présenté comme une égalité.
+        m.ecrire_resultat()
+    else:
+        assert ecarts_lectures == {}, ecarts_lectures
     assert m.controle, "contrôle non mesuré (étape 3 en échec) : rien n'a pu être retranché de la comparaison"
 
 
@@ -590,7 +673,12 @@ def test_m5_executant_apres_sur_le_meme_volume(montee: Montee):
         executant = ((vue or {}).get("executant") or {}) if code == 200 else {}
         if poste.get("etat") == "en_ligne" and int(poste.get("derniere_vue") or 0) >= debut - 1 and \
                 "poste-claude" in (executant.get("voies_disponibles") or []):
-            return {"presence": {k: poste.get(k) for k in ("etat", "derniere_vue", "source")}, "executant": executant}
+            # La présence peut annoncer les sondes avant la publication de leur inventaire : attendre les deux.
+            inventaire = m.dernier_inventaire()
+            if len(inventaire) == 1 and inventaire[0]["id"] > m.inventaire_reference[0]["id"] and \
+                    json.loads(inventaire[0]["contenu"]).get("connexions", {}).get("claude") == "compte_claude":
+                return {"presence": {k: poste.get(k) for k in ("etat", "derniere_vue", "source")},
+                        "executant": executant}
         return None
 
     etat = attendre(revu_ou_non_enrole, 180,
@@ -612,6 +700,16 @@ def test_m5_executant_apres_sur_le_meme_volume(montee: Montee):
         "lectures_face_a_la_reference": ecarts or "égales"}))
     assert "[acp] volume prêt" in journal_executant and "non enrôlé" not in journal_executant
     assert ecarts == {}, ecarts
+    inventaire = m.dernier_inventaire()
+    assert len(inventaire) == 1 and inventaire[0]["id"] > m.inventaire_reference[0]["id"]
+    assert json.loads(inventaire[0]["contenu"])["connexions"]["claude"] == "compte_claude"
+    comptes = m.lire("/v1/comptes")
+    assert comptes["protocole"] == "acp-comptes/2"
+    claude = [c for c in comptes["comptes"] if c["moteur"] == "claude_code"]
+    assert len(claude) == 1 and claude[0]["compte_connecte"] is True
+    assert claude[0]["observation"]["etat"] == "a_jour"
+    m.resultat["api_comptes"] = "GET /v1/comptes : compte Claude factice confirmé par inventaire neuf"
+    m.relever_schema_active("comptes", {"table:comptes_executants", "table:comptes_operations"})
 
 
 # =========================================================================== 6. le travail reprend
@@ -649,3 +747,13 @@ def test_m6_le_travail_reprend(montee: Montee):
     m.resultat["travail_repris"] = ("oui : B reprise par l'exécutant après (--resume de la session ouverte avant), "
                                     "terminée ; E terminée ; un commit d'exploration chacune ; aucun jeton, aucun push")
     m.ecrire_resultat()
+    journaux = {}
+    for lettre in "BE":
+        journal = m.lire(f"/v1/projets/{m.projets[lettre]['id']}/evenements?limite=200")
+        evenements = journal["evenements"]
+        assert journal["projet_id"] == m.projets[lettre]["id"] and evenements
+        assert any(e["carte"] == m.cartes[lettre] and e["moteur"] == "claude" for e in evenements)
+        journaux[lettre] = {"nombre": len(evenements), "prochain_curseur": journal["prochain_curseur"]}
+    m.resultat["api_journal"] = journaux
+    m.relever_schema_active("journal_final", {
+        "table:comptes_executants", "table:comptes_operations", "table:evenements_execution_recus"})
