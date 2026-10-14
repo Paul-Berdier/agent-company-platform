@@ -1,5 +1,9 @@
 # Workspace Hermes — ACP 1.2.0
 
+Pour installer cette version, suivre le [guide de mise à jour 1.2.0](../mettre-a-jour-1.2.md).
+Les résultats des tests, les paquets et les limites sont consignés dans les
+[preuves de livraison](preuves-1.2.0.md).
+
 ## Ce que ce lot change
 
 Discussion reste un client Qt natif de Hermes. Le lot reprend des usages utiles de
