@@ -161,9 +161,9 @@ def test_voie_non_connectee(noyau, conn):
     assert _poste == 1
 
 
-def test_claude_jeton_present_non_verifie_admis(noyau, conn):
+def test_claude_jeton_present_non_verifie_refuse(noyau, conn):
     _poste_et_inventaire(noyau, conn, lambda i: i["connexions"].update(claude="jeton_present_non_verifie"))
-    assert _admis(noyau, conn, voie="poste-claude", modele="opus", effort=None).voie == "poste-claude"
+    assert _refus(noyau, conn, voie="poste-claude", modele="opus", effort=None).code == "voie_non_connectee"
 
 
 def test_efforts_inconnus_sans_typeerror(noyau, conn):

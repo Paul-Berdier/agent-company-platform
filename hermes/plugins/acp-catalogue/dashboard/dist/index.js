@@ -719,6 +719,7 @@
         inconnu: "Inconnu"
       },
       connexionsClaude: {
+        compteClaude: "Compte Claude connect\xE9",
         jetonReconnu: "Jeton reconnu",
         jetonPresentNonVerifie: "Jeton pr\xE9sent, non v\xE9rifi\xE9",
         refuse: "Refus\xE9",

@@ -645,7 +645,7 @@ class Connexions(_Contrat):
     greffon en tire une alerte à 30 jours. Jamais le jeton, seulement une date."""
 
     CODEX: ClassVar[tuple] = ("compte_chatgpt", "cle_api", "autre", "non_connecte", "inconnu")
-    CLAUDE: ClassVar[tuple] = ("jeton_reconnu", "jeton_present_non_verifie", "refuse", "jeton_absent", "inconnu")
+    CLAUDE: ClassVar[tuple] = ("compte_claude", "jeton_reconnu", "jeton_present_non_verifie", "refuse", "jeton_absent", "inconnu")
 
     codex: str
     plan_codex: Optional[str] = None

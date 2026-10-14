@@ -174,6 +174,10 @@ Libelle connexionCodex(const QJsonValue &etat)
 Libelle connexionClaude(const QJsonValue &etat)
 {
     const QString e = chaine(etat);
+    if (e == QLatin1String("compte_claude")) return {QStringLiteral("Compte Claude"), QStringLiteral("succeeded")};
+    if (e == QLatin1String("non_connecte")) return {QStringLiteral("Non connecté"), QStringLiteral("pending")};
+    if (e == QLatin1String("cle_api")) return {QStringLiteral("Clé d'API (refusée)"), QStringLiteral("failed")};
+    if (e == QLatin1String("autre")) return {QStringLiteral("Autre"), QStringLiteral("degraded")};
     if (e == QLatin1String("jeton_reconnu")) return {QStringLiteral("Jeton reconnu"), QStringLiteral("succeeded")};
     if (e == QLatin1String("jeton_present_non_verifie"))
         return {QStringLiteral("Jeton présent, non vérifié"), QStringLiteral("degraded")};

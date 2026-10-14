@@ -183,6 +183,18 @@ describe("vue Poste", () => {
     expect(textesHorsCatalogue(r.racine, CATALOGUE)).toEqual([]);
   });
 
+  it("compte Claude officiel : le relevé affiche la connexion sans promettre une inférence", async () => {
+    const poste = structuredClone(F.poste_en_ligne);
+    poste.inventaire.contenu.connexions.claude = "compte_claude";
+    installerSdk({ [ROUTE_POSTE]: poste });
+    const r = await rendre(h(Poste, null));
+    const connexions = texteDe(r.racine.querySelector("#acp-poste-connexions")?.parentElement);
+    expect(connexions).toContain("Compte Claude connecté");
+    expect(connexions).not.toContain("Jeton reconnu");
+    expect(connexions).not.toContain("compte_claude");
+    expect(textesHorsCatalogue(r.racine, CATALOGUE)).toEqual([]);
+  });
+
   it("poste illisible : erreur dite, jamais un état inventé", async () => {
     installerSdk({ [ROUTE_POSTE]: new ApiErrorHermes("boom", 500, "{}", ROUTE_POSTE) });
     const r = await rendre(h(Poste, null));

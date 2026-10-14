@@ -115,6 +115,7 @@ private slots:
     // En dernier : charge la fenêtre racine (App.qml).
     void resultatsServeurSansRecuperationLocale();
     void comptesDistantsParLesVraisBoutons();
+    void claudeSaisieStableEnvoiEtRepriseParLeClavier();
     void chaqueRaccourciDeLaPaletteAgit();
 
 private:
@@ -1546,6 +1547,60 @@ void TestPagesInteractions::comptesDistantsParLesVraisBoutons()
     QCOMPARE(m_serveur->compter("POST",route+QStringLiteral("/codex/connexions")),1);
     QVERIFY2(m_avertissements.isEmpty(),qPrintable(m_avertissements.join(QLatin1Char('\n'))));
     page.reset(); comptes->setOuvreur([](const QUrl &){return false;}); comptes->setIntervalleTest(0); comptes->oublier();
+}
+
+void TestPagesInteractions::claudeSaisieStableEnvoiEtRepriseParLeClavier()
+{
+    auto *comptes=m_application->findChild<ComptesViewModel *>(); QVERIFY(comptes);
+    comptes->setPageVisible(false); QTRY_VERIFY(!comptes->actif());
+    comptes->oublier(); comptes->setIntervalleTest(80);
+    auto courant=std::make_shared<QJsonObject>();
+    const QString route=kP+QStringLiteral("/comptes"), operation=route+QStringLiteral("/connexions/")+connexionTestId();
+    const int annulationsAvant=m_serveur->compter("POST",operation+QStringLiteral("/annuler"));
+    m_serveur->route("GET",route,[courant](const RequeteRecue &){return ReponseFaux::json(200,comptesTest({},*courant));});
+    m_serveur->route("GET",operation,[courant](const RequeteRecue &){return ReponseFaux::json(200,*courant);});
+    m_serveur->route("POST",route+QStringLiteral("/claude/connexions"),[courant](const RequeteRecue &){*courant=connexionClaudeTest();return ReponseFaux::json(202,*courant);});
+    m_serveur->route("POST",operation+QStringLiteral("/code"),[courant](const RequeteRecue &r){
+        courant->insert(QStringLiteral("reception_code"),QJsonObject{{QStringLiteral("defi_id"),r.json().value(QStringLiteral("defi_id"))},
+            {QStringLiteral("soumission_id"),r.json().value(QStringLiteral("soumission_id"))},{QStringLiteral("etat"),QStringLiteral("en_attente")}});
+        return ReponseFaux::json(202,*courant);
+    });
+    m_serveur->route("POST",operation+QStringLiteral("/annuler"),[courant](const RequeteRecue &){*courant=connexionClaudeTest(QStringLiteral("annulee"));return ReponseFaux::json(200,*courant);});
+    QUrl ouverte; comptes->setOuvreur([&](const QUrl &url){ouverte=url;return true;});
+    const QSize avant=m_fenetre->size(); m_fenetre->resize(1366,768);
+    auto nettoyage=qScopeGuard([&]{comptes->setOuvreur([](const QUrl &){return false;});comptes->setIntervalleTest(0);comptes->oublier();m_fenetre->resize(avant);});
+    auto page=charger(QStringLiteral("ComptesPage")); QVERIFY(page); auto *racine=qobject_cast<QQuickItem *>(page.get());
+    QTRY_VERIFY(comptes->peutConnecterClaude()); QTest::qWait(80);
+    QVERIFY(cliquer(parNom(racine,QStringLiteral("comptes-connecter-claude")))); QTRY_VERIFY(comptes->peutSaisirCode()); QTest::qWait(100);
+    QPointer<QQuickItem> champ=parNom(racine,QStringLiteral("comptes-code-claude")); QVERIFY(champ); QVERIFY(champ->isVisible());
+    QVERIFY(QRectF(QPointF(0,0),m_fenetre->size()).contains(champ->mapRectToScene(champ->boundingRect())));
+    QVERIFY(cliquer(parNom(racine,QStringLiteral("comptes-ouvrir-autorisation-claude_code")))); QCOMPARE(ouverte.host(),QStringLiteral("claude.com"));
+    // Le bouton Item ne prend pas le focus au clic : parcourir le vrai ordre de Tab.
+    for (int passage=0; passage<10 && !champ->hasActiveFocus(); ++passage) QTest::keyClick(m_fenetre.get(),Qt::Key_Tab);
+    QVERIFY(champ->hasActiveFocus());
+    QVERIFY(taper(champ,QStringLiteral("BROUILLON-SIMULE")));
+    racine->setVisible(false); QCOMPARE(champ->property("text").toString(),QString());
+    racine->setVisible(true); QTRY_VERIFY(comptes->peutSaisirCode()); QTest::qWait(100);
+    QVERIFY(taper(champ,QStringLiteral("CODE-SIMULE-CLAUDE")));
+    QCOMPARE(champ->property("masked").toBool(),true);
+    const int lectures=m_serveur->compter("GET",operation);
+    QTRY_VERIFY(m_serveur->compter("GET",operation)>=lectures+3);
+    QVERIFY(champ); QCOMPARE(champ->property("text").toString(),QStringLiteral("CODE-SIMULE-CLAUDE")); QVERIFY(champ->hasActiveFocus());
+    QTest::keyClick(m_fenetre.get(),Qt::Key_Return);
+    QCOMPARE(champ->property("text").toString(),QString());
+    QTRY_COMPARE(m_serveur->compter("POST",operation+QStringLiteral("/code")),1); QTRY_VERIFY(!comptes->gesteEnCours());
+    QVERIFY(!comptes->peutSaisirCode()); QVERIFY(!champ->isEnabled());
+    page.reset(); QTest::qWait(40);
+    QCOMPARE(m_serveur->compter("POST",operation+QStringLiteral("/annuler")),annulationsAvant);
+    page=charger(QStringLiteral("ComptesPage")); QVERIFY(page); racine=qobject_cast<QQuickItem *>(page.get());
+    QTRY_VERIFY(comptes->attente()); QTRY_VERIFY(!comptes->chargement());
+    champ=parNom(racine,QStringLiteral("comptes-code-claude")); QVERIFY(champ); QCOMPARE(champ->property("text").toString(),QString());
+    QCOMPARE(m_serveur->compter("POST",route+QStringLiteral("/claude/connexions")),1);
+    QTest::qWait(100); QVERIFY(cliquer(parNom(racine,QStringLiteral("comptes-annuler-claude_code")))); QTRY_VERIFY(!comptes->attente());
+    QVERIFY(!champ->isVisible());
+    QCOMPARE(m_serveur->compter("POST",operation+QStringLiteral("/annuler")),annulationsAvant+1);
+    QVERIFY2(m_avertissements.isEmpty(),qPrintable(m_avertissements.join(QLatin1Char('\n'))));
+    page.reset();
 }
 
 QTEST_MAIN(TestPagesInteractions)

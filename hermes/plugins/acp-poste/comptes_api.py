@@ -17,13 +17,13 @@ def creer_router(n, session, origine_publique):
     def erreur(statut, code, message):
         return reponse(statut,{"detail":{"code":code,"message":message}})
 
-    async def corps(request):
+    async def corps(request, limite=4096):
         if (request.headers.get("content-type") or "").split(";")[0].strip().lower() != "application/json":
             return erreur(415,"json_attendu","Un corps JSON est requis.")
         brut = bytearray()
         async for bloc in request.stream():
             brut.extend(bloc)
-            if len(brut)>4096:
+            if len(brut)>limite:
                 return erreur(413,"trop_volumineux","Requête de connexion trop volumineuse.")
         try:
             obj=json.loads(brut.decode("utf-8"))
@@ -66,10 +66,30 @@ def creer_router(n, session, origine_publique):
         if set(obj)!={"idempotency_key"}: return erreur(400,"requete_refusee","Une clé d’idempotence est requise.")
         return await executer(noyau.creer,obj["idempotency_key"],auteur,statut=202)
 
+    @router.post("/v1/comptes/claude/connexions")
+    async def demarrer_claude(request:Request):
+        garde=await owner(request)
+        if isinstance(garde,JSONResponse): return garde
+        auteur,obj=garde
+        if set(obj)!={"idempotency_key"}: return erreur(400,"requete_refusee","Une clé d’idempotence est requise.")
+        return await executer(noyau.creer,obj["idempotency_key"],auteur,"claude_code",statut=202)
+
     @router.get("/v1/comptes/connexions/{identifiant}")
     async def lire(request:Request,identifiant:str):
         if session(request) is None: return erreur(401,"session","Session du propriétaire requise.")
-        return await executer(noyau.lire,identifiant)
+        if (set(request.query_params)-{"defi_id","soumission_id"}
+                or len(request.query_params.multi_items()) != len(request.query_params)):
+            return erreur(400,"requete_refusee","Paramètres de réception invalides.")
+        return await executer(noyau.lire,identifiant,request.query_params.get("defi_id"),request.query_params.get("soumission_id"))
+
+    @router.post("/v1/comptes/connexions/{identifiant}/code")
+    async def code(request:Request,identifiant:str):
+        garde=await owner(request)
+        if isinstance(garde,JSONResponse): return garde
+        auteur,obj=garde
+        if set(obj)!={"defi_id","soumission_id","code"}:
+            return erreur(400,"requete_refusee","Une remise de code complète est requise.")
+        return await executer(noyau.soumettre_code,identifiant,obj["defi_id"],obj["soumission_id"],obj["code"],auteur,statut=202)
 
     @router.post("/v1/comptes/connexions/{identifiant}/annuler")
     async def annuler(request:Request,identifiant:str):
@@ -88,7 +108,7 @@ def creer_router(n, session, origine_publique):
         identite=getattr(principal,"principal","")
         if not isinstance(identite,str) or not identite.startswith("acp-poste:"):
             return erreur(403,"portee_refusee","Identité d’exécutant invalide.")
-        obj=await corps(request)
+        obj=await corps(request,limite=16384)
         if isinstance(obj,JSONResponse): return obj
         try: demande=C.Echange.model_validate(obj)
         except ValueError: return erreur(400,"requete_refusee","Échange des comptes invalide ou hors limites.")

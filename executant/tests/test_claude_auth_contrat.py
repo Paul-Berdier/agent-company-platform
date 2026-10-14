@@ -59,8 +59,16 @@ def etat():
     assert valeur.get('configDirectory') == str(base / 'config'), 'mauvais magasin consulté'
     if 'loggedIn' in valeur:
         assert valeur['loggedIn'] is False, 'loggedIn contredit le magasin vierge'
+    # Mesure du littéral requis par l'adaptateur, pas seulement du type str ; aucun jeton synthétique
+    # injecté au magasin et aucune identité personnelle. La voie positive exige encore une preuve OAuth.
+    assert valeur.get('apiProvider') == 'firstParty', 'provenance CLI inattendue (valeur non publiée)'
+    sys.path.insert(0, '/opt/acp/lib')
+    from acp_poste.comptes_claude import analyser_etat
+    interprete = analyser_etat(sortie.encode('utf-8'), code, str(base / 'config'))
+    assert interprete.reconnu is False and interprete.type_auth == 'none', 'interprétation ACP incorrecte'
     # Les champs supplémentaires non documentés sont relevés par nom/type, pas traités comme une API stable.
     return {'code': code, 'authMethod': valeur['authMethod'], 'bon_magasin': True,
+            'apiProvider': 'firstParty', 'adaptateur_reconnu': interprete.reconnu,
             'champs': {cle: type(v).__name__ for cle, v in sorted(valeur.items())},
             'stderr_present': bool(erreur)}
 
@@ -252,6 +260,8 @@ def test_claude_auth_aide_officielle(image, ressources):
 def test_claude_auth_etat_sans_compte_et_logout(image, ressources):
     resultat = _mesurer(image, ressources, 'etat')
     assert resultat['avant'] == resultat['apres']
+    assert resultat['avant']['apiProvider'] == 'firstParty'
+    assert resultat['avant']['adaptateur_reconnu'] is False
 
 
 @pytest.mark.parametrize('transport', ['pipes', 'pty'])

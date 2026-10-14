@@ -48,3 +48,36 @@ Cette route est strictement en lecture : elle ne crée, ne reprend et ne relance
 Les tests `apps/poste/tests/test_evenements_distants.py` utilisent des flux synthétiques et un transport fonctionnel explicitement factice, une vraie base SQLite issue du schéma ACP et la vraie file atomique. Ils couvrent réouverture, réponse perdue, renvoi, absence d’acquittement, conflits d’identifiant/rang et rollback du lot, pagination, séparation des projets, masquage avant découpage, exclusion du raisonnement et saturation. Avec les tests existants du protocole et du contrat, 279 tests ciblés ont passé le 14 octobre 2026, sans moteur ni service lancé sur le PC.
 
 Les deux tests supplémentaires dans `hermes/tests/image/test_execution_p6.py` exercent le vrai HTTP, le vrai journal, la réclamation et les refus de session/run, avec événements synthétiques. Ils ont passé dans l’image Linux jetable de la [campagne Hermes 38522640761](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/38522640761), révision `f3bb19df1fd5c94c7f2cc88ec21e9144fc90a2f4` : 907 tests image, puis 205 contrats et 10 parcours navigateur réussis. Ces preuves n’utilisent aucun compte personnel ni serveur de production et ne démontrent pas une inférence auprès d’un fournisseur réel.
+
+
+## 14 octobre — compte Claude officiel distant
+
+Paul confirme disposer de Claude Pro ou Max, sans budget supplémentaire.
+Le lot ajoute la connexion Claude au même contrôleur que Codex : aucun second
+orchestrateur. Le navigateur réalise le parcours officiel ; le code de retour
+est remis une seule fois au processus distant, puis effacé de la mémoire du
+relais après accusé. Seuls les identifiants et l'état de réception sont durables.
+Une perte de mémoire impose la vérification ou une nouvelle tentative explicite.
+Le client ne conserve aucun brouillon du code ; quitter la page le vide.
+
+Les sondes et commandes utilisent le magasin officiel du CLI. Les anciennes
+valeurs du coffre sont préservées sans injection. Une sonde de compte précède
+chaque mission ; une provenance API, helper ou tiers n'ouvre pas la voie Claude.
+Le masquage relit le magasin et garde en RAM les valeurs remplacées pendant
+l'exécution. Le routage requiert `compte_claude`. Le processus dont l'arrêt
+n'est pas confirmé bloque les nouvelles connexions et missions.
+
+Preuve réelle sans compte : [exécutant `5b98432`](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/38588066690),
+51 tests image, 1 008 root, 24 ignorés Windows, nettoyage sans résidu.
+Les permissions du vrai binaire, le lien et la commande de connexion sont
+éprouvés. Succès OAuth personnel, refresh et inférence restent non prouvés.
+Compilation Qt 6.8.3 réussie ; **43/43 suites natives** passent en 171,12 s.
+Huit captures (quatre thèmes, 1366×768 et 1920×1080) ont été relues ;
+le champ et les trois boutons sont intégralement dans le viewport avant clic.
+Les **206 tests web** et la vérification des bundles passent. La campagne Python
+finale passe **1 620 tests et 464 sous-tests**, avec **115 ignorés**, en 1 295,11 s.
+Les deux échecs initiaux venaient de doubles de test obsolètes, corrigés puis
+rééprouvés dans cette campagne. Le dernier libellé du conflit d’intégration,
+qui conseillait encore un git bundle sur le PC, passe séparément son test
+existant (1 réussi, 131,88 s). Les nouvelles images distantes restent à valider.
+Aucun déploiement, installation, fusion ni nouvelle ressource payante.

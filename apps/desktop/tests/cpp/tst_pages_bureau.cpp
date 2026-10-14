@@ -137,6 +137,18 @@ QQuickItem *parNom(QQuickItem *item, const QString &nom)
     return nullptr;
 }
 
+bool entierementDansLeViewport(QQuickItem *item)
+{
+    if (!item || !item->isVisible()) return false;
+    for (auto *parent = item->parentItem(); parent; parent = parent->parentItem()) {
+        if (parent->inherits("QQuickFlickable")) {
+            const QRectF rectangle = item->mapRectToItem(parent, item->boundingRect());
+            return QRectF(0, 0, parent->width(), parent->height()).contains(rectangle);
+        }
+    }
+    return false;
+}
+
 bool cliquer(QQuickWindow &fenetre, QQuickItem *racine, const QString &nom)
 {
     auto *item = parNom(racine, nom);
@@ -200,8 +212,13 @@ void TestPagesBureau::pagesAlimenteesPuisRacine()
                            {QStringLiteral("running"), false}};
     });
     serveur.jetonsAccesValides.insert(QByteArrayLiteral("jeton-a"));
-    serveur.route("GET", kP + QStringLiteral("/comptes"), [](const RequeteRecue &) { return ReponseFaux::json(200, comptesTest(connexionTest())); });
-    serveur.route("GET", kP + QStringLiteral("/comptes/connexions/") + connexionTestId(), [](const RequeteRecue &) { return ReponseFaux::json(200, connexionTest()); });
+    bool compteClaude=false;
+    serveur.route("GET", kP + QStringLiteral("/comptes"), [&compteClaude](const RequeteRecue &) {
+        return ReponseFaux::json(200,compteClaude?comptesTest({},connexionClaudeTest()):comptesTest(connexionTest()));
+    });
+    serveur.route("GET", kP + QStringLiteral("/comptes/connexions/") + connexionTestId(), [&compteClaude](const RequeteRecue &) {
+        return ReponseFaux::json(200,compteClaude?connexionClaudeTest():connexionTest());
+    });
     QJsonObject projets = fixture(QStringLiteral("projets.json"));
     serveur.route("GET", kP + QStringLiteral("/projets/") + kId + QStringLiteral("/evenements"), [](const RequeteRecue &r) {
         const bool premier=r.requete.queryItemValue(QStringLiteral("apres"))==QLatin1String("0");
@@ -710,6 +727,16 @@ void TestPagesBureau::pagesAlimenteesPuisRacine()
                         QVERIFY(cliquer(window, item, QStringLiteral("navigation-accounts")));
                         QTRY_VERIFY(comptes->actif()); QTRY_VERIFY(comptes->lue());
                         VERIFIER(coquille.get(), nom + QStringLiteral("-Comptes-simules"));
+                        compteClaude=true; comptes->oublier(); comptes->actualiser();
+                        QTRY_VERIFY(comptes->peutSaisirCode());
+                        // Avant tout clic (qui saurait défiler) : le produit cadre seul le formulaire complet.
+                        for (const QString &controle : {QStringLiteral("comptes-code-claude"),
+                                 QStringLiteral("comptes-ouvrir-autorisation-claude_code"),
+                                 QStringLiteral("comptes-envoyer-code-claude"), QStringLiteral("comptes-annuler-claude_code")}) {
+                            QTRY_VERIFY2(entierementDansLeViewport(parNom(item, controle)), qPrintable(nom + QStringLiteral(" : ") + controle));
+                        }
+                        VERIFIER(coquille.get(), nom + QStringLiteral("-Claude-code-temporaire-simule"));
+                        compteClaude=false; comptes->oublier();
                         QVERIFY(cliquer(window, item, QStringLiteral("navigation-settings")));
                         QVERIFY(cliquer(window, item, QStringLiteral("navigation-tools")));
                         QTRY_VERIFY(catalogue->actif());

@@ -12,18 +12,24 @@ Espace de travail personnel d'agents IA, bâti autour de **Hermes Agent** (Nous 
 Le chantier 2.0 corrige le contrat d'exécution : Hermes orchestre, le serveur Linux
 exécute, le desktop Qt présente les projets et les demandes.
 
-Le premier lot ajoute le parcours de connexion distante Codex, une navigation
-centrée sur les projets et un journal d'exécution durable. Les connexions
-Claude/Vibe, la livraison directe des artefacts et le workspace complet restent
-des travaux distincts. Les limites et les preuves sont suivies dans
-[le bilan du chantier](docs/refonte/remote-only.md).
+Le premier lot ajoute les parcours officiels de connexion distante Codex et
+Claude Code, une navigation centrée sur les projets et un journal d'exécution
+durable. Le compte Claude est vérifié par son CLI distant ; le retour temporaire
+du navigateur est saisi dans ACP, sans jeton à copier dans une discussion.
+La connexion Vibe, la livraison directe des artefacts et le workspace complet
+restent à construire. Les preuves et limites sont suivies dans
+[le bilan du chantier](docs/refonte/remote-only.md). Le
+[guide de préparation de la mise à jour](docs/mettre-a-jour-2.0.md) décrit l'ordre
+serveur puis desktop ; aucun installateur personnel 2.0 n'est encore prêt.
 
 **État observé le 14 octobre 2026** : le projet Railway ACP contient uniquement
 l'environnement nommé `production`. Hermes et l'exécutant restent épinglés sur
 ACP 1.0.1 (`85b458b`). La branche 2.0 n'est ni fusionnée ni déployée.
 Les sondes réelles de cet exécutant ont confirmé le régime B : Codex y reste
 fermé en écriture. La [déclaration explicite d’un futur VPS Linux](docs/refonte/vps-declaration.md)
-est préparée ; aucun VPS n’est installé ni sa capacité d’isolation prouvée.
+est préparée mais différée : le propriétaire a fixé un budget supplémentaire nul.
+Le parcours Claude vise son Railway et son abonnement existants ; aucun VPS,
+service payant supplémentaire ou remplacement par une API facturée n'est prévu.
 Les essais avec des doubles de CLI ou de compte ne prouvent pas une
 authentification ou une inférence réelle.
 

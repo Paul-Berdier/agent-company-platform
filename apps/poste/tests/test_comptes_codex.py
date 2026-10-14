@@ -69,7 +69,7 @@ def ctl(tmp_path,monkeypatch):
 
 
 def commande(id=None,action="demarrer",delai=60):
-    return {"protocole":C.PROTOCOLE,"operation":{"id":id or str(uuid4()),"action":action,"limite_attente_le":int(time.time())+delai}}
+    return {"protocole":C.PROTOCOLE,"operation":{"id":id or str(uuid4()),"moteur":"codex","action":action,"limite_attente_le":int(time.time())+delai}}
 
 
 async def lancer(ctl,**options):

@@ -114,7 +114,8 @@ def bundle(contexte: Contexte, politique: Politique, alias: str, branche: str) -
     try:
         # Relecture finale de P7 : l'historique emballé est balayé (motifs et valeurs exactes du coffre) ; un secret,
         # même retiré depuis, fait refuser le bundle.
-        valeurs = valeurs_exactes(contexte.coffre, getattr(politique.codex, "home", None))
+        valeurs = valeurs_exactes(contexte.coffre, getattr(politique.codex, "home", None),
+                                  getattr(politique.claude, "config_dir", None))
         fichier, empreinte, tete = depots.bundle(alias, branche, valeurs_exactes=valeurs)
     except ErreurDepot as exc:
         print(str(exc), file=sys.stderr)

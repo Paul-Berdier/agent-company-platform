@@ -125,20 +125,75 @@ bubblewrap refusé, UID séparés**. Source : projet ACP, service
 Codex reste fermé en écriture sur cet environnement. Un nouvel environnement
 Railway ne constitue pas à lui seul une solution au blocage observé.
 
+Le relevé complémentaire du 14 octobre retrouve `hermes`, `executant` et
+`identite` en `SUCCESS`. Le quatrième service `agent-company-platform`
+(`404d5cbb-41c6-40ea-9fb5-fb7d6a0723d8`), absent de `.railway/railway.ts`,
+échoue au build sur `e99b496` : Railpack ne trouve aucune commande de démarrage
+à la racine. Aucun processus applicatif n'a démarré sur ce service, sans volume.
+Ce diagnostic n'a modifié aucune configuration. Les sources visent `main` ;
+les [déclencheurs GitHub Railway](https://docs.railway.com/deployments/github-autodeploys)
+peuvent déployer cette branche si elle est suivie. Le contrat du connecteur
+`connect_service_source` précise que `commitSha` épingle une révision et arrête
+le suivi de branche jusqu'à reconnexion sans SHA. Les trois services applicatifs
+portent l'épingle `85b458b` dans le relevé ; le service générique n'en porte pas.
+La CLI Railway 5.64.2 déjà installée donne accès à l'API publique sans extraire
+de jeton : `serviceInstanceAutoDeployStatus` confirme `enabled=false` pour
+Hermes, l'exécutant et l'identité, et `true` pour le service générique.
+Relire la configuration avant fusion et préparer les sauvegardes avant de
+changer la révision des services applicatifs.
+
 La sonde A reste nécessaire pour ouvrir Codex en écriture avec la politique
 actuelle. Cette exigence ne ferme pas toute la voie Claude : les gardes
 existantes prévoient Claude Code en régime B, sous ses propres conditions,
 restrictions et contrôles. Ne pas retirer une garde, désactiver globalement
 AppArmor/seccomp ou monter un socket Docker dans les agents pour forcer Codex.
 
-Le **prochain incrément candidat** est donc le parcours officiel Claude Code
-sur le serveur existant. Il n'est ni implémenté ni éprouvé dans cette branche :
-la page Comptes le dit indisponible, et les sondes/lancements actuels dépendent
-encore du jeton Claude historique. Une connexion officielle réussie ne suffirait
-pas, à elle seule, à rendre ce chemin d'exécution compatible avec le magasin
-natif. Il reste à vérifier et protéger ce magasin, adapter les sondes et le
-lancement, puis afficher l'état réel dans Qt. Aucun collage de jeton ou moteur
-sur le PC ne doit remplacer ce travail.
+Le **parcours officiel Claude Code** est maintenant implémenté dans la branche,
+avec validation finale en cours : API `acp-comptes/2`, contrôleur distant commun
+aux deux moteurs et formulaire Qt. Le CLI officiel gère son magasin et son
+rafraîchissement ; sondes et missions n'injectent plus le setup-token historique.
+Ce dernier reste conservé, sans être utilisé comme remplacement du compte.
+Le compte est relu avant chaque mission. Les champs `accessToken` et
+`refreshToken` du magasin sont lus seulement en mémoire pour le masquage, puis
+relus avant chaque publication, en conservant les anciennes valeurs déjà vues.
+Aucun moteur n'est lancé sur le PC utilisateur.
+
+Le retour de navigateur est un code temporaire pour le CLI : ce n'est ni un
+mot de passe ni un jeton d'abonnement. URL et code restent en mémoire, liés au
+serveur, à son instance, à l'opération et au défi. SQLite conserve seulement
+les identifiants et le reçu. Un accusé signifie « écrit sur stdin », jamais
+« connexion réussie ». Après perte de mémoire du serveur, le reçu `perdu`
+n'autorise pas une nouvelle remise automatique : attendre la vérification ou
+annuler et recommencer. Une reconnexion interrompue garde son résultat distinct
+d'un ancien compte encore connecté. Un arrêt de processus non confirmé suspend
+les comptes et les missions avant de rendre les verrous.
+
+Le [témoin du vrai binaire 2.1.283, révision `5b98432`](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/38588066690)
+a réussi : **51 tests image**, puis **1 008 tests root et 24 ignorés Windows**.
+Il confirme `auth login --claudeai`, l'URL
+`https://claude.com/cai/oauth/authorize`, l'invite de retour sur pipes et PTY,
+l'interruption et l'absence de descendants. Le témoin des outils impose les
+permissions du produit : 18 appels réellement reçus, dont 14 refus, sans fuite
+des canaris. Le fournisseur est local et factice, aucun compte personnel ni
+appel d'inférence Anthropic n'est impliqué. Ces tests ne prouvent pas encore le
+succès OAuth, le renouvellement ni les droits réels du compte déclaré.
+La [référence officielle](https://code.claude.com/docs/en/cli-reference) précise
+les états `authMethod` et le champ `configDirectory` lus par l'adaptateur.
+
+Le client de ce lot compile avec Qt 6.8.3 : **43/43 suites natives** passent
+en 171,12 secondes, dont saisie masquée, focus conservé pendant les sondages,
+effacement immédiat et reprise après interruption. Les huit captures de la
+page Comptes, quatre thèmes sur deux tailles, portent la mention de simulation.
+Le champ et les trois boutons sont vérifiés entièrement visibles avant clic.
+L'interface web passe **206 tests**, types et bundles déterministes compris.
+Ces contrôles utilisent des transports factices et ne prouvent pas le compte
+personnel ni la fenêtre ACP déjà installée.
+La suite Python finale locale passe **1 620 tests et 464 sous-tests**, avec
+**115 tests ignorés**, en 1 295,11 secondes. Les images Linux ne sont pas lancées
+sur le PC ; leurs cas sont réservés à la CI. Le dernier message de conflit,
+retirant l’instruction de récupération locale git bundle, est revalidé séparément
+par le test d’intégration existant (1 réussi, 131,88 secondes).
+Les nouvelles images et la migration depuis `85b458b` restent à valider en CI.
 
 Le plus petit parcours utile à viser, après ces corrections, est :
 

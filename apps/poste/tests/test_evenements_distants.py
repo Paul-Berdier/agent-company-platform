@@ -304,7 +304,8 @@ async def test_saturation_du_lecteur_arrete_le_processus_et_bloque(tmp_path, mon
     monkeypatch.setattr(moteur, "spawn_fenced_process", lancer)
     monkeypatch.setattr(sortie, "FICHIERS_MAX", 6)
     execution = object.__new__(Execution)
-    execution.politique = SimpleNamespace(politique=SimpleNamespace(duree_max_carte_s=10), codex=None)
+    execution.politique = SimpleNamespace(politique=SimpleNamespace(duree_max_carte_s=10), codex=None, claude=None)
+    execution._secrets_connus = {}  # object.__new__ ne passe pas par les valeurs par défaut de la dataclass.
     execution.coffre = SimpleNamespace(lire=lambda _: None)
     execution.sortie, execution.journal = FileSortie(tmp_path / "sortie"), Journal(tmp_path / "journal")
     execution.horloge = lambda: MAINTENANT

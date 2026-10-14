@@ -132,6 +132,7 @@ private slots:
     void executantSeulementSiPublie();
     void depotsMesuresParLExecutant();
     void assistantsSeparentLaMachineEtLesComptes();
+    void compteClaudeObserveSansPromesseExecution();
     void guidesCopientSeulementDesCommandesConnues();
     void resultatsRefusentDesIdentifiantsEtCommandesArbitraires();
     void resultatsGardentMetadonneesSansGuideLocal();
@@ -727,6 +728,43 @@ void TestPoste::depotsMesuresParLExecutant()
     banc.relire();
     QCOMPARE(banc.poste.depots().size(), 2);
     QCOMPARE(banc.poste.property("depots").toList().at(0).toMap().value(QStringLiteral("alias")).toString(), QStringLiteral("demo"));
+}
+
+void TestPoste::compteClaudeObserveSansPromesseExecution()
+{
+    Banc banc;
+    banc.ouvrirLaPage(QStringLiteral("poste-en-ligne.json"));
+    QJsonObject inventaire = banc.vue.value(QStringLiteral("inventaire")).toObject();
+    QJsonObject contenu = inventaire.value(QStringLiteral("contenu")).toObject();
+    QJsonObject catalogue = banc.vue.value(QStringLiteral("catalogue")).toObject();
+    catalogue.insert(QStringLiteral("routage"), QJsonObject{{QStringLiteral("valide"), true}});
+    banc.vue.insert(QStringLiteral("catalogue"), catalogue);
+    const auto poser = [&](const QString &etat) {
+        contenu.insert(QStringLiteral("connexions"), QJsonObject{
+            {QStringLiteral("codex"), QStringLiteral("compte_chatgpt")}, {QStringLiteral("claude"), etat}});
+        inventaire.insert(QStringLiteral("contenu"), contenu);
+        banc.vue.insert(QStringLiteral("inventaire"), inventaire);
+        banc.relire();
+    };
+    poser(QStringLiteral("compte_claude"));
+    const QVariantMap claude = banc.poste.assistants().at(1).toMap();
+    QCOMPARE(claude.value(QStringLiteral("etat")).toString(), QStringLiteral("Compte Claude"));
+    QCOMPARE(claude.value(QStringLiteral("mode")).toString(), QStringLiteral("Compte d'abonnement Claude via Claude Code"));
+    QVERIFY(claude.value(QStringLiteral("detail")).toString().contains(QStringLiteral("pas une garantie")));
+    QCOMPARE(banc.poste.preparation().value(QStringLiteral("etat")).toString(), QStringLiteral("connexions_observees"));
+    QCOMPARE(banc.poste.preparation().value(QStringLiteral("connectes")).toStringList().size(), 2);
+    for (const QString &etat : {QStringLiteral("non_connecte"), QStringLiteral("cle_api")}) {
+        poser(etat);
+        QCOMPARE(banc.poste.preparation().value(QStringLiteral("manquants")).toStringList(), QStringList{QStringLiteral("claude")});
+        QCOMPARE(banc.poste.preparation().value(QStringLiteral("etat")).toString(), QStringLiteral("connexion_partielle"));
+    }
+    poser(QStringLiteral("autre"));
+    QCOMPARE(banc.poste.assistants().at(1).toMap().value(QStringLiteral("etat")).toString(), QStringLiteral("Autre"));
+    QCOMPARE(banc.poste.preparation().value(QStringLiteral("aVerifier")).toStringList(), QStringList{QStringLiteral("claude")});
+    poser(QStringLiteral("jeton_reconnu"));
+    QCOMPARE(banc.poste.assistants().at(1).toMap().value(QStringLiteral("etat")).toString(), QStringLiteral("Jeton reconnu"));
+    QCOMPARE(banc.poste.assistants().at(1).toMap().value(QStringLiteral("mode")).toString(), QStringLiteral("Jeton Claude Code du coffre de la machine"));
+    QCOMPARE(banc.poste.preparation().value(QStringLiteral("etat")).toString(), QStringLiteral("connexions_observees"));
 }
 
 void TestPoste::assistantsSeparentLaMachineEtLesComptes()

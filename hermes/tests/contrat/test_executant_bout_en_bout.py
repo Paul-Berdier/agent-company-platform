@@ -33,7 +33,7 @@ import pytest
 from banc import JETON_CLAUDE, JOURNAL_DEPOT, PYTHON, SECRET_FACTICE, Banc, attendre
 from conftest import afficher, docker
 
-NOMS_ENV_CLAUDE = {"HOME", "PATH", "LANG", "LC_ALL", "TMPDIR", "CLAUDE_CONFIG_DIR", "CLAUDE_CODE_OAUTH_TOKEN",
+NOMS_ENV_CLAUDE = {"HOME", "PATH", "LANG", "LC_ALL", "TMPDIR", "CLAUDE_CONFIG_DIR",
                    "DISABLE_UPDATES", "DISABLE_AUTOUPDATER", "DISABLE_TELEMETRY"}
 
 
@@ -81,7 +81,7 @@ def test_carte_executee_committee_verifiee_terminee(banc):
     appel = next(f for f in banc.faux() if f.get("scenario") == "simple")
     afficher("faux Claude : identité, environnement, lectures interdites",
              json.dumps({k: appel[k] for k in ("uid", "noms", "jeton", "lectures")}, ensure_ascii=False, indent=1))
-    assert appel["uid"] == 10002 and appel["jeton"] is True
+    assert appel["uid"] == 10002 and appel["jeton"] is False
     assert set(appel["noms"]) <= NOMS_ENV_CLAUDE, set(appel["noms"]) - NOMS_ENV_CLAUDE
     assert appel["lectures"] and all(issue.startswith("refusé") for issue in appel["lectures"].values())
     assert "--restricted" in appel["argv"] and "--bare" not in appel["argv"]

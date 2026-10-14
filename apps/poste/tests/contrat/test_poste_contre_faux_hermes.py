@@ -71,7 +71,7 @@ async def test_enrolement_puis_attente_puis_inventaire(poste, hermes, monkeypatc
     assert machine_id in hermes.presence
     inventaire = valider_inventaire(hermes.inventaires[0]["corps"])
     assert [r.voie for r in inventaire.releves] == ["poste-codex", "poste-claude"]
-    assert inventaire.connexions.codex == "compte_chatgpt" and inventaire.connexions.claude == "jeton_reconnu"
+    assert inventaire.connexions.codex == "compte_chatgpt" and inventaire.connexions.claude == "compte_claude"
     assert inventaire.poste.nom == "Poste de test" and inventaire.poste.compte == "proprietaire"
     assert await asyncio.to_thread(hermes.revoquer_pendant_l_attente, machine_id)
     assert await asyncio.wait_for(tache, 10) == 0

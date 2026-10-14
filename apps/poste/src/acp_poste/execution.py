@@ -49,6 +49,8 @@ from acp_poste_contrat.machine import DemandeCarte
 
 from . import pilotage
 from .balayage import RAISON_SECRET, secret_dans, valeurs_exactes
+from .comptes_claude import lire_etat_claude
+from .app_server import ArretNonConfirme
 from .catalogue_claude import TABLE as TABLE_CLAUDE
 from .coffre import ecrire_atomiquement
 from .commandes_agents import ROLES_LECTURE, commande_claude, commande_codex, schema_json
@@ -240,6 +242,24 @@ class Execution:
     motif_arret: str = "sigterm"
     # Étape P7 : dernière visibilité mesurée par dépôt (inventaire et contrôle avant chaque carte Codex).
     mesures: dict[str, Visibilite] = field(default_factory=dict)
+    _secrets_connus: dict[str, str] = field(default_factory=dict, repr=False)
+
+    def _valeurs_secretes(self) -> dict[str, str]:
+        """Actualise les secrets avant publication, conserve en RAM ceux déjà vus.
+
+        Un rafraîchissement OAuth pendant la mission ne doit ni oublier l'ancien
+        jeton ni laisser passer le nouveau dans le journal ou le résultat final.
+        """
+        actuelles = valeurs_exactes(self.coffre, getattr(self.politique.codex, "home", None),
+                                   getattr(self.politique.claude, "config_dir", None))
+        presentes = set(self._secrets_connus.values())
+        for nom, valeur in actuelles.items():
+            if valeur not in presentes:
+                cle = f"{nom}:{len(self._secrets_connus)}"
+                self._secrets_connus[cle] = valeur
+                self.journal.masquer_valeur(cle, valeur)
+                presentes.add(valeur)
+        return self._secrets_connus
 
     # ================================================================== état persistant
     def _ecrire_json(self, chemin: Path, donnees: dict[str, Any]) -> None:
@@ -498,7 +518,7 @@ class Execution:
         :meth:`Depots.lignes_ajoutees_non_poussees`) et dans ``textes`` ; ``None`` sinon."""
         historique = self.depots.lignes_ajoutees_non_poussees(depot.alias, nom)
         return secret_dans([historique, *textes],
-                           valeurs_exactes(self.coffre, getattr(self.politique.codex, "home", None)))
+                           self._valeurs_secretes())
 
     def _mettre_en_quarantaine(self, demande: DemandeCarte, depot: Any, nom: str, trouve: str) -> None:
         """Branche de la carte renommée ``quarantaine/<carte>`` (jamais intégrée, jamais emballée, jamais reprise).
@@ -737,8 +757,8 @@ class Execution:
             # propriétaire peut réellement faire. Noms bornés : la raison est coupée à 500 caractères.
             noms = ", ".join(conflits[:5]) + (f" et {len(conflits) - 5} autre(s)" if len(conflits) > 5 else "")
             raise CarteRefusee("capacite", f"Conflit d'intégration : {noms[:200]} : aucune résolution automatique ; "
-                                           "« Relancer » rejoue la même fusion. Récupérez les branches (git bundle) "
-                                           "pour trancher, ou clôturez le projet.")
+                                           "« Relancer » rejoue la même fusion. La résolution de ces conflits dans ACP "
+                                           "n’est pas encore disponible ; les branches restent sur le serveur.")
         raison = self._verification_possible(depot)
         if raison is None:
             code, _fin, duree = await self._verifier(demande, depot, chemin, tmp)
@@ -805,13 +825,9 @@ class Execution:
                                       home=self.lanceur.home(identite), tmpdir=dossier, session=session)
             verrou_chemin = self.emplacements.verrou_codex
         else:
-            jeton = self.coffre.lire("jeton-claude")
-            if not jeton:
-                raise CarteRefusee("capacite", "Jeton Claude absent de l'exécutant : déposez-le par « acp-poste "
-                                               "connexion claude --stdin » (D92).")
             commande = commande_claude(prefixe=prefixe, executable=executable[-1], modele=demande.modele,
                                        effort=demande.effort, role=demande.role, lecture=lecture,
-                                       config_dir=self.politique.claude.config_dir, jeton=jeton,
+                                       config_dir=self.politique.claude.config_dir,
                                        home=self.lanceur.home(identite), tmpdir=dossier, session=session)
             verrou_chemin = self.emplacements.verrou_claude
         verrou_chemin.parent.mkdir(parents=True, exist_ok=True)
@@ -821,6 +837,17 @@ class Execution:
             raise CarteRefusee("capacite", f"Une sonde {outil} occupe l'outil depuis plus de 2 min : carte remise "
                                            "à plus tard.") from None
         try:
+            if outil == "claude":
+                try:
+                    compte = await lire_etat_claude([*prefixe, executable[-1]], commande.env, str(dossier))
+                except ArretNonConfirme:
+                    raise AgentSurvivant("agent_survivant") from None
+                except (OSError, ValueError, TimeoutError, FencedSpawnError):
+                    raise CarteRefusee("capacite", "Compte Claude impossible à vérifier sur le serveur ; "
+                                       "ouvrez Comptes et modèles.") from None
+                if not compte.reconnu:
+                    raise CarteRefusee("capacite", "Compte Claude non connecté sur le serveur ; "
+                                       "ouvrez Comptes et modèles.")
             return await self._processus(demande, outil, identite, commande, chemin, consigne, arret,
                                          reponse if outil == "codex" else None)
         finally:
@@ -830,6 +857,7 @@ class Execution:
                          consigne: str, arret: asyncio.Event, reponse: Path | None) -> ResultatAgent:
         debut = time.monotonic()
         duree_max = min(demande.duree_max_s, self.politique.politique.duree_max_carte_s)
+        self._valeurs_secretes()
         try:
             processus = await spawn_fenced_process(commande.argv, cwd=str(chemin), env=commande.env,
                                                    stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
@@ -838,9 +866,7 @@ class Execution:
             raise CarteRefusee("capacite", f"{outil} introuvable ou impossible à lancer sur l'exécutant.") from None
         lignes: list[bytes] = []
         verdict_init: list[str] = []
-        codex_home = self.politique.codex.home if self.politique.codex is not None else None
-        valeurs = valeurs_exactes(self.coffre, codex_home)
-        projection = ProjectionPublique(outil, lambda texte: masquer(texte, valeurs), self.horloge)
+        projection = ProjectionPublique(outil, lambda texte: masquer(texte, self._valeurs_secretes()), self.horloge)
 
         async def ecrire() -> None:
             try:

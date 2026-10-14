@@ -43,17 +43,35 @@ les données de production n'a eu lieu pour ce chantier. Les journaux réels du
 dispose d'aucun VPS et a fixé **un budget supplémentaire nul** le 14 octobre.
 Il confirme un abonnement Claude Pro ou Max ; droits, modèles et quotas sur le
 serveur restent à vérifier, sans connexion personnelle déjà prouvée.
+Le relevé du 14 octobre retrouve les trois services applicatifs en `SUCCESS`.
+Un quatrième service générique `agent-company-platform`, absent de l’IaC,
+échoue avant démarrage : Railpack analyse la racine sans commande de démarrage.
+Ses cinq derniers builds en échec ne prouvent pas une panne des trois services.
+Aucune correction de production n’a été appliquée. Les trois vrais services
+portent `source.commitSha=85b458b` ; le contrat du connecteur Railway décrit ce
+champ comme une épingle qui suspend le suivi de branche. Le quatrième service
+suit `main` sans épingle. La lecture API directe `serviceInstanceAutoDeployStatus`
+confirme `enabled=false` pour les trois services applicatifs et `true` pour le
+service générique. Relire ces réglages avant toute fusion ; les sauvegardes
+restent nécessaires avant le déploiement des services applicatifs.
+
 Ne pas proposer un achat de VPS, une nouvelle pile payante ou une API facturée
 comme prochaine étape nécessaire. La déclaration VPS préparée reste facultative
 et n'ouvre aucune garde à elle seule.
 
-La piste suivante est **Claude Code sur le Railway existant**, conditionnelle
-aux gardes du régime B et aux droits réels du compte Claude Code déclaré. Le nouveau
-parcours officiel de connexion n'est ni implémenté ni testé : la sonde et le
-lancement dépendent encore du jeton historique, et la protection du magasin
-natif doit être vérifiée avant son adoption. Ne pas demander une CLI ou un
-collage de jeton sur le PC. Séparer les comptes ACP, coordinateur Hermes et
-Claude ; ne jamais remplacer silencieusement un abonnement par une API payante.
+Le nouveau lot **Claude Code sur le Railway existant** est implémenté, validation
+finale en cours : compte officiel distant, API `acp-comptes/2`, formulaire Qt,
+reçu de transmission, reprise sans relance, garde de compte avant mission,
+masquage du magasin officiel y compris après rotation. Le setup-token historique
+reste conservé mais n'est plus injecté. Les relectures croisées ont corrigé
+les courses d'annulation/ACK et la suspension après arrêt non confirmé.
+Le [témoin réel `5b98432`](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/38588066690)
+passe 51 tests image et 1 008 tests root (24 ignorés Windows), sans compte ni
+inférence personnels. Le chemin Claude et `--claudeai` sont confirmés ; une
+connexion personnelle réussie et son renouvellement restent à prouver.
+Ne pas demander de CLI ou de collage de jeton sur le PC. Séparer les comptes
+ACP, coordinateur Hermes et Claude ; aucune API payante de remplacement.
+
 Le premier essai utile proposé est une petite analyse en lecture seule avec
 synthèse et journal dans ACP, puis fermeture/reconnexion du client sans relance.
 L'essai personnel reste dans le périmètre autorisé, après préparation et revue
@@ -109,8 +127,13 @@ nécessaire d’attendre la publication GitHub pour utiliser ce paquet local.
 Les relevés Railway en lecture seule des **12 et 14 octobre** indiquent `hermes`
 et `executant` épinglés sur ACP **1.0.1**, source
 `85b458bbffbfb6dffe1fc40b8c3885f11b779ac7`, avec `staged=null` le 14.
-Le champ `source.commitSha` maintient cette épingle : un push sur `main` ne met
-pas automatiquement ces services à jour. Le Setup ne les met pas à jour non plus.
+Le contrat du connecteur Railway `connect_service_source` décrit `commitSha`
+comme une épingle : la branche n’est plus suivie jusqu’à reconnexion sans SHA.
+Le relevé du 14 octobre confirme cette épingle pour les trois services applicatifs,
+mais pas pour le quatrième service générique. La lecture directe de l’API confirme
+les déclencheurs désactivés sur les trois services applicatifs et activés sur le
+service générique. Relire la configuration avant fusion et déploiement ; le Setup
+ne met pas ces services à jour.
 Les sauvegardes du [manuel § 6.4](exploitation.md#64-vos-gestes-et-le-point-de-non-retour)
 et du [§ 6.5](exploitation.md#65-authelia-binaires-de-lexécutant-acp-lui-même)
 précèdent le futur déploiement manuel du commit validé. Les trois tables du coffre

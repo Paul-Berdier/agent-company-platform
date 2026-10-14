@@ -287,6 +287,16 @@ class Banc:
         depose = self.acp_poste("connexion", "claude", "--stdin", entree=JETON_CLAUDE + "\n")
         assert depose.returncode == 0 and "déposé sur le volume (root, 0600)" in depose.stdout, depose.stderr
         assert JETON_CLAUDE not in depose.stdout + depose.stderr
+        # Magasin entièrement factice, commun aux deux versions dans le test de
+        # migration. Le jeton historique ci-dessus reste conservé mais la cible
+        # n'en dépend plus ; le double lit ce marqueur sous son UID dédié.
+        provision = "\n".join([
+            "import json,os,pathlib",
+            "p=pathlib.Path('/donnees/claude/.credentials.json')",
+            "p.write_text(json.dumps({'acpTestAccount':True,'claudeAiOauth':{'accessToken':"
+            + repr(JETON_CLAUDE) + "}}),encoding='utf-8')",
+            "os.chown(p,10002,10002)", "os.chmod(p,0o600)"])
+        docker("exec", self.executant, PYTHON, "-c", provision)
         code, cree = self.api("POST", "/v1/poste/enrolement", {})
         assert code == 201, cree
         enrole = self.acp_poste("enroler", "--code-stdin", entree=cree["code"] + "\n")

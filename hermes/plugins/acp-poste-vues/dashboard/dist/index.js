@@ -719,6 +719,7 @@
         inconnu: "Inconnu"
       },
       connexionsClaude: {
+        compteClaude: "Compte Claude connect\xE9",
         jetonReconnu: "Jeton reconnu",
         jetonPresentNonVerifie: "Jeton pr\xE9sent, non v\xE9rifi\xE9",
         refuse: "Refus\xE9",
@@ -1866,6 +1867,8 @@
   function libelleConnexionClaude(etat) {
     const c = T.poste.connexionsClaude;
     switch (etat) {
+      case "compte_claude":
+        return L(c.compteClaude, "succes");
       case "jeton_reconnu":
         return L(c.jetonReconnu, "succes");
       case "jeton_present_non_verifie":

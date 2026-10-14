@@ -227,7 +227,7 @@ def surcharge_applicable(conn, classe: str, projet_id: Optional[str], carte: Opt
 LIBELLES_VOIE = {"poste-codex": "Codex", "poste-claude": "Claude Code"}
 CLE_VERSION = {"poste-codex": "codex", "poste-claude": "claude"}
 CONNEXIONS_ADMISES = {"poste-codex": ("compte_chatgpt",),
-                      "poste-claude": ("jeton_reconnu", "jeton_present_non_verifie")}
+                      "poste-claude": ("compte_claude",)}
 LISTES_DE_SECOURS = ("catalogue_embarque", "identique_au_catalogue_embarque")
 
 

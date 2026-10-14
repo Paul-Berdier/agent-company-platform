@@ -82,7 +82,10 @@ public:
     ApiCall *catalogue();
     ApiCall *comptes();
     ApiCall *connecterCompteCodex(const QString &cle);
-    ApiCall *connexionCompte(const QString &identifiant);
+    ApiCall *connecterCompteClaude(const QString &cle);
+    ApiCall *connexionCompte(const QString &identifiant, const QString &defi = {}, const QString &soumission = {});
+    ApiCall *soumettreCodeCompte(const QString &identifiant, const QString &defi, const QString &soumission, const QString &code);
+    [[nodiscard]] static bool codeConnexionValide(const QString &code);
     ApiCall *annulerConnexionCompte(const QString &identifiant);
     // Coffre Markdown ACP : bridge distinct, opérations bornées et authentifiées.
     ApiCall *coffre();

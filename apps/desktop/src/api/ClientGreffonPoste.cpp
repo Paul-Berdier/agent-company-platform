@@ -84,17 +84,52 @@ ApiCall *ClientGreffonPoste::ecrire(const QString &relatif, const QJsonObject &c
     return m_client->send(requete);
 }
 
+namespace {
+bool uuidCompte(const QString &valeur) {
+    static const QRegularExpression forme(QStringLiteral("\\A[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\\z"));
+    return forme.match(valeur).hasMatch();
+}
+}
 ApiCall *ClientGreffonPoste::comptes() { return lire(QStringLiteral("/v1/comptes")); }
 ApiCall *ClientGreffonPoste::connecterCompteCodex(const QString &cle) {
-    if (!identifiantValide(cle)) return refuserIdentifiant(QStringLiteral("connexion"));
+    if (!uuidCompte(cle)) return refuserIdentifiant(QStringLiteral("connexion"));
     return ecrire(QStringLiteral("/v1/comptes/codex/connexions"), {{QStringLiteral("idempotency_key"),cle}});
 }
-ApiCall *ClientGreffonPoste::connexionCompte(const QString &id) {
-    if (!identifiantValide(id)) return refuserIdentifiant(QStringLiteral("connexion"));
-    return lire(QStringLiteral("/v1/comptes/connexions/%1").arg(id));
+ApiCall *ClientGreffonPoste::connecterCompteClaude(const QString &cle) {
+    if (!uuidCompte(cle)) return refuserIdentifiant(QStringLiteral("connexion"));
+    return ecrire(QStringLiteral("/v1/comptes/claude/connexions"), {{QStringLiteral("idempotency_key"),cle}});
+}
+bool ClientGreffonPoste::codeConnexionValide(const QString &code) {
+    if (code.isEmpty() || code.toUtf8().size() > 2048) return false;
+    for (const QChar c : code) if (c.unicode() < 32 || c.unicode() == 127) return false;
+    return true;
+}
+ApiCall *ClientGreffonPoste::connexionCompte(const QString &id, const QString &defi, const QString &soumission) {
+    if (!uuidCompte(id) || defi.isEmpty()!=soumission.isEmpty()
+        || (!defi.isEmpty() && (!uuidCompte(defi) || !uuidCompte(soumission))))
+        return refuserIdentifiant(QStringLiteral("connexion"));
+    if (bloque()) return m_client->reject(ApiError(ApiFailure::Incompatible, m_blocage));
+    ApiRequest requete;
+    requete.path=chemin(QStringLiteral("/v1/comptes/connexions/%1").arg(id));
+    // Seulement des identifiants de reprise, jamais le code temporaire.
+    if (!defi.isEmpty()) {
+        requete.query.addQueryItem(QStringLiteral("defi_id"),defi);
+        requete.query.addQueryItem(QStringLiteral("soumission_id"),soumission);
+    }
+    return m_client->send(requete);
+}
+ApiCall *ClientGreffonPoste::soumettreCodeCompte(const QString &id, const QString &defi, const QString &soumission, const QString &code) {
+    if (!uuidCompte(id) || !uuidCompte(defi) || !uuidCompte(soumission))
+        return refuserIdentifiant(QStringLiteral("défi de connexion"));
+    if (!codeConnexionValide(code))
+        return m_client->reject(ApiError::refusal(QStringLiteral("Collez un code temporaire sur une seule ligne, de 1 à 2 048 octets.")));
+    // Pas d'Idempotency-Key de transport : une coupure impose une lecture du reçu.
+    // Seul le 401 certifié de la porte peut être réémis une fois après rafraîchissement.
+    return ecrire(QStringLiteral("/v1/comptes/connexions/%1/code").arg(id),
+        {{QStringLiteral("defi_id"),defi},{QStringLiteral("soumission_id"),soumission},{QStringLiteral("code"),code}});
 }
 ApiCall *ClientGreffonPoste::annulerConnexionCompte(const QString &id) {
-    if (!identifiantValide(id)) return refuserIdentifiant(QStringLiteral("connexion"));
+    if (!uuidCompte(id)) return refuserIdentifiant(QStringLiteral("connexion"));
     return ecrire(QStringLiteral("/v1/comptes/connexions/%1/annuler").arg(id), {});
 }
 

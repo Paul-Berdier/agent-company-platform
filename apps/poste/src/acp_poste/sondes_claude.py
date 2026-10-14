@@ -1,20 +1,8 @@
-"""Sondes Claude Code du poste (cahier P5 § 10) : version, code de sortie de ``auth status``, alias documentés,
-ligne d'état des quotas.
+"""Sondes Claude Code : version épinglée, compte officiel et alias documentés.
 
-1. ``claude --version``, sans jeton : version ``X.Y.Z`` ; absente ou antérieure à 2.1.248 : relevé ``cli_absente`` ou
-   ``cli_hors_version`` ; différente de ``[claude] version_testee`` : ``versions.claude.conforme = false``.
-2. ``claude auth status``, avec ``CLAUDE_CODE_OAUTH_TOKEN`` tiré du coffre, **sorties jetées sans lecture**
-   (``DEVNULL``), délai 20 s : code 0 → ``jeton_reconnu`` (jamais « valide » : la documentation dit « logged in », pas
-   « jeton vérifié auprès d'Anthropic »), 1 → ``refuse``, autre code ou délai dépassé → ``jeton_present_non_verifie`` ;
-   jeton absent du coffre → ``jeton_absent`` **sans lancer** la commande. Un ``apiKeyHelper`` venu d'un réglage géré
-   passerait avant le jeton et ferait aussi rendre 0 : limite dite, tranchée en P6.
-3. Alias et efforts documentés (:mod:`catalogue_claude`) ; quotas : fichier de la ligne d'état de **vos** sessions
-   Claude Code (``[claude] ligne_etat``, décision D56).
-
-Environnement de Claude : liste blanche de plateforme, ``CLAUDE_CONFIG_DIR``, ``DISABLE_UPDATES=1``,
-``DISABLE_AUTOUPDATER=1``, ``CLAUDE_CODE_SKIP_PROMPT_HISTORY=1`` ; aucune variable ``*_API_KEY`` ni ``ANTHROPIC_*``. Le
-jeton n'entre que dans l'environnement de ``claude auth status``, jamais dans l'argv. Aucun fichier de
-``CLAUDE_CONFIG_DIR`` n'est lu ; ``.credentials.json`` n'est jamais ouvert.
+Le statut vient du JSON borné de ``auth status`` dans le magasin officiel distant.
+Un ancien setup-token conservé au coffre n'est jamais injecté dans le processus.
+Aucun compte, code, URL OAuth ou contenu brut du CLI n'est publié dans le relevé.
 """
 
 from __future__ import annotations
@@ -27,10 +15,11 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any, Callable, Mapping, Sequence
 
-from .app_server import ArretNonConfirme, arreter
+from .app_server import ArretNonConfirme
 from .catalogue_claude import DOCUMENTATION_LUE_LE, PLAGE_MINIMALE, dans_la_plage, modeles_documentes
-from .coffre import Coffre, CoffreErreur
-from .local_runner import FencedSpawnError, spawn_fenced_process
+from .coffre import Coffre
+from .comptes_claude import lire_etat_claude
+from .local_runner import FencedSpawnError
 from .politique import VERSION_CLAUDE_MINIMALE, SectionClaude, version_numerique
 from .sondes_codex import lire_version
 from .subscription_quotas import _failure, probe_claude_snapshot
@@ -46,15 +35,12 @@ LIGNE_ETAT_NON_DECLAREE = ("Ligne d'état non déclarée dans poste.toml ([claud
                            "inconnus.")
 
 
-def environnement_claude(section: SectionClaude, *, source: Mapping[str, str] | None = None,
-                         jeton: str | None = None) -> dict[str, str]:
-    """Environnement minimal de Claude Code ; ``jeton`` seulement pour ``auth status``."""
+def environnement_claude(section: SectionClaude, *, source: Mapping[str, str] | None = None) -> dict[str, str]:
+    """Environnement minimal ; authentification par le seul magasin officiel du CLI."""
     valeurs = os.environ if source is None else source
     env = {nom: valeurs[nom] for nom in PLATEFORME if nom in valeurs}
     env.update({"CLAUDE_CONFIG_DIR": str(section.config_dir), "DISABLE_UPDATES": "1", "DISABLE_AUTOUPDATER": "1",
                 "CLAUDE_CODE_SKIP_PROMPT_HISTORY": "1"})
-    if jeton is not None:
-        env["CLAUDE_CODE_OAUTH_TOKEN"] = jeton
     return env
 
 
@@ -65,29 +51,11 @@ class ResultatClaude:
     version: dict[str, Any]
     alertes: list[str] = field(default_factory=list)
     mesures: dict[str, Any] = field(default_factory=dict)
+    arret_confirme: bool = True  # Interne : jamais envoyé dans l’inventaire.
 
 
 def _iso(instant: datetime) -> str:
     return instant.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
-
-
-async def code_auth_status(argv: Sequence[str], env: dict[str, str], cwd: str, delai_s: float) -> int | None:
-    """Code de sortie de ``claude auth status`` (sorties jetées sans lecture) ; ``None`` si délai dépassé."""
-    processus = await spawn_fenced_process([*argv, "auth", "status"], cwd=cwd, env=env,
-                                           stdin=asyncio.subprocess.DEVNULL, stdout=asyncio.subprocess.DEVNULL,
-                                           stderr=asyncio.subprocess.DEVNULL)
-    code: int | None = None
-    try:
-        boucle = asyncio.get_running_loop()
-        echeance = boucle.time() + delai_s
-        while processus.returncode is None and boucle.time() < echeance:
-            await asyncio.sleep(0.02)
-        code = processus.returncode
-    finally:
-        arrete = await asyncio.shield(arreter(processus, [], propre=False))
-    if not arrete:
-        raise ArretNonConfirme
-    return code
 
 
 async def sonder_claude(section: SectionClaude, coffre: Coffre, *, delai_s: float,
@@ -102,13 +70,8 @@ async def sonder_claude(section: SectionClaude, coffre: Coffre, *, delai_s: floa
     instant = datetime.now(UTC)
     alertes: list[str] = []
     mesures: dict[str, Any] = {}
-    try:
-        jeton = coffre.lire("jeton-claude")
-        coffre_lisible = True
-    except CoffreErreur as exc:
-        jeton, coffre_lisible = None, False
-        alertes.append(str(exc)[:300])
-    connexion = "jeton_absent" if (coffre_lisible and jeton is None) else "inconnu"
+    connexion = "inconnu"
+    arret_confirme = True
 
     def releve(etat: str, *, version: str | None, detail: str | None, modeles: list | None = None,
                compteurs: list | None = None) -> dict[str, Any]:
@@ -120,7 +83,7 @@ async def sonder_claude(section: SectionClaude, coffre: Coffre, *, delai_s: floa
 
     def resultat(r: dict[str, Any], version: str | None) -> ResultatClaude:
         return ResultatClaude(releve=r, connexion=connexion, alertes=alertes, mesures=mesures,
-                              version={"lue": version, "testee": section.version_testee,
+                              arret_confirme=arret_confirme, version={"lue": version, "testee": section.version_testee,
                                        "conforme": version == section.version_testee})
 
     argv = list(prefixe) if prefixe else [str(section.executable)]
@@ -141,11 +104,9 @@ async def sonder_claude(section: SectionClaude, coffre: Coffre, *, delai_s: floa
                 return resultat(releve("cli_hors_version", version=version, detail=(
                     f"Claude Code {version} trop ancien : le poste exige la version 2.1.248 ou plus récente "
                     "(--restricted).")), version)
-            if jeton is not None:
-                code = await code_auth_status(argv, environnement_claude(section, source=environnement, jeton=jeton),
-                                              dossier, delai_auth_s)
-                connexion = {0: "jeton_reconnu", 1: "refuse"}.get(code, "jeton_present_non_verifie")
-                mesures["auth_status_code"] = code
+            etat_compte = await lire_etat_claude(argv, env, dossier, delai_auth_s)
+            connexion = ("compte_claude" if etat_compte.reconnu else
+                         "jeton_absent" if etat_compte.type_auth == "none" else "refuse")
     except TimeoutError:
         return resultat(releve("indisponible", version=version, detail=(
             f"Claude Code n'a pas répondu dans le délai de {delai_s:g} s : relevé refusé.")), version)
@@ -155,8 +116,12 @@ async def sonder_claude(section: SectionClaude, coffre: Coffre, *, delai_s: floa
         return resultat(releve("indisponible", version=version, detail=(
             "Isolation du processus Claude Code impossible (Job Object) : sonde non lancée.")), version)
     except ArretNonConfirme:
+        arret_confirme = False
         return resultat(releve("indisponible", version=version, detail=(
             "Arrêt de Claude Code non confirmé : relevé écarté par prudence.")), version)
+    except ValueError:
+        return resultat(releve("indisponible", version=version,
+                              detail="État du compte Claude illisible ou incompatible : relevé refusé."), version)
     except OSError:
         return resultat(releve("indisponible", version=version, detail=VERSION_ILLISIBLE), version)
     mesures["duree_s"] = round(time.monotonic() - debut, 3)

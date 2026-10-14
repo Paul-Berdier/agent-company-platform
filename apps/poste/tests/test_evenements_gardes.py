@@ -154,7 +154,7 @@ def test_commande_codex_ecriture_puis_reprise():
 def test_commande_claude_sans_bare_ni_historique():
     commande = commande_claude(prefixe=["setpriv"], executable="/opt/acp/outils/claude/claude", modele="sonnet",
                                effort="high", role="implementation", lecture=Path("/tmp/acp/t_abcd/lecture"),
-                               config_dir=Path("/donnees/claude"), jeton="sk-ant-oat01-factice",
+                               config_dir=Path("/donnees/claude"),
                                home=PurePosixPath("/home/acp-claude"), tmpdir=Path("/tmp/acp/t_abcd/claude"))
     argv = commande.argv
     assert argv[1:4] == ["/opt/acp/outils/claude/claude", "-p", "--restricted"]
@@ -164,11 +164,11 @@ def test_commande_claude_sans_bare_ni_historique():
         assert attendu in argv
     assert "--bare" not in argv and "--fallback-model" not in argv and "--resume" not in argv
     assert not any("sk-ant" in a for a in argv)
-    assert commande.env["CLAUDE_CODE_OAUTH_TOKEN"] == "sk-ant-oat01-factice"
+    assert "CLAUDE_CODE_OAUTH_TOKEN" not in commande.env
     assert "CLAUDE_CODE_SKIP_PROMPT_HISTORY" not in commande.env
     assert commande.env["DISABLE_UPDATES"] == commande.env["DISABLE_TELEMETRY"] == "1"
     lecture = commande_claude(prefixe=[], executable="claude", modele="opus", effort=None, role="relecture",
-                              lecture=Path("/l"), config_dir=Path("/c"), jeton="j", home="/h", tmpdir=Path("/t"),
+                              lecture=Path("/l"), config_dir=Path("/c"), home="/h", tmpdir=Path("/t"),
                               session="s-1").argv
     assert lecture[lecture.index("--tools") + 1] == "Read,Glob,Grep" and lecture[-2:] == ["--resume", "s-1"]
     assert "--effort" not in lecture

@@ -109,13 +109,19 @@ def test_quotas_sources_absentes_sans_invention(poste, capsys):
     assert rapport["poste-claude"]["etat"] == "cli_absente"
 
 
-def test_releve_imprime_un_inventaire_au_contrat(poste, capsys):
+@pytest.mark.parametrize("code_auth, connexion", [(0, "compte_claude"), (1, "jeton_absent")])
+def test_releve_imprime_un_inventaire_au_contrat(poste, capsys, code_auth, connexion):
+    # Le faux CLI décrit explicitement son magasin ; l'ancien coffre setup-token ne déduit plus la connexion.
+    poste.scenario_claude = {"code_auth": code_auth}
     poste.ecrire_politique()
     poste.preparer_profil_codex()
     assert main(["releve"], contexte=poste.contexte()) == 0
-    inventaire = valider_inventaire(json.loads(capsys.readouterr().out))
+    sortie = capsys.readouterr()
+    inventaire = valider_inventaire(json.loads(sortie.out))
     assert {r.voie for r in inventaire.releves} == {"poste-codex", "poste-claude"}
-    assert inventaire.connexions.claude == "jeton_absent"
+    assert inventaire.connexions.claude == connexion
+    assert "titulaire@example.com" not in sortie.out + sortie.err
+    assert "secret-de-sortie-jamais-lu" not in sortie.out + sortie.err
 
 
 def test_releve_publier_exige_l_enrolement(poste, capsys):

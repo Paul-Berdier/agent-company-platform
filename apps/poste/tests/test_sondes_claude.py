@@ -45,28 +45,27 @@ async def test_version_parse_et_plage(poste):
     assert illisible.releve["etat"] == "indisponible" and illisible.version["lue"] is None
 
 
-async def test_auth_status_code_de_sortie_seul(poste, tmp_path):
-    """Le faux écrit une adresse sur sa sortie et un texte sur son erreur : ni l'un ni l'autre n'apparaît nulle
-    part ; seul le code de sortie compte (0 → reconnu, 1 → refusé, autre → non vérifié)."""
-    for code, connexion in ((0, "jeton_reconnu"), (1, "refuse"), (7, "jeton_present_non_verifie")):
+async def test_auth_status_source_officielle_sans_identite_publiee(poste):
+    for code, connexion in ((0, "compte_claude"), (1, "jeton_absent"), (7, "inconnu")):
         resultat = await sonder(poste, code_auth=code)
         assert resultat.connexion == connexion
         texte = json.dumps(resultat.__dict__, ensure_ascii=False, default=str)
         assert "titulaire@example.com" not in texte and "secret-de-sortie" not in texte
+    for statut in ({"authMethod": "api_key"}, {"authMethod": "oauth_token"}, {"apiProvider": "bedrock"}):
+        resultat = await sonder(poste, statut=statut)
+        assert resultat.connexion == "refuse"
     bloque = await sonder(poste, auth_bloque=True, delai_auth=1.0)
-    assert bloque.connexion == "jeton_present_non_verifie"
+    assert bloque.connexion == "inconnu" and bloque.releve["etat"] == "indisponible"
 
 
-async def test_jeton_seulement_dans_l_env_de_claude(poste, tmp_path):
+async def test_ancien_jeton_conserve_mais_jamais_injecte(poste, tmp_path):
     fichier = tmp_path / "claude.jsonl"
     await sonder(poste, enregistrer=str(fichier))
     version, auth = enregistres(fichier)
     assert version["argv"] == ["--version"] and version["jeton"] is None
-    assert auth["argv"] == ["auth", "status"]
-    import hashlib
-
-    assert auth["jeton"] == hashlib.sha256(JETON_CLAUDE.encode()).hexdigest()[:12]
-    assert JETON_CLAUDE not in json.dumps(auth["argv"])
+    assert auth["argv"] == ["auth", "status"] and auth["jeton"] is None
+    assert "CLAUDE_CODE_OAUTH_TOKEN" not in auth["noms"]
+    assert poste.coffre.lire("jeton-claude") == JETON_CLAUDE
     assert not {n for n in auth["noms"] if n.endswith("_API_KEY") or n.startswith("ANTHROPIC_")}
 
 
@@ -78,11 +77,11 @@ async def test_disable_updates(poste, tmp_path):
         assert entree["config_dir"] == str(poste.emplacements.acp_local / "claude-config")
 
 
-async def test_jeton_absent_sans_lancer(poste, tmp_path):
+async def test_magasin_officiel_verifie_sans_jeton_legacy(poste, tmp_path):
     fichier = tmp_path / "claude.jsonl"
-    resultat = await sonder(poste, jeton=None, enregistrer=str(fichier))
+    resultat = await sonder(poste, jeton=None, enregistrer=str(fichier), code_auth=1)
     assert resultat.connexion == "jeton_absent"
-    assert [e["argv"] for e in enregistres(fichier)] == [["--version"]]
+    assert [e["argv"] for e in enregistres(fichier)] == [["--version"], ["auth", "status"]]
 
 
 def test_catalogue_documente_hors_plage_inconnu():
@@ -134,20 +133,29 @@ async def test_executable_absent(poste):
                            version_testee="2.1.280", alias_permis=(), ligne_etat=None)
     resultat = await sonder_claude(absent, poste.coffre, delai_s=5)
     assert resultat.releve["etat"] == "cli_absente"
-    assert resultat.connexion == "jeton_absent"
+    assert resultat.connexion == "inconnu"
 
 
 def test_jamais_dans_argv_ni_env_enfant(poste):
     """Les environnements construits pour Codex et Claude ne portent jamais le jeton machine, même quand il est dans
-    l'environnement du poste ; seul ``auth status`` reçoit le jeton CLAUDE (et lui seul)."""
+    l'environnement du poste. Le compte Claude vient exclusivement du magasin officiel."""
     source = {"PATH": "x", "SYSTEMROOT": "y", "ACP_JETON": JETON_MACHINE, "OPENAI_API_KEY": "sk-proj-" + "a" * 30,
-              "ANTHROPIC_API_KEY": "sk-ant-" + "b" * 30, "USERPROFILE": "z"}
+              "ANTHROPIC_API_KEY": "sk-ant-" + "b" * 30, "CLAUDE_CODE_OAUTH_TOKEN": JETON_CLAUDE, "USERPROFILE": "z"}
     codex = codex_environment(poste.emplacements.acp_local / "codex-home", source=source)
     assert JETON_MACHINE not in json.dumps(codex) and "OPENAI_API_KEY" not in codex
     claude = environnement_claude(section(poste), source=source)
     assert JETON_MACHINE not in json.dumps(claude) and "ANTHROPIC_API_KEY" not in claude
     assert "CLAUDE_CODE_OAUTH_TOKEN" not in claude
-    avec = environnement_claude(section(poste), source=source, jeton="jeton-claude-de-test")
-    assert avec["CLAUDE_CODE_OAUTH_TOKEN"] == "jeton-claude-de-test"
-    assert (avec["DISABLE_UPDATES"], avec["DISABLE_AUTOUPDATER"], avec["CLAUDE_CODE_SKIP_PROMPT_HISTORY"]) == \
+    assert (claude["DISABLE_UPDATES"], claude["DISABLE_AUTOUPDATER"], claude["CLAUDE_CODE_SKIP_PROMPT_HISTORY"]) == \
         ("1", "1", "1")
+
+
+async def test_arret_non_confirme_signale_au_service(poste, monkeypatch):
+    from acp_poste.app_server import ArretNonConfirme
+    async def survivant(*args, **kwargs):
+        raise ArretNonConfirme
+    monkeypatch.setattr(scl, "lire_etat_claude", survivant)
+    resultat = await sonder(poste)
+    assert resultat.arret_confirme is False
+    assert resultat.connexion == "inconnu" and resultat.releve["etat"] == "indisponible"
+    assert "arret_confirme" not in resultat.releve

@@ -26,8 +26,8 @@ fournisseur de modèle : ``executant/tests/test_image.py::test_codex_exec_profil
 ``claude -p --restricted --model <alias|id> --effort <effort> --tools Read,Glob,Grep,Edit,Write
 --strict-mcp-config --disallowedTools "mcp__*" --permission-mode acceptEdits --permission-prompts none
 --settings /etc/acp/claude-settings.json --add-dir <lecture> --output-format stream-json --verbose
---json-schema '<schéma>' [--resume <session>]`` ; jamais ``--bare`` (il ne lit pas le jeton), jamais
-``--fallback-model``. Environnement : ``CLAUDE_CONFIG_DIR``, ``CLAUDE_CODE_OAUTH_TOKEN`` (ce processus seul),
+--json-schema '<schéma>' [--resume <session>]`` ; jamais ``--bare`` (il ignore le magasin officiel), jamais
+``--fallback-model``. Environnement : ``CLAUDE_CONFIG_DIR`` (magasin officiel),
 ``DISABLE_UPDATES``, ``DISABLE_AUTOUPDATER``, ``DISABLE_TELEMETRY``, ``HOME`` et ``TMPDIR`` propres, **sans**
 ``CLAUDE_CODE_SKIP_PROMPT_HISTORY`` (une session ainsi lancée ne serait pas reprenable, C4).
 
@@ -108,7 +108,7 @@ def commande_codex(*, prefixe: Sequence[str], executable: str, worktree: Path, m
 
 
 def commande_claude(*, prefixe: Sequence[str], executable: str, modele: str, effort: str | None, role: str,
-                    lecture: Path, config_dir: Path, jeton: str, home: PurePosixPath | str, tmpdir: Path,
+                    lecture: Path, config_dir: Path, home: PurePosixPath | str, tmpdir: Path,
                     session: str | None = None, settings: str = SETTINGS_CLAUDE) -> CommandeAgent:
     argv = [*prefixe, executable, "-p", "--restricted", "--model", modele]
     if effort:
@@ -120,6 +120,6 @@ def commande_claude(*, prefixe: Sequence[str], executable: str, modele: str, eff
     if session:
         argv += ["--resume", session]
     env = _base_env(home, tmpdir)
-    env.update({"CLAUDE_CONFIG_DIR": Path(config_dir).as_posix(), "CLAUDE_CODE_OAUTH_TOKEN": jeton,
+    env.update({"CLAUDE_CONFIG_DIR": Path(config_dir).as_posix(),
                 "DISABLE_UPDATES": "1", "DISABLE_AUTOUPDATER": "1", "DISABLE_TELEMETRY": "1"})
     return CommandeAgent(argv=argv, env=env)

@@ -1,4 +1,4 @@
-"""Connexion officielle Codex pilotée à distance, sur l’exécutant Linux uniquement.
+"""Connexions officielles Codex et Claude pilotées par un contrôleur unique sur Linux.
 
 Le CLI possède les identifiants. Le serveur propriétaire ne reçoit que le défi
 temporaire et un état filtré. Aucune sortie brute ni exception du CLI n’est journalisée.
@@ -12,6 +12,7 @@ from .app_server import Session, MethodeRefusee, ReponseMalFormee, ArretNonConfi
 from .sondes_codex import extraire_compte, lire_version
 from .verrou import Verrou, VerrouOccupe
 from .protocole import JetonRefuse, PosteRevoque, ProtocoleIncompatible
+from .comptes_claude import SessionCompteClaude, lire_etat_claude, VERSION_CLAUDE
 
 VERSION_CODEX = "0.156.1"
 
@@ -57,7 +58,8 @@ def defi(resultat):
     if not isinstance(identifiant,str) or not identifiant or len(identifiant)>128:
         raise ReponseMalFormee()
     try:
-        C.Observation(operation_id=str(uuid4()),numero=1,etat="code_disponible",motif="code",
+        C.Observation(operation_id=str(uuid4()),moteur="codex",numero=1,etat="code_disponible",motif="code",
+                      defi_id=str(uuid4()),defi_type="codex_device",
                       verification_url=resultat.get("verificationUrl"),code_utilisateur=resultat.get("userCode"))
     except ValueError:
         raise ReponseMalFormee() from None
@@ -65,7 +67,8 @@ def defi(resultat):
 
 
 class ControleurComptes:
-    def __init__(self, contexte, politique, protocole, jeton, *, libre, apres, session=SessionCompte, version=lire_version, autorise=lambda: True, refus_definitif=lambda exc: None, politique_courante=None, suspendre=lambda: None):
+    def __init__(self, contexte, politique, protocole, jeton, *, libre, apres, session=SessionCompte, version=lire_version, autorise=lambda: True, refus_definitif=lambda exc: None, politique_courante=None, suspendre=lambda: None,
+                 session_claude=SessionCompteClaude, etat_claude=lire_etat_claude):
         self.contexte,self.politique,self.protocole,self.jeton=contexte,politique,protocole,jeton
         self.libre,self.apres,self.session,self.version=libre,apres,session,version
         self.autorise, self.refus_definitif = autorise, refus_definitif
@@ -79,6 +82,11 @@ class ControleurComptes:
         self.vues=set()
         self.echec_arret = False
         self.suspendre = suspendre
+        self.session_claude, self.etat_claude = session_claude, etat_claude
+        self.moteur = "codex"
+        self.defi_id = None
+        self.code_transmis = None
+        self._session_claude = None
 
     @property
     def occupe(self):
@@ -86,7 +94,8 @@ class ControleurComptes:
 
     def noter(self,etat,motif,**champs):
         self.numero+=1
-        self.observation=C.Observation(operation_id=self.operation_id,numero=self.numero,etat=etat,motif=motif,**champs).model_dump(mode="json")
+        champs.setdefault("code_transmis", self.code_transmis)
+        self.observation=C.Observation(operation_id=self.operation_id,moteur=self.moteur,numero=self.numero,etat=etat,motif=motif,**champs).model_dump(mode="json")
 
     async def tour(self):
         if self.contexte.plateforme!="linux": return
@@ -101,12 +110,21 @@ class ControleurComptes:
             # Une expiration côté serveur n’est jamais une raison de relancer le CLI.
             if self.occupe: self.annulation.set()
             return
+        if commande.id == self.operation_id and commande.moteur != self.moteur:
+            self.annulation.set()
+            raise ReponseMalFormee("Moteur de connexion incohérent.")
+        if commande.action == "fournir_code":
+            await self._fournir_claude(commande)
+            return
         if commande.action=="annuler":
             self.annulation.set()
         if commande.id in self.vues: return
         if self.occupe: return
         self.vues.add(commande.id)
         self.operation_id=commande.id
+        self.moteur=commande.moteur
+        self.defi_id=None
+        self.code_transmis=None
         self.numero=0
         self.annulation=asyncio.Event()
         self.noter("demarrage","demarrage")
@@ -121,6 +139,8 @@ class ControleurComptes:
             self.suspendre()
 
     async def _traiter(self,commande,mode):
+        if self.moteur == "claude_code":
+            return await self._traiter_claude(commande, mode)
         verrou=None
         session=None
         try:
@@ -157,7 +177,9 @@ class ControleurComptes:
                     return
                 resultat=await asyncio.wait_for(session.appeler("account/login/start",{"type":"chatgptDeviceCode"}),timeout=30)
                 login_id,url,code=defi(resultat)
-                self.noter("code_disponible","code",verification_url=url,code_utilisateur=code)
+                self.defi_id = str(uuid4())
+                self.noter("code_disponible","code",defi_id=self.defi_id,defi_type="codex_device",
+                           verification_url=url,code_utilisateur=code)
                 annulation=asyncio.create_task(self.annulation.wait())
                 try:
                     delai=max(0,min(900,commande.limite_attente_le-time.time()))
@@ -192,6 +214,117 @@ class ControleurComptes:
             if session is not None and getattr(session, "arret_confirme", None) is False:
                 self._arret_non_confirme()
             if verrou is not None: verrou.rendre()
+            if not self.echec_arret:
+                self.apres()
+
+    async def _fournir_claude(self, commande):
+        retour = commande.retour_code
+        if (self.moteur != "claude_code" or commande.id != self.operation_id
+                or retour is None or retour.defi_id != self.defi_id or self.annulation.is_set()
+                or time.time() >= commande.limite_attente_le):
+            return  # Jamais lancer un login à la réception d'un code orphelin.
+        if self.code_transmis is not None:
+            if self.code_transmis == {"defi_id": retour.defi_id, "soumission_id": retour.soumission_id}:
+                return  # ACK déjà présent dans l'observation courante, même si la réponse précédente a été perdue.
+            raise ReponseMalFormee("Soumission différente après transmission.")
+        session = self._session_claude
+        if session is None or self.tache is None or self.tache.done():
+            return
+        if await session.fournir_code(retour.soumission_id, retour.code):
+            self.code_transmis = {"defi_id": retour.defi_id, "soumission_id": retour.soumission_id}
+            # Le CLI peut finir pendant drain(). Une observation terminale ne doit pas revenir à verification.
+            ancien = self.observation or {}
+            if ancien.get("etat") in C.TERMINAUX:
+                self.noter(ancien["etat"], ancien["motif"], compte_connecte=ancien.get("compte_connecte"))
+            else:
+                self.noter("verification", "verification")
+
+    async def _traiter_claude(self, commande, mode):
+        verrou, session = None, None
+        try:
+            if not self.libre():
+                self.noter("erreur", "occupe")
+                return
+            section = getattr(self.politique, "claude", None)
+            if section is None or section.version_testee != VERSION_CLAUDE:
+                self.noter("erreur", "incompatible")
+                return
+            chemin = self.contexte.emplacements.verrou_claude
+            chemin.parent.mkdir(parents=True, exist_ok=True)
+            verrou = Verrou(chemin).prendre()
+            from .plateforme.linux import environnement_agent
+            identite = self.contexte.identites.get("claude")
+            argv = self.contexte.lanceurs_pour(self.politique).get("claude")
+            if identite is None or not argv:
+                self.noter("erreur", "indisponible")
+                return
+            env = environnement_agent(identite, CLAUDE_CONFIG_DIR=section.config_dir.as_posix(),
+                DISABLE_UPDATES="1", DISABLE_AUTOUPDATER="1", DISABLE_TELEMETRY="1")
+            if await asyncio.wait_for(self.version(argv, env, str(section.config_dir)), timeout=20) != VERSION_CLAUDE:
+                self.noter("erreur", "incompatible")
+                return
+            if mode in ("reconcilier", "annuler"):
+                compte = await self.etat_claude(argv, env, section.config_dir)
+                # Le magasin peut contenir un ancien compte : il ne prouve pas le succès de cette tentative.
+                etat = "annulee" if mode == "annuler" or self.annulation.is_set() else "interrompue"
+                self.noter(etat, etat, compte_connecte=compte.reconnu)
+                return
+            issue, motif, sortie = "erreur", "indisponible", None
+            async with self.session_claude(argv, env=env, cwd=section.config_dir) as session:
+                self._session_claude = session
+                annulation = asyncio.create_task(self.annulation.wait())
+                try:
+                    restant = max(0, min(900, commande.limite_attente_le - time.time()))
+                    done, _ = await asyncio.wait([session.defi, annulation], timeout=min(30, restant),
+                                                 return_when=asyncio.FIRST_COMPLETED)
+                    if annulation in done:
+                        issue = motif = "annulee"
+                    elif session.defi not in done:
+                        if restant <= 30:
+                            issue = motif = "expiree"
+                    else:
+                        url = session.defi.result()
+                        self.defi_id = str(uuid4())
+                        self.noter("code_disponible", "code", defi_id=self.defi_id,
+                                   defi_type="claude_oauth_code", verification_url=url)
+                        restant = max(0, min(900, commande.limite_attente_le - time.time()))
+                        done, _ = await asyncio.wait([session.terminee, annulation], timeout=restant,
+                                                     return_when=asyncio.FIRST_COMPLETED)
+                        if annulation in done or self.annulation.is_set():
+                            issue = motif = "annulee"
+                        elif session.terminee not in done:
+                            issue = motif = "expiree"
+                        else:
+                            sortie = session.terminee.result()
+                            issue, motif = "erreur", "refuse"
+                finally:
+                    annulation.cancel()
+                    await asyncio.gather(annulation, return_exceptions=True)
+            self._session_claude = None
+            # Lecture après arrêt, jamais en parallèle avec le login (rotation du magasin appartenant au CLI).
+            compte = await self.etat_claude(argv, env, section.config_dir)
+            if self.annulation.is_set():
+                issue = motif = "annulee"
+            elif (issue not in ("annulee", "expiree") and sortie == 0 and session.code_transmis and compte.reconnu):
+                issue = motif = "connecte"
+            self.noter(issue, motif, compte_connecte=compte.reconnu)
+        except ArretNonConfirme:
+            self._arret_non_confirme()
+        except asyncio.CancelledError:
+            self.noter("interrompue", "interrompue")
+            raise
+        except VerrouOccupe:
+            self.noter("erreur", "occupe")
+        except (ReponseMalFormee, ValueError):
+            self.noter("erreur", "incompatible")
+        except Exception:
+            self.noter("erreur", "indisponible")
+        finally:
+            self._session_claude = None
+            if session is not None and getattr(session, "arret_confirme", None) is False:
+                self._arret_non_confirme()
+            if verrou is not None:
+                verrou.rendre()
             if not self.echec_arret:
                 self.apres()
 

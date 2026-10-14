@@ -409,10 +409,12 @@ QVariantMap PosteViewModel::construirePreparation(const QJsonObject &vue, bool l
         const QString nom = codex ? QStringLiteral("Codex") : QStringLiteral("Claude Code");
         const auto libelle = codex ? libelles::connexionCodex(valeur) : libelles::connexionClaude(valeur);
         observations.append(nom + QStringLiteral(" : ") + (libelle.connu() ? libelle.texte : libelles::kInconnu));
-        if (valeur == QJsonValue(codex ? QStringLiteral("compte_chatgpt") : QStringLiteral("jeton_reconnu"))) {
+        if (valeur == QJsonValue(codex ? QStringLiteral("compte_chatgpt") : QStringLiteral("compte_claude"))
+            || (!codex && valeur == QJsonValue(QStringLiteral("jeton_reconnu")))) {
             connectes.append(fournisseur);
         } else if (valeur == QJsonValue(codex ? QStringLiteral("non_connecte") : QStringLiteral("jeton_absent"))
-                   || valeur == QJsonValue(codex ? QStringLiteral("cle_api") : QStringLiteral("refuse"))) {
+                   || valeur == QJsonValue(codex ? QStringLiteral("cle_api") : QStringLiteral("refuse"))
+                   || (!codex && (valeur == QJsonValue(QStringLiteral("non_connecte")) || valeur == QJsonValue(QStringLiteral("cle_api"))))) {
             manquants.append(fournisseur);
         } else {
             aVerifier.append(fournisseur);
@@ -952,6 +954,10 @@ QVariantList PosteViewModel::assistants() const
             mode = QStringLiteral("Compte ChatGPT via Codex CLI");
         } else if (codex && valeur == QJsonValue(QStringLiteral("cle_api"))) {
             mode = QStringLiteral("Clé API détectée — voie non prise en charge");
+        } else if (!codex && valeur == QJsonValue(QStringLiteral("compte_claude"))) {
+            mode = QStringLiteral("Compte d'abonnement Claude via Claude Code");
+        } else if (!codex && valeur == QJsonValue(QStringLiteral("cle_api"))) {
+            mode = QStringLiteral("Clé API détectée — voie non prise en charge");
         } else if (!codex && (valeur == QJsonValue(QStringLiteral("jeton_reconnu"))
                              || valeur == QJsonValue(QStringLiteral("jeton_present_non_verifie"))
                              || valeur == QJsonValue(QStringLiteral("refuse")))) {
@@ -967,7 +973,9 @@ QVariantList PosteViewModel::assistants() const
             {QStringLiteral("offre"), codex ? libelles::texte(connexions.value(QStringLiteral("plan_codex"))) : libelles::kInconnu},
             {QStringLiteral("detail"), codex
                 ? QStringLiteral("État déclaré par le CLI sur cette machine. L'identité personnelle du compte n'est pas transmise à ACP.")
-                : QStringLiteral("« Jeton reconnu » décrit le résultat de auth status, pas une garantie de validité distante. Le dépôt d'un jeton ne suffit pas à confirmer la connexion.")}});
+                : valeur == QJsonValue(QStringLiteral("compte_claude"))
+                    ? QStringLiteral("Compte d'abonnement déclaré par Claude Code. Ce relevé n'est pas une garantie d'accès aux modèles, de quota ni d'exécution possible.")
+                    : QStringLiteral("« Jeton reconnu » décrit le résultat de auth status, pas une garantie de validité distante. Le dépôt d'un jeton ne suffit pas à confirmer la connexion.")}});
     }
     return resultat;
 }

@@ -432,8 +432,8 @@ for d in ('/tmp/c', '/tmp/l', '/tmp/w'):
 resultats = {}
 for role in ('implementation', 'relecture'):
     c = commande_claude(prefixe=[], executable='/opt/acp/outils/claude/claude', modele='opus', effort='low', role=role,
-                        lecture=Path('/tmp/l'), config_dir=Path('/tmp/c'), jeton='', home='/tmp/c', tmpdir=Path('/tmp'))
-    env = dict(c.env); env.pop('CLAUDE_CODE_OAUTH_TOKEN')
+                        lecture=Path('/tmp/l'), config_dir=Path('/tmp/c'), home='/tmp/c', tmpdir=Path('/tmp'))
+    env = dict(c.env); assert 'CLAUDE_CODE_OAUTH_TOKEN' not in env
     try:
         r = subprocess.run(c.argv, input=b'consigne', capture_output=True, env=env, cwd='/tmp/w', timeout=60)
         sortie = r.stdout.decode()

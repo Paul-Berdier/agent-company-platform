@@ -722,6 +722,7 @@ export const T = {
       inconnu: "Inconnu",
     },
     connexionsClaude: {
+      compteClaude: "Compte Claude connecté",
       jetonReconnu: "Jeton reconnu",
       jetonPresentNonVerifie: "Jeton présent, non vérifié",
       refuse: "Refusé",

@@ -107,12 +107,12 @@ appels = [{'name': c['outil'], 'input': c['arguments']} for c in cas]
 appels.append({'name': 'StructuredOutput', 'input': {'issue': 'termine', 'resume': 'Temoin local termine.',
                                                   'question': None, 'verdict': None, 'corrections': None}})
 commande = commande_claude(prefixe=prefixe, executable='/opt/acp/outils/claude/claude', modele='opus',
-                           effort='low', role='implementation', lecture=lecture, config_dir=magasin, jeton='',
+                           effort='low', role='implementation', lecture=lecture, config_dir=magasin,
                            home=identite.home, tmpdir=temporaire)
 # Aucune option de permissions du produit n'est remplacée. Seule la destination
 # du fournisseur est doublée ; cette clé factice n'a aucune valeur chez Anthropic.
 env = dict(commande.env)
-env.pop('CLAUDE_CODE_OAUTH_TOKEN')
+assert 'CLAUDE_CODE_OAUTH_TOKEN' not in env
 env.update(ANTHROPIC_API_KEY='acp-cle-factice-sans-valeur', ACP_CANARI_PROC=canaris['processus'])
 erreurs = []
 stdout = b''

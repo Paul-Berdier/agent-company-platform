@@ -11,6 +11,8 @@ interfaces que nomme la section 1.0.0 (D130), et une rupture de l'une d'elles ap
 
 - Connexion Codex officielle déclenchée dans le desktop et suivie sur l'exécutant
   Linux : code temporaire, annulation, idempotence et réconciliation sans second login.
+- Connexion Claude Code officielle sur le serveur avec un abonnement Claude Pro/Max :
+  code temporaire guidé dans Qt, reçu de transmission et reprise sans répétition.
 - Journal public d'exécution paginé, sessions natives, état des outils et modèle
   effectivement rapporté ; événements conservés avant envoi et dédupliqués dans Hermes.
 - Vue Comptes séparant accès ACP, moteurs et coordinateur Hermes.
@@ -23,6 +25,8 @@ interfaces que nomme la section 1.0.0 (D130), et une rupture de l'une d'elles ap
 - Les missions sont réservées aux exécutants Linux distants. Le desktop reste
   un client Qt ; anciennes identités et données conservées.
 - Le paquet facultatif des notes n'embarque plus les modules ni lanceurs du worker.
+- Claude utilise son magasin officiel ; le setup-token historique reste conservé
+  sans être injecté. L’état du compte est relu avant chaque mission.
 
 ### Corrigé
 
@@ -39,16 +43,22 @@ interfaces que nomme la section 1.0.0 (D130), et une rupture de l'une d'elles ap
 - Liste fermée des méthodes d'authentification, URL officielle contrôlée,
   magasin d'identifiants géré par Codex sous son UID distant.
 - Aucun code d'appareil ni jeton fournisseur conservé dans le journal/SQLite ACP.
+- Le code de retour Claude reste temporaire ; l’acquittement ne vaut pas connexion
+  réussie. Une perte de mémoire ne provoque aucun renvoi automatique.
+- Les valeurs remplacées lors du renouvellement du magasin restent masquées ;
+  un arrêt de processus non confirmé suspend connexions et missions.
 - Événements publics filtrés et masqués avant découpage ; aucune sortie brute d'outil
   ni raisonnement privé transmis.
 - Gardes d'isolement, de dépôts et de dépenses conservées.
 
 ### Vérifié localement
 
-- Suite Python : 1 523 tests et 464 sous-tests réussis, 109 tests ignorés
-  explicitement ; correction finale des comptes revalidée dans 309 tests ciblés.
-- Qt 6.8.3 : compilation, 43 suites natives et captures de quatre thèmes
-  sur deux tailles, avec données simulées signalées.
+- Suite Python finale : 1 620 tests et 464 sous-tests réussis, 115 tests ignorés
+  explicitement, en 1 295,11 s. Le dernier libellé de conflit passe aussi son
+  test d’intégration ciblé ; aucun vrai moteur ni Docker lancé sur le PC.
+- Qt 6.8.3 : compilation, 43/43 suites natives en 171,12 s et huit captures
+  de quatre thèmes sur deux tailles, avec données simulées signalées.
+- Interface web : 206 tests, types et bundles déterministes vérifiés.
 - Contrôles de versions, thèmes générés, catalogue et moteur Pixel Office gelé.
 - Paquet de notes Python 3.12 isolé : créer/lire/écrire/archiver/graphe sur un coffre
   temporaire, menu PowerShell 5.1, absence des modules d'exécution.
@@ -60,7 +70,8 @@ interfaces que nomme la section 1.0.0 (D130), et une rupture de l'une d'elles ap
 - Aucun compte fournisseur personnel connecté ni inférence réelle prouvée dans ce lot.
 - Railway reste en régime B ; Codex y est fermé en écriture. La déclaration VPS
   ne prouve pas l’isolation : un serveur compatible reste à configurer et éprouver.
-- Connexions graphiques Claude/Vibe et déconnexion Codex encore absentes.
+- Connexion Vibe et déconnexion graphique des moteurs encore absentes.
+- Connexion Claude personnelle, renouvellement et droits effectifs restent à éprouver.
 - Création distante des dépôts, fichiers/diff/artefacts téléchargeables,
   publication GitHub et workspace complet restent à compléter.
 - Aucun déploiement ni installation personnelle : seule la production Railway a
