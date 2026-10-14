@@ -507,7 +507,7 @@ void TestProjets::formulaireSansInventaireOuPosteIllisible()
     QVariantMap f = banc.projets.formulaire();
     QCOMPARE(f.value(QStringLiteral("depotsConnus")).toBool(), false);
     QCOMPARE(f.value(QStringLiteral("aideDepot")).toString(),
-             QStringLiteral("Aucun dépôt connu : le poste n'a encore publié aucun inventaire (page Poste)."));
+             QStringLiteral("Dépôts inconnus : le serveur n’a pas encore publié d’inventaire."));
     QCOMPARE(f.value(QStringLiteral("avecExploration")).toBool(), false);
     QCOMPARE(f.value(QStringLiteral("reponsesSansObjet")).toBool(), true);
     QCOMPARE(f.value(QStringLiteral("profilDefaut")).toString(), QStringLiteral("base"));
@@ -515,6 +515,33 @@ void TestProjets::formulaireSansInventaireOuPosteIllisible()
     // Un dépôt qui ne vient pas du serveur n'est jamais retenu.
     banc.projets.choisirDepot(QStringLiteral("invente"));
     QCOMPARE(banc.projets.formulaire().value(QStringLiteral("depot")).toString(), QString());
+
+    // Un inventaire reçu, mais vide, n'est ni absent ni une preuve d'accès à un dépôt.
+    banc.poste = fixture(QStringLiteral("poste-releve.json"));
+    QJsonObject catalogue = banc.poste.value(QStringLiteral("catalogue")).toObject();
+    QJsonObject voies = catalogue.value(QStringLiteral("voies")).toObject();
+    for (const QString &voie : voies.keys()) {
+        QJsonObject releve = voies.value(voie).toObject();
+        releve.insert(QStringLiteral("depots"), QJsonArray{});
+        voies.insert(voie, releve);
+    }
+    catalogue.insert(QStringLiteral("voies"), voies);
+    banc.poste.insert(QStringLiteral("catalogue"), catalogue);
+    banc.projets.actualiser();
+    QTRY_VERIFY(banc.projets.formulaire().value(QStringLiteral("depotsConnus")).toBool());
+    f = banc.projets.formulaire();
+    QVERIFY(f.value(QStringLiteral("depots")).toStringList().isEmpty());
+    QCOMPARE(f.value(QStringLiteral("aideDepot")).toString(),
+             QStringLiteral("Aucun dépôt déclaré sur le serveur. Connecter Claude ne configure pas l’accès aux dépôts. L’ajout depuis ACP n’est pas encore disponible."));
+    QVERIFY(!f.value(QStringLiteral("avecExploration")).toBool());
+    QVERIFY(f.value(QStringLiteral("reponsesSansObjet")).toBool());
+    banc.projets.choisirDepot(QStringLiteral("invente"));
+    QVERIFY(banc.projets.formulaire().value(QStringLiteral("depot")).toString().isEmpty());
+
+    banc.poste = fixture(QStringLiteral("poste-releve.json"));
+    banc.projets.actualiser();
+    QTRY_VERIFY(banc.projets.formulaire().value(QStringLiteral("depots")).toStringList().contains(QStringLiteral("jetable")));
+    QVERIFY(banc.projets.formulaire().value(QStringLiteral("aideDepot")).toString().isEmpty());
 
     banc.statutPoste = 404;
     banc.projets.actualiser();

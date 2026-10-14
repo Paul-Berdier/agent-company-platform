@@ -1057,6 +1057,7 @@ Item {
                     }
                 }
                 Discret {
+                    objectName: "projets-aide-depot"
                     visible: formulaire.f.aideDepot.length > 0
                     text: formulaire.f.aideDepot
                 }
@@ -1222,7 +1223,8 @@ Item {
                 AcpButton {
                     objectName: "projets-lancer"
                     primary: true
-                    label: Projets.gesteEnCours ? qsTr("Envoi…") : qsTr("Lancer le projet")
+                    label: Projets.gesteEnCours ? qsTr("Envoi…")
+                        : formulaire.f.depot.length > 0 ? qsTr("Lancer le projet") : qsTr("Lancer avec Hermes (sans dépôt)")
                     manualEnabled: formulaire.f.pret && formulaire.complet && !Projets.gesteEnCours
                     onTriggered: Projets.lancer(titreChamp.text, objectifChamp.text, profilChoix.currentValue, formulaire.reponses, effortChoix.currentIndex > 0 ? formulaire.f.efforts[effortChoix.currentIndex - 1] : "")
                 }

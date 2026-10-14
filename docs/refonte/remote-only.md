@@ -409,3 +409,21 @@ Les campagnes suivantes, sur les corrections et la déclaration VPS, sont suivie
 dans la PR avec leur révision exacte. Aucune de ces preuves ne valide un
 déploiement personnel, une connexion à un
 compte fournisseur réel ou une inférence facturée.
+
+## Formulaire sans dépôt — vérification complémentaire du 14 octobre
+
+La politique standard de l’exécutant ne déclare aucun dépôt. Un compte Claude
+connecté ne rend donc pas un projet sur dépôt disponible à lui seul. Le formulaire
+Qt et web distingue désormais un inventaire absent, une lecture en erreur et un
+inventaire connu vide. Dans ce dernier cas, l’aide explique que l’ajout depuis ACP
+reste indisponible. Le bouton « Lancer avec Hermes (sans dépôt) » garde le parcours
+Hermes existant, sans envoyer d’exploration Claude.
+
+Le correctif passe 207 tests web avec types et bundles déterministes, puis la
+compilation Qt 6.8.3 et 43/43 suites natives (147,76 s). La capture ciblée du
+formulaire à 1366 × 768 porte la mention de données simulées. Son banc isolé
+n’applique pas la palette native du client complet : elle vérifie le contenu et
+la géométrie, pas l’apparence du produit. La relecture indépendante ne relève
+aucun défaut bloquant. Le guide précise les prérequis du dépôt, du coordinateur,
+du routage et de la facturation avant un essai personnel. Aucun dépôt ajouté,
+aucun compte personnel utilisé, aucun déploiement effectué.

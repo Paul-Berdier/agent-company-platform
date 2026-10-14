@@ -202,13 +202,14 @@ describe("Projets : nouveau projet", () => {
     const depot = r.racine.querySelector("#acp-projet-depot") as HTMLSelectElement;
     expect(depot.disabled).toBe(true);
     expect(depot.getAttribute("aria-describedby")).toBe("acp-projet-depot-aide");
-    expect(r.texte()).toContain("Aucun dépôt connu : le poste n'a encore publié aucun inventaire (page Poste).");
+    expect(r.texte()).toContain("Dépôts inconnus : le serveur n’a pas encore publié d’inventaire.");
+    expect(r.texte()).not.toContain("Aucun dépôt déclaré sur le serveur.");
     expect([...depot.options].map((o) => o.textContent)).toEqual(["Sans dépôt"]);
     expect(r.racine.querySelector("#acp-projet-voie")).toBeNull();
     const profils = r.racine.querySelector("#acp-projet-profil") as HTMLSelectElement;
     expect([...profils.options].map((o) => o.textContent)).toEqual(["Base", "Site web", "Recherche", "Données"]);
     // Le bouton reste désactivé tant que titre et objectif manquent.
-    expect(boutons(r.racine).get("Lancer le projet")?.disabled).toBe(true);
+    expect(boutons(r.racine).get("Lancer avec Hermes (sans dépôt)")?.disabled).toBe(true);
     await saisir(r.racine.querySelector("#acp-projet-titre-champ"), "Veille LLM");
     await saisir(r.racine.querySelector("#acp-projet-objectif"), "Recenser les modèles.");
     await saisir(profils, "recherche");
@@ -230,6 +231,53 @@ describe("Projets : nouveau projet", () => {
     r.demonter();
   });
 
+  it("inventaire connu sans dépôt : explique la limite et lance Hermes sans exploration Claude", async () => {
+    aller("?vue=nouveau");
+    const poste = structuredClone(POSTE_RELEVE);
+    for (const voie of Object.values(poste.catalogue.voies)) voie.depots = [];
+    const installation = installerSdk({
+      [ROUTE_PROJETS]: LISTE_VIDE,
+      [ROUTE_CATALOGUE]: CATALOGUE_PROFILS,
+      [ROUTE_POSTE]: poste,
+      [`POST ${ROUTE_PROJETS}`]: LANCEMENT,
+      [routeProjet("p_a35a8b99fb0e")]: DETAIL,
+    });
+    const r = await rendre(<Projets />);
+    await attendre();
+    const depot = r.racine.querySelector("#acp-projet-depot") as HTMLSelectElement;
+    expect(depot.disabled).toBe(false);
+    expect(depot.getAttribute("aria-describedby")).toBe("acp-projet-depot-aide");
+    expect([...depot.options].map((o) => o.textContent)).toEqual(["Sans dépôt"]);
+    expect(texteDe(r.racine.querySelector("#acp-projet-depot-aide"))).toBe(
+      "Aucun dépôt déclaré sur le serveur. Connecter Claude ne configure pas l’accès aux dépôts. " +
+      "L’ajout depuis ACP n’est pas encore disponible.",
+    );
+    expect(r.texte()).not.toContain("Dépôts inconnus");
+    expect(r.texte()).not.toContain("Compte connecté");
+    expect(r.racine.querySelector("#acp-projet-voie")).toBeNull();
+    expect(r.racine.querySelector("#acp-projet-modele")).toBeNull();
+    expect(boutons(r.racine).has("Lancer le projet")).toBe(false);
+    const lancer = boutons(r.racine).get("Lancer avec Hermes (sans dépôt)");
+    expect(lancer?.disabled).toBe(true);
+    await saisir(r.racine.querySelector("#acp-projet-titre-champ"), "Analyse sans dépôt");
+    await saisir(r.racine.querySelector("#acp-projet-objectif"), "Comparer les approches décrites.");
+    expect(lancer?.disabled).toBe(false);
+    expect(textesHorsCatalogue(r.racine, CATALOGUE)).toEqual([]);
+    await cliquer(lancer);
+    const [lancement] = installation.requetes.filter((q) => q.methode === "POST");
+    expect(lancement?.url).toBe(ROUTE_PROJETS);
+    expect(lancement?.corps).toEqual({
+      titre: "Analyse sans dépôt",
+      objectif: "Comparer les approches décrites.",
+      profil: "base",
+      depot: null,
+      reponses: "hermes_d_abord",
+    });
+    expect(lancement?.corps).not.toHaveProperty("exploration");
+    expect(lancement?.entetes["Idempotency-Key"]).toMatch(/^[0-9a-f-]{32,36}$/);
+    r.demonter();
+  });
+
   it("avec un relevé (factice, signalé) : dépôt, exploration choisie dans le relevé, efforts interdits exclus", async () => {
     aller("?vue=nouveau");
     const installation = installerSdk({
@@ -245,6 +293,7 @@ describe("Projets : nouveau projet", () => {
     const depot = r.racine.querySelector("#acp-projet-depot") as HTMLSelectElement;
     expect(depot.disabled).toBe(false);
     expect([...depot.options].map((o) => o.value)).toEqual(["", "jetable"]);
+    expect(r.racine.querySelector("#acp-projet-depot-aide")).toBeNull();
     await saisir(depot, "jetable");
     const voie = r.racine.querySelector("#acp-projet-voie") as HTMLSelectElement;
     expect([...voie.options].map((o) => [o.value, o.textContent])).toEqual([

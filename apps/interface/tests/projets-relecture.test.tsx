@@ -252,14 +252,14 @@ describe("relecture de P4 : formulaire, pause, notifications", () => {
     await attendre();
     const texte = r.texte().replace(NBSP, " ");
     expect(texte).toContain("Dépôts inconnus : l'inventaire du poste est illisible (voir l'erreur ci-dessus).");
-    expect(texte).not.toContain("le poste n'a encore publié aucun inventaire");
+    expect(texte).not.toContain("le serveur n’a pas encore publié d’inventaire");
     r.demonter();
 
     aller("?vue=nouveau");
     installerSdk({ [ROUTE_PROJETS]: LISTE_VIDE, [ROUTE_CATALOGUE]: CATALOGUE_PROFILS, [ROUTE_POSTE]: POSTE_VIDE });
     const s = await rendre(<Projets />);
     await attendre();
-    expect(s.texte().replace(NBSP, " ")).toContain("Aucun dépôt connu : le poste n'a encore publié aucun inventaire (page Poste).");
+    expect(s.texte().replace(NBSP, " ")).toContain("Dépôts inconnus : le serveur n’a pas encore publié d’inventaire.");
     s.demonter();
   });
 

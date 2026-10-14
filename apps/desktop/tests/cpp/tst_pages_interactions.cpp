@@ -526,6 +526,10 @@ void TestPagesInteractions::executantFermeGriseDansLeFormulaire()
     QTRY_VERIFY_WITH_TIMEOUT(m_projets->formulaire().value(QStringLiteral("pret")).toBool(), 5000);
     QTest::qWait(100);
 
+    QQuickItem *lancer = parNom(racine, QStringLiteral("projets-lancer"));
+    QVERIFY(lancer);
+    QCOMPARE(lancer->property("label").toString(), QStringLiteral("Lancer avec Hermes (sans dépôt)"));
+
     // Dépôt « demo » choisi au clavier dans la vraie liste (Sans dépôt, demo, jetable).
     QQuickItem *depot = parNom(racine, QStringLiteral("projets-champ-depot"));
     QVERIFY(depot && depot->isEnabled());
@@ -533,6 +537,7 @@ void TestPagesInteractions::executantFermeGriseDansLeFormulaire()
     QTRY_VERIFY(depot->hasActiveFocus());
     QTest::keyClick(m_fenetre.get(), Qt::Key_Down);
     QTRY_COMPARE(m_projets->formulaire().value(QStringLiteral("depot")).toString(), QStringLiteral("demo"));
+    QTRY_COMPARE(lancer->property("label").toString(), QStringLiteral("Lancer le projet"));
     QTest::qWait(50);
 
     QVERIFY(cliquer(parNom(racine, QStringLiteral("projets-routage-manuel"))));
@@ -566,6 +571,61 @@ void TestPagesInteractions::executantFermeGriseDansLeFormulaire()
     QTRY_COMPARE(voie->property("currentValue").toString(), QStringLiteral("poste-claude"));
     QCOMPARE(m_projets->formulaire().value(QStringLiteral("voie")).toString(), QStringLiteral("poste-claude"));
     QCOMPARE(m_serveur->filtrer("POST", kP + QStringLiteral("/projets")).size(), 0);
+
+    // Un inventaire vide garde le parcours Hermes et expose sa limite dans le vrai formulaire.
+    for (const QString &nom : voies.keys()) {
+        QJsonObject releve = voies.value(nom).toObject();
+        releve.insert(QStringLiteral("depots"), QJsonArray{});
+        voies.insert(nom, releve);
+    }
+    catalogue.insert(QStringLiteral("voies"), voies);
+    poste.insert(QStringLiteral("catalogue"), catalogue);
+    m_serveur->route("GET", kP + QStringLiteral("/poste"), [poste](const RequeteRecue &) { return ReponseFaux::json(200, poste); });
+    m_projets->afficherListe();
+    m_projets->afficherNouveau();
+    QTRY_VERIFY(m_projets->formulaire().value(QStringLiteral("pret")).toBool());
+    QTRY_VERIFY(m_projets->formulaire().value(QStringLiteral("depots")).toStringList().isEmpty());
+    QQuickItem *aide = parNom(racine, QStringLiteral("projets-aide-depot"));
+    lancer = parNom(racine, QStringLiteral("projets-lancer"));
+    QVERIFY(aide && aide->isVisible() && lancer);
+    QCOMPARE(aide->property("text").toString(),
+             QStringLiteral("Aucun dépôt déclaré sur le serveur. Connecter Claude ne configure pas l’accès aux dépôts. L’ajout depuis ACP n’est pas encore disponible."));
+    QCOMPARE(lancer->property("label").toString(), QStringLiteral("Lancer avec Hermes (sans dépôt)"));
+    QVERIFY(m_projets->formulaire().value(QStringLiteral("depotsConnus")).toBool());
+    QVERIFY(!m_projets->formulaire().value(QStringLiteral("avecExploration")).toBool());
+
+    const QString captures = qEnvironmentVariable("ACP_CAPTURES_DIR");
+    if (!captures.isEmpty()) {
+        const QSize tailleInitiale = m_fenetre->size();
+        const QColor fondInitial = m_fenetre->color();
+        const auto restaurer = qScopeGuard([this, racine, tailleInitiale, fondInitial] {
+            m_fenetre->resize(tailleInitiale);
+            racine->setSize(tailleInitiale);
+            m_fenetre->setColor(fondInitial);
+        });
+        m_fenetre->resize(1366, 768);
+        racine->setSize(QSizeF(1366, 768));
+        m_fenetre->setColor(QColor(QStringLiteral("#151923")));
+        QQmlComponent etiquette(m_moteur.get());
+        etiquette.setData(QByteArrayLiteral("import QtQuick; Rectangle { z: 100000; anchors.top: parent.top; anchors.right: parent.right; anchors.margins: 4; width: 220; height: 22; color: '#25313d'; radius: 3; Text { anchors.centerIn: parent; text: 'TEST · DONNÉES SIMULÉES'; color: '#ffffff'; font.pixelSize: 11 } }"), QUrl());
+        QVERIFY2(etiquette.isReady(), qPrintable(etiquette.errorString()));
+        std::unique_ptr<QObject> marquage(etiquette.createWithInitialProperties({{QStringLiteral("parent"), QVariant::fromValue(m_fenetre->contentItem())}}));
+        QVERIFY(marquage);
+        QTest::qWait(100);
+        for (QQuickItem *parent = lancer->parentItem(); parent; parent = parent->parentItem()) {
+            if (parent->inherits("QQuickFlickable")) {
+                parent->setProperty("contentY", std::max(0.0, parent->property("contentHeight").toDouble() - parent->height()));
+                break;
+            }
+        }
+        QTest::qWait(100);
+        for (QQuickItem *item : {aide, lancer}) {
+            const QRectF rectangle(item->mapToScene(QPointF(0, 0)), item->size());
+            QVERIFY2(QRectF(QPointF(0, 0), m_fenetre->size()).contains(rectangle), qPrintable(item->objectName()));
+        }
+        QVERIFY(QDir().mkpath(captures));
+        QVERIFY(m_fenetre->grabWindow().save(captures + QStringLiteral("/Nouveau-projet-simule-sans-depot-1366x768.png")));
+    }
     QVERIFY2(m_avertissements.isEmpty(), qPrintable(m_avertissements.join(QLatin1Char('\n'))));
     m_projets->afficherListe();
     page.reset();

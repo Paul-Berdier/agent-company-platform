@@ -266,8 +266,9 @@
       reponsesSansObjet: "Sans objet sans d\xE9p\xF4t\xA0: aucune question ne na\xEEt d'un projet sans d\xE9p\xF4t\xA0; s'il manque une information, Hermes bloque une carte avec sa raison (page Questions, cartes bloqu\xE9es).",
       champDepot: "D\xE9p\xF4t",
       sansDepot: "Sans d\xE9p\xF4t",
-      aucunDepotConnu: "Aucun d\xE9p\xF4t connu\xA0: le poste n'a encore publi\xE9 aucun inventaire (page Poste).",
+      aucunDepotConnu: "D\xE9p\xF4ts inconnus\xA0: le serveur n\u2019a pas encore publi\xE9 d\u2019inventaire.",
       depotsInconnus: "D\xE9p\xF4ts inconnus\xA0: l'inventaire du poste est illisible (voir l'erreur ci-dessus).",
+      aucunDepotDeclare: "Aucun d\xE9p\xF4t d\xE9clar\xE9 sur le serveur. Connecter Claude ne configure pas l\u2019acc\xE8s aux d\xE9p\xF4ts. L\u2019ajout depuis ACP n\u2019est pas encore disponible.",
       releveFactice: "Relev\xE9 factice\xA0: ces mod\xE8les viennent d'un relev\xE9 de test, pas de votre poste.",
       exploration: "Exploration du d\xE9p\xF4t",
       explorationAide: "Le poste lit le d\xE9p\xF4t, sans rien y modifier, avant la planification.",
@@ -284,6 +285,7 @@
       releveDu: "Relev\xE9 du",
       relevePerime: "Relev\xE9 p\xE9rim\xE9\xA0: le poste doit publier un nouvel inventaire.",
       lancer: "Lancer le projet",
+      lancerSansDepot: "Lancer avec Hermes (sans d\xE9p\xF4t)",
       retour: "Retour aux projets",
       objectif: "Objectif",
       tour: "Tour",
@@ -2571,6 +2573,7 @@
   function Formulaire(props) {
     const cataloguePoste = props.poste?.catalogue ?? null;
     const depots = depotsConnus(cataloguePoste);
+    const aideDepot = depots === null ? props.posteIllisible ? T.projets.depotsInconnus : T.projets.aucunDepotConnu : depots.length === 0 ? T.projets.aucunDepotDeclare : null;
     const voies = voiesRelevees(cataloguePoste);
     const interdits = listeDeChaines(cataloguePoste?.politique?.efforts_interdits);
     const profils = (() => {
@@ -2648,7 +2651,7 @@
         id: "acp-projet-depot",
         value: depot,
         disabled: depots === null,
-        "aria-describedby": depots === null ? "acp-projet-depot-aide" : void 0,
+        "aria-describedby": aideDepot ? "acp-projet-depot-aide" : void 0,
         onChange: (e) => {
           fixerDepot(valeurDe(e));
           fixerVoie("");
@@ -2658,7 +2661,7 @@
       },
       /* @__PURE__ */ h("option", { value: "" }, T.projets.sansDepot),
       (depots ?? []).map((d) => /* @__PURE__ */ h("option", { key: d, value: d, "data-acp-donnee": "" }, d))
-    ), depots === null ? /* @__PURE__ */ h("p", { className: "acp-discret", id: "acp-projet-depot-aide" }, props.posteIllisible ? T.projets.depotsInconnus : T.projets.aucunDepotConnu) : null), /* @__PURE__ */ h("fieldset", { className: "acp-groupe-choix" }, /* @__PURE__ */ h("legend", null, T.projets.champReponses), sansDepot ? /* @__PURE__ */ h("p", { className: "acp-discret", id: "acp-projet-reponses-sans-objet" }, T.projets.reponsesSansObjet) : /* @__PURE__ */ h(Fragment, null, /* @__PURE__ */ h("label", { className: "acp-choix-radio" }, /* @__PURE__ */ h(
+    ), aideDepot ? /* @__PURE__ */ h("p", { className: "acp-discret", id: "acp-projet-depot-aide" }, aideDepot) : null), /* @__PURE__ */ h("fieldset", { className: "acp-groupe-choix" }, /* @__PURE__ */ h("legend", null, T.projets.champReponses), sansDepot ? /* @__PURE__ */ h("p", { className: "acp-discret", id: "acp-projet-reponses-sans-objet" }, T.projets.reponsesSansObjet) : /* @__PURE__ */ h(Fragment, null, /* @__PURE__ */ h("label", { className: "acp-choix-radio" }, /* @__PURE__ */ h(
       "input",
       {
         type: "radio",
@@ -2708,7 +2711,7 @@
       {
         type: "submit",
         principal: true,
-        libelle: envoi.etat.etat === "envoi" ? T.projets.envoi : T.projets.lancer,
+        libelle: envoi.etat.etat === "envoi" ? T.projets.envoi : sansDepot ? T.projets.lancerSansDepot : T.projets.lancer,
         desactive: !complet || envoi.etat.etat === "envoi"
       }
     )), /* @__PURE__ */ h(RetourEnvoi, { etat: envoi.etat }));

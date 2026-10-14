@@ -30,6 +30,8 @@ interfaces que nomme la section 1.0.0 (D130), et une rupture de l'une d'elles ap
 
 ### Corrigé
 
+- Nouveau projet distingue inventaire absent, dépôts inconnus et inventaire vide ;
+  le lancement sans dépôt nomme Hermes et ne fait pas croire à une mission Claude.
 - Une perte de réponse de connexion n'entraîne pas un deuxième login.
 - Une réponse d'une ancienne session Qt ne remplace pas l'état de la nouvelle.
 - Un refus d'événement persistant ne peut pas être masqué par une fin de tâche réussie.
@@ -56,9 +58,9 @@ interfaces que nomme la section 1.0.0 (D130), et une rupture de l'une d'elles ap
 - Suite Python finale : 1 620 tests et 464 sous-tests réussis, 115 tests ignorés
   explicitement, en 1 295,11 s. Le dernier libellé de conflit passe aussi son
   test d’intégration ciblé ; aucun vrai moteur ni Docker lancé sur le PC.
-- Qt 6.8.3 : compilation, 43/43 suites natives en 171,12 s et huit captures
+- Qt 6.8.3 : compilation, 43/43 suites natives en 147,76 s et huit captures
   de quatre thèmes sur deux tailles, avec données simulées signalées.
-- Interface web : 206 tests, types et bundles déterministes vérifiés.
+- Interface web : 207 tests, types et bundles déterministes vérifiés.
 - Contrôles de versions, thèmes générés, catalogue et moteur Pixel Office gelé.
 - Paquet de notes Python 3.12 isolé : créer/lire/écrire/archiver/graphe sur un coffre
   temporaire, menu PowerShell 5.1, absence des modules d'exécution.

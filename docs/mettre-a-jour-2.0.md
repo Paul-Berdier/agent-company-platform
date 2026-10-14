@@ -89,11 +89,37 @@ actuel, en régime B** ; connecter son compte ne retire pas cette restriction.
 
 ## 4. Faire un premier essai simple
 
-Après les contrôles, levez la pause et demandez une petite analyse en lecture
-seule d’un dépôt jetable autorisé, avec une durée et un nombre de tours limités.
-Attendez une synthèse textuelle et un journal indiquant le moteur réellement
-utilisé. Si les droits existants ne suffisent pas, arrêtez l’essai sans activer
-de dépense supplémentaire.
+La mise à jour et la connexion Claude ne suffisent pas à rendre un premier
+projet prêt. Avant l’essai, un alias de dépôt autorisé doit être déclaré dans
+la politique déployée sur le serveur, puis apparaître dans son inventaire récent.
+L’ajout d’un dépôt depuis ACP n’est pas encore disponible : cette préparation
+fait partie du déploiement revu, sans terminal demandé au propriétaire. Aucun
+dépôt personnel n’est ajouté automatiquement.
+
+Avant toute inférence, vérifiez **Settings > Usage** sur le site officiel Claude
+et désactivez **Usage credits** pour cet essai sans supplément. Un abonnement
+Pro ou Max ne garantit pas à lui seul l’absence de frais : ces crédits peuvent
+facturer l’usage au-delà du forfait, y compris Claude Code. ACP ne connaît pas
+ce réglage ; son statut « connecté » ne prouve rien sur la facturation.
+Voir [la gestion officielle des crédits d’usage](https://support.claude.com/en/articles/12429409-manage-usage-credits-for-paid-claude-plans).
+Aucun achat ni activation de crédits n’est prévu.
+
+Vérifiez aussi que le coordinateur Hermes fonctionne avec son fournisseur déjà
+autorisé : il doit planifier et produire la synthèse après l’exploration Claude.
+Dans **Nouveau projet**, choisissez l’alias déclaré, activez **Choisir manuellement
+l’assistant, le modèle et l’effort**, puis choisissez Claude Code pour
+l’exploration et un modèle proposé explicitement. Les alias documentés ne
+prouvent pas les droits du compte : seule une exécution réelle les confirmera.
+Le routage des étapes suivantes doit également être vérifié ; la carte
+Architecture peut rester confiée à Hermes pour ce premier essai en lecture seule.
+Codex reste fermé en écriture sur le Railway actuel.
+
+Après ces contrôles, levez la pause pour une petite analyse en lecture seule du
+dépôt autorisé, avec un périmètre et des limites serveur préparés. Attendez une
+synthèse textuelle et un journal indiquant le moteur réellement utilisé. Si les
+droits existants ne suffisent pas, arrêtez l’essai sans activer de dépense
+supplémentaire. Sans dépôt déclaré, **Lancer avec Hermes (sans dépôt)** reste un
+parcours distinct : il ne vérifie pas l’exécution de Claude sur un dépôt.
 
 Pendant la tâche, fermez le desktop, suivez le même projet dans le web ACP,
 puis rouvrez le desktop. Vérifiez que vous retrouvez la même tâche et son
