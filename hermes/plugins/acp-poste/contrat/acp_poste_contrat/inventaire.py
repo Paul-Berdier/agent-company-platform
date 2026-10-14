@@ -798,7 +798,7 @@ class PolitiquePoste(_Contrat):
 class InfosPoste(_Contrat):
     """Le poste lui-même, sans nom réseau ni chemin (cahier P5 § 11.1).
 
-    Étape P6 (cahier P6 § 7.3) : ``plateforme`` (``windows`` par défaut), ``hote`` (``pc`` ou ``railway``), ``noyau``
+    Étape P6 (cahier P6 § 7.3) : ``plateforme`` (``windows`` par défaut), ``hote`` (``pc``, ``railway`` ou VPS explicitement déclaré), ``noyau``
     (version du noyau Linux) ; ``windows`` n'est exigé que sous Windows ; ``compte`` admet ``uid_dedie`` sous Linux
     seulement (``dedie`` et ``proprietaire`` y sont refusés)."""
 
@@ -809,7 +809,8 @@ class InfosPoste(_Contrat):
     politique_empreinte: str
     hermes_meme_enveloppe_que_codex: bool
     plateforme: Literal["windows", "linux"] = "windows"
-    hote: Literal["pc", "railway"] = "pc"
+    hote: Literal["pc", "railway", "vps"] = "pc"
+    execution_distante_declaree: bool = False
     noyau: Optional[str] = None
 
     @field_validator("nom", mode="before")
@@ -835,7 +836,12 @@ class InfosPoste(_Contrat):
     @field_validator("hote", mode="before")
     @classmethod
     def _hote(cls, valeur: Any) -> str:
-        return _choix(valeur, champ="hote", admis=("pc", "railway"))
+        return _choix(valeur, champ="hote", admis=("pc", "railway", "vps"))
+
+    @field_validator("execution_distante_declaree", mode="before")
+    @classmethod
+    def _distant_declare(cls, valeur: Any) -> bool:
+        return _booleen(valeur, champ="execution_distante_declaree")
 
     @field_validator("noyau", mode="before")
     @classmethod
@@ -859,11 +865,13 @@ class InfosPoste(_Contrat):
 
     @model_validator(mode="after")
     def _plateforme_coherente(self) -> "InfosPoste":
+        if self.execution_distante_declaree != (self.plateforme == "linux" and self.hote == "vps"):
+            raise ValueError("« execution_distante_declaree » : exigée à true pour un VPS Linux, false sinon")
         if self.plateforme == "windows":
             if self.windows is None:
                 raise ValueError("« windows » : version de Windows exigée pour un poste Windows")
             if self.compte == "uid_dedie" or self.hote != "pc" or self.noyau is not None:
-                raise ValueError("« compte » « uid_dedie », « hote » « railway » et « noyau » : réservés à Linux")
+                raise ValueError("« compte » « uid_dedie », « hote » distant et « noyau » : réservés à Linux")
         else:
             if self.compte != "uid_dedie":
                 raise ValueError("« compte » : sous Linux, seul « uid_dedie » est admis (un UID par agent)")

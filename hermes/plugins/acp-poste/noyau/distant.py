@@ -30,7 +30,10 @@ def raison_inventaire(inventaire: Any) -> Optional[str]:
     if not isinstance(inventaire, dict) or not isinstance(inventaire.get("poste"), dict):
         return INVENTAIRE_ABSENT
     poste = inventaire["poste"]
-    if poste.get("plateforme") != "linux" or poste.get("hote") != "railway":
+    distant = poste.get("hote") == "railway" or (
+        poste.get("hote") == "vps" and poste.get("execution_distante_declaree") is True
+    )
+    if poste.get("plateforme") != "linux" or not distant:
         return EXECUTION_LOCALE_REFUSEE
     return None
 

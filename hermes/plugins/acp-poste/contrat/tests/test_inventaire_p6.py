@@ -144,3 +144,31 @@ def test_echeance_du_jeton_claude_facultative():
                           ("1999-01-01", "hors bornes")):
         inventaire["connexions"]["claude_echeance"] = valeur
         assert motif in _refus(inventaire), valeur
+
+
+def test_vps_declare_ne_modifie_pas_le_verdict_isolement():
+    inventaire = _linux()
+    inventaire["poste"].update(hote="vps", execution_distante_declaree=True)
+    valide = valider_inventaire(inventaire)
+    assert valide.poste.hote == "vps" and valide.poste.execution_distante_declaree is True
+    assert valide.isolement_linux.regime == "B"
+    assert valide.isolement_linux.ecriture_admise["codex"] is False
+
+
+@pytest.mark.parametrize("hote, declaration", [
+    ("vps", None), ("vps", False), ("vps", 1), ("vps", "true"),
+    ("pc", True), ("railway", True),
+])
+def test_vps_exige_declaration_stricte_et_coherente(hote, declaration):
+    inventaire = _linux()
+    inventaire["poste"]["hote"] = hote
+    if declaration is not None:
+        inventaire["poste"]["execution_distante_declaree"] = declaration
+    assert "execution_distante_declaree" in _refus(inventaire)
+
+
+@pytest.mark.parametrize("hote", ["pc", "vps"])
+def test_declaration_distante_refusee_sous_windows(hote):
+    inventaire = _fixture("inventaire_requete.json")
+    inventaire["poste"].update(hote=hote, execution_distante_declaree=True)
+    assert "execution_distante_declaree" in _refus(inventaire)

@@ -73,3 +73,18 @@ def test_hebergement_non_pris_en_charge_refuse(conn, hote):
     # Un libellé inventé ne rend pas le produit compatible VPS.
     publier(conn, "linux", hote)
     assert distant.raison_refus(conn, "serveur") == distant.EXECUTION_LOCALE_REFUSEE
+
+
+@pytest.mark.parametrize("plateforme,hote,declaration,admis", [
+    ("linux", "vps", True, True), ("linux", "vps", False, False),
+    ("linux", "vps", 1, False), ("linux", "vps", "true", False),
+    ("linux", "pc", True, False), ("windows", "vps", True, False),
+])
+def test_garde_vps_declaration_stricte(conn, plateforme, hote, declaration, admis):
+    inventaire = {"poste": {"plateforme": plateforme, "hote": hote,
+                            "execution_distante_declaree": declaration}}
+    conn.execute("INSERT INTO inventaires(machine_id, contenu) VALUES ('serveur', ?)", (json.dumps(inventaire),))
+    assert (distant.raison_refus(conn, "serveur") is None) is admis
+    # La suppression de la déclaration dans le dernier inventaire referme le VPS.
+    publier(conn, "linux", "vps")
+    assert distant.raison_refus(conn, "serveur") == distant.EXECUTION_LOCALE_REFUSEE

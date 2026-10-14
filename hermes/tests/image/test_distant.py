@@ -38,12 +38,24 @@ def test_aucune_attribution_sans_serveur_distant(noyau, conn, ancien):
         assert tache.claim_lock is None
 
 
-def test_serveur_linux_recoit_la_carte_et_client_absent_sans_effet(noyau, conn):
-    projet = lancer_sur_depot(noyau, conn)
+@pytest.mark.parametrize("hote", ["railway", "vps"])
+def test_serveur_linux_recoit_la_carte_et_client_absent_sans_effet(noyau, conn, hote):
     machine, _ = poste_confirme(noyau, conn, nom="Serveur de test")
-    publier(noyau, conn, machine, inventaire_linux())
+    inventaire = inventaire_linux()
+    inventaire["poste"].update(hote=hote, execution_distante_declaree=hote == "vps")
+    publier(noyau, conn, machine, inventaire)
+    # Le label VPS ne débloque jamais Codex en régime B ; source quotas Linux conservée.
+    assert "poste-codex" in noyau.routage.voies_fermees(conn)
+    assert noyau.quotas.vue(conn)["poste-claude"]["source"] == "claude_code_rate_limit_event"
+    # Le catalogue Linux simulé expose « opus », pas le modèle factice-claude-1 de P4.
+    # Créer la carte contre ce catalogue : aucun relevé factice tardif ne le remplace.
+    projet = noyau.projets.lancer(
+        conn, titre="Mission distante simulée", objectif="Explorer le dépôt jetable.",
+        profil="base", depot="jetable", origine="tableau_de_bord", auteur="proprietaire:test",
+        exploration={"voie": "poste-claude", "modele": "opus", "effort": "low"})["projet"]
     carte = noyau.execution.servir(machine, requete())
     assert carte is not None and carte["tableau"] == projet["tableau"]
+    assert carte["modele"] == "opus"
     # Il n'y a aucun client desktop dans cet essai. La carte est portée par
     # l'identité distante et sa réclamation reste dans le kanban du serveur.
     with noyau.ka.connexion(projet["tableau"]) as kc:

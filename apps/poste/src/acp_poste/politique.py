@@ -165,6 +165,14 @@ class DepotDistant:
 
 
 @dataclass(frozen=True)
+class SectionDeploiement:
+    """Déclaration de l'opérateur dans la politique protégée ; aucune attestation d'isolation."""
+
+    cible: str
+    distant_confirme: bool
+
+
+@dataclass(frozen=True)
 class Politique:
     chemin: Path
     empreinte: str
@@ -183,6 +191,7 @@ class Politique:
     conditions: dict[str, date | None] = field(default_factory=dict)
     disque: SectionDisque | None = None
     git: SectionGit | None = None
+    deploiement: SectionDeploiement | None = None
 
     @property
     def compte_dedie(self) -> bool:
@@ -575,7 +584,7 @@ def charger(emplacements: Emplacements, *, chemin: Path | None = None) -> Politi
 # ============================================================ executant.toml (Linux, cahier P6 § 7.2)
 
 SECTIONS_EXECUTANT = ("poste", "hermes", "conditions", "sondes", "codex", "claude", "politique", "quotas", "disque",
-                      "git", "journal", "depots")
+                      "git", "journal", "depots", "deploiement")
 _HOTE = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+")
 _AUTEUR = re.compile(r"([^<>\x00-\x1f\x7f]{1,60}?) <([A-Za-z0-9._%+-]{1,64}@[A-Za-z0-9.-]{1,190})>")
 _ARGUMENT = re.compile(r"[^\x00]{1,4096}")
@@ -684,6 +693,14 @@ def _analyser_executant(contenu: bytes, emplacements: Any, *, chemin: Path | Non
                                "« dedie » et « proprietaire » sont des modes du poste Windows.")
     p.fin()
     poste = SectionPoste(nom=nom or "Exécutant Railway", compte="uid_dedie", compte_attendu=None)
+
+    deploiement = None
+    if "deploiement" in donnees:
+        d = _Lecteur("deploiement", donnees["deploiement"])
+        cible = d.choix("cible", ("vps",), _OBLIGATOIRE)
+        confirme = d.booleen("distant_confirme", False, seul=True)
+        d.fin()
+        deploiement = SectionDeploiement(cible=cible, distant_confirme=confirme)
 
     if "hermes" not in donnees:
         raise PolitiqueRefusee("poste.toml : la section [hermes] (origine de Hermes) est obligatoire.")
@@ -835,7 +852,8 @@ def _analyser_executant(contenu: bytes, emplacements: Any, *, chemin: Path | Non
     return Politique(chemin=chemin_fichier(emplacements, chemin), empreinte=empreinte_du_fichier(contenu),
                      poste=poste, hermes=hermes, sondes=sondes, codex=codex, claude=claude, politique=politique,
                      hermes_meme_enveloppe_que_codex=meme_enveloppe, profils_interdits=(), journal=journal,
-                     depots=tuple(depots), plateforme="linux", conditions=conditions, disque=disque, git=git)
+                     depots=tuple(depots), plateforme="linux", conditions=conditions, disque=disque, git=git,
+                     deploiement=deploiement)
 
 
 # ============================================================ droits (Windows)
