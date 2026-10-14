@@ -1,5 +1,78 @@
 # Reprise du travail sur un autre poste
 
+## Priorité de reprise — 14 octobre 2026, ACP 1.2.0
+
+Les sources de **1.2.0** sont fusionnées dans `main` par la
+[PR 32](https://github.com/Paul-Berdier/agent-company-platform/pull/32), le 14 octobre
+à **01:44:35 UTC**, commit `2ceea1bc7db901dcbe99a5bd049bb44c2799ed54`.
+Le tag annoté **`v1.2.0`** est poussé sur cette fusion. Les quatre workflows finaux
+ont réussi sur `abbedc4abb9c4dd468759414ce09c3243f45b33c` ; les arbres de cette tête,
+de la fusion proposée et de la fusion effective sont identiques
+(`2c30003854e8f4963b1020cd8de36cc2c804506a`). Les
+[preuves de 1.2.0](refonte/preuves-1.2.0.md) distinguent les validations finales,
+les campagnes antérieures et leurs échecs corrigés.
+
+Le [workflow Desktop Release 38497373160](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/38497373160)
+a réussi sur le tag : compilation, **41/41 suites Qt, aucun échec en 143,80 s**,
+empaquetage et création du brouillon. Les trois pièces jointes ont été téléchargées
+et leurs tailles/SHA-256 vérifiés, sans exécuter les paquets. La
+[release GitHub](https://github.com/Paul-Berdier/agent-company-platform/releases),
+ID `412263602`, reste **en brouillon, non publiée**, invisible dans le bouton de
+mise à jour. Le Setup CI est **NotSigned**, avec décor ACP original ; le Setup
+local licencié LimeZu est disponible séparément, non signé et non installé.
+Leurs empreintes sont différentes. Le dossier local final est
+`dist/workspace-1.2.0-livraison/` ; l’ancien `dist/workspace-1.2.0-final/` est
+intermédiaire et ne doit pas être livré.
+
+Le lot enrichit Discussion, livre Addy/Ponytail en texte seul, présente le
+catalogue d’intégrations et ajoute le Coffre ACP Markdown compatible Obsidian
+avec son pont Windows autonome. Le pont conserve les résultats non acquittés après
+purge serveur avant de reprendre sa file, sans rejouer de mutation. Discussion
+préserve les textes refusés ou non confirmés dans les brouillons des sessions,
+sans envoi automatique. Les validations locales finales passent **41/41 suites Qt,
+627 cas réussis, aucun ignoré, en 140,76 s**, initialisations/nettoyages inclus,
+et **1 419 tests Python, 107 ignorés, 464 sous-tests en 909,31 s**.
+Ces essais ne prouvent aucune connexion personnelle.
+
+Suivre le [guide de mise à jour en trois étapes](mettre-a-jour-1.2.md) : installer
+le Setup local avec le même compte Windows sans désinstaller, mettre à jour les
+services après sauvegardes, puis associer le coffre existant. Il n’est pas
+nécessaire d’attendre la publication GitHub pour utiliser ce paquet local.
+Les relevés Railway en lecture seule des **12 et 14 octobre** indiquent `hermes`
+et `executant` épinglés sur ACP **1.0.1**, source
+`85b458bbffbfb6dffe1fc40b8c3885f11b779ac7`, avec `staged=null` le 14.
+Le champ `source.commitSha` maintient cette épingle : un push sur `main` ne met
+pas automatiquement ces services à jour. Le Setup ne les met pas à jour non plus.
+Les sauvegardes du [manuel § 6.4](exploitation.md#64-vos-gestes-et-le-point-de-non-retour)
+et du [§ 6.5](exploitation.md#65-authelia-binaires-de-lexécutant-acp-lui-même)
+précèdent le futur déploiement manuel du commit validé. Les trois tables du coffre
+s’ajoutent au premier appel ; l’épingle amont de Hermes reste inchangée.
+
+Le coffre `C:/Users/Paul/Documents/ACP-notes` est **déjà créé, non associé** :
+ne pas le recréer. L’association se fera après la mise à jour du serveur, par
+code temporaire puis comparaison d’empreinte. Le pont garde sa propre identité,
+sans remplacer l’exécutant, sans service ni démarrage automatique implicite.
+Lire le [guide du workspace](refonte/workspace-1.2.0.md) pour ses opérations et limites.
+
+**Les neuf actions du coffre sont déclenchées par le propriétaire dans le desktop ;
+aucun outil de lecture ou d’écriture du coffre n’est exposé aux agents Hermes ni
+à Discussion.** Le pont ne reprend ni les plugins/Bases/Canvas Obsidian ni la
+réécriture des liens au renommage. Les sept services du catalogue restent
+non installés/connectés. Discussion reste globale et les brouillons restent en
+mémoire seulement ; missions multiples, mémoire sourcée et journal durable des
+appels d’outils restent hors de ce lot.
+
+L’installation personnelle, le déploiement Railway et le parcours personnel du
+coffre n’ont pas été exécutés. La fenêtre native et la session web personnelles
+n’ont pas pu être observées : les outils de contrôle échouent avant accès ; les
+captures QML utilisent un faux Hermes. Le nettoyage des trois images E2E
+précédemment identifiées reste à reprendre : le contrôle Docker du 14 octobre
+à 01:24:32 UTC a expiré après 12,078 s, sans inventaire actuel ni suppression
+(`docker-e2e-nettoyage-20261014T012432Z.json`, provenance locale détaillée dans
+les preuves). Cette limite n’affecte pas les validations GitHub.
+Le checkout personnel et ses travaux non committés sont préservés ; les sections
+historiques ci-dessous sont conservées intégralement.
+
 ## Priorité de reprise — 12 octobre 2026, ACP 1.1.1
 
 Les sources de **1.1.1** sont fusionnées dans `main` : [PR #30](https://github.com/Paul-Berdier/agent-company-platform/pull/30),
