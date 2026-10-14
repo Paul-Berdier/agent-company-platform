@@ -274,3 +274,80 @@ def test_requete_authentifiee_avant_rotation_ne_reprend_pas_les_droits(bdd):
             c.resultat(conn,r["coffre_id"],rendu(d),ancienne_generation)
         assert c.operation(conn,suivante.id_operation)["etat"]=="en_attente"
         assert c.reclamer(conn,r["coffre_id"],poll,nouveau_hash)["operation"]["id_operation"]==suivante.id_operation
+
+
+def test_bridge_reprend_apres_purge_reelle_sans_rejouer_mutation(bdd, tmp_path):
+    """Vraie file SQLite + fichiers du coffre ; seule la couche HTTP est simulée."""
+    import time
+    from acp_poste.client_hermes import ErreurReseau, ReponseHTTP
+    from acp_poste.obsidian_bridge import BridgeCoffre, ProtocoleCoffre, RefusBridge
+    bdd.horloge[0] = int(time.time())
+    local = tmp_path / "local"
+    local.mkdir()
+    bridge = BridgeCoffre(SimpleNamespace(emplacements=SimpleNamespace(acp_local=local)))
+    bridge.creer(tmp_path / "Notes")
+    notes = bridge.charger()
+    with bdd.ouvrir() as conn:
+        code = c.creer_code(conn, "proprietaire:test")["code"]
+        identite = c.enroler(conn, c.empreinte(code), C.Enrolement(protocole=C.PROTOCOLE,
+            version_bridge="1.2.0", coffre_id=notes.coffre_id, alias="acp"))
+        c.confirmer(conn, notes.coffre_id, identite["empreinte"], "proprietaire:test")
+        poll = C.RequeteReclamer(protocole=C.PROTOCOLE, coffre_id=notes.coffre_id, capacites=list(C.ACTIONS))
+        reclamer(conn, notes.coffre_id, poll)
+        demande = nouvelle(notes.coffre_id, "creer", {"chemin": "Preuve.md", "contenu": "une fois"})
+        debut = c.creer_operation(conn, demande, "proprietaire:test")
+
+    class ServeurLocal:
+        coupe = True
+        appels = []
+        def echanger(self, method, route, **kw):
+            assert method == "POST"
+            self.appels.append(route)
+            corps = json.loads(kw["corps"])
+            with bdd.ouvrir() as conn:
+                if route == C.ROUTE_RECLAMER:
+                    obj = reclamer(conn, notes.coffre_id, C.RequeteReclamer.model_validate(corps))
+                else:
+                    assert route == C.ROUTE_RESULTAT
+                    if self.coupe:
+                        self.coupe = False
+                        raise ErreurReseau("coupure avant accusé")
+                    try:
+                        obj = resultat(conn, notes.coffre_id, C.Resultat.model_validate(corps))
+                    except RefusACP as exc:
+                        assert exc.code == "operation_inconnue"
+                        return ReponseHTTP(404, json.dumps({"detail": {"code": exc.code}}).encode(), {})
+            return ReponseHTTP(200, json.dumps(obj).encode(), {})
+
+    serveur = ServeurLocal()
+    protocole = ProtocoleCoffre(serveur)
+    with pytest.raises(RefusBridge, match="conservé"):
+        bridge.cycle(protocole, notes, identite["jeton"], attente=0)
+    note = notes.racine / "Preuve.md"
+    assert note.read_text(encoding="utf-8") == "une fois"
+    pending = bridge.sortie.read_bytes()
+    ledger = notes.racine / ".acp" / "operations" / (demande.id_operation + ".json")
+    preuve_locale = ledger.read_bytes()
+    note.write_text("édition faite dans Obsidian", encoding="utf-8")
+    bdd.horloge[0] = debut["expire_le"] + 86401
+    with bdd.ouvrir() as conn:
+        c.etat(conn)  # Déclenche la vraie purge, sans changer sa rétention.
+        assert conn.execute("SELECT id FROM coffres_operations WHERE id=?", (demande.id_operation,)).fetchone() is None
+    reprise = BridgeCoffre(bridge.contexte)
+    assert reprise.cycle(protocole, notes, identite["jeton"], attente=0) == "resultat_non_acquitte"
+    archive = reprise.dossier / "resultats-non-acquittes" / (demande.id_operation + ".json")
+    assert archive.read_bytes() == pending and not reprise.sortie.exists()
+    assert note.read_text(encoding="utf-8") == "édition faite dans Obsidian"
+    assert ledger.read_bytes() == preuve_locale
+    # La file reprend : une nouvelle lecture aboutit, l'ancienne création n'est
+    # jamais réclamée ni réexécutée et sa copie non acquittée reste disponible.
+    with bdd.ouvrir() as conn:
+        suivant = nouvelle(notes.coffre_id, "lire", {"chemin": "Preuve.md"})
+        c.creer_operation(conn, suivant, "proprietaire:test")
+    assert reprise.cycle(protocole, notes, identite["jeton"], attente=0) == "resultat_transmis"
+    with bdd.ouvrir() as conn:
+        projection = c.operation(conn, suivant.id_operation)
+        assert projection["etat"] == "reussie"
+        assert projection["resultat"]["contenu"] == "édition faite dans Obsidian"
+    assert archive.read_bytes() == pending and ledger.read_bytes() == preuve_locale
+    assert serveur.appels.count(C.ROUTE_RECLAMER) == 2

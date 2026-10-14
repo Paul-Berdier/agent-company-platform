@@ -171,6 +171,17 @@ jobs:
       - name: Exécuter les tests Qt Test et Qt Quick Test
         run: ./scripts/test-desktop.ps1 -Configuration Release
 
+      # Conserver aussi les sorties des suites réussies et les assertions en
+      # échec, même si l'empaquetage n'est jamais atteint.
+      - name: Conserver les diagnostics CTest
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-ci-ctest-${{ github.run_id }}
+          path: apps/desktop/build/windows-msvc-release/Testing/Temporary/*.log
+          if-no-files-found: ignore
+          retention-days: 7
+
       # Empaquetage à blanc : produit réellement l'installeur, l'archive portable
       # et les sommes de contrôle, pour prouver que la chaîne de distribution
       # fonctionne — mais ne signe rien et ne publie rien.

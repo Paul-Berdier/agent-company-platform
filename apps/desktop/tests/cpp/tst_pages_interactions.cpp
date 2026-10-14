@@ -149,6 +149,12 @@ void TestPagesInteractions::initTestCase()
     m_serveur->activerKanban();
     m_serveur->jetonsAccesValides.insert(QByteArrayLiteral("jeton-a"));
     m_serveur->activerPasserelle();
+    // Les pages relisent aussi /meta : le serveur doit rendre le même verdict
+    // compatible que celui posé ci-dessous. Une restauration à 404 peut encore
+    // répondre à une lecture en vol et invalider le scénario suivant.
+    m_serveur->route("GET", kP + QStringLiteral("/meta"), [](const RequeteRecue &) {
+        return ReponseFaux::json(200, fixture(QStringLiteral("meta.json")));
+    });
     m_serveur->methodes.insert(QStringLiteral("session.list"), [](const QJsonObject &) {
         return QJsonObject{{QStringLiteral("sessions"), QJsonArray{QJsonObject{
             {QStringLiteral("id"), QStringLiteral("s1")}, {QStringLiteral("title"), QStringLiteral("Plan du site")},
@@ -748,9 +754,9 @@ void TestPagesInteractions::greffonSansEtapeP7NiAccueilNiGestes()
     m_projets->afficherListe();
     pageProjets.reset();
     QTRY_VERIFY(!m_projets->actif());
-    // Comme avant ce test pour la suite (aucune route /v1/meta servie).
+    // Rétablir le greffon compatible de la fixture pour les scénarios suivants.
     m_serveur->route("GET", kP + QStringLiteral("/meta"), [](const RequeteRecue &) {
-        return ReponseFaux::json(404, QJsonObject{{QStringLiteral("detail"), QStringLiteral("Not Found")}});
+        return ReponseFaux::json(200, fixture(QStringLiteral("meta.json")));
     });
 }
 
@@ -784,6 +790,8 @@ void TestPagesInteractions::discussionEnAttenteOuverteParLeBouton()
     QVERIFY(page);
     auto *racine = qobject_cast<QQuickItem *>(page.get());
     QTRY_VERIFY_WITH_TIMEOUT(m_questions->discussions().value(QStringLiteral("connues")).toBool(), 5000);
+    // La section dépend aussi de la lecture HTTP, distincte des discussions RPC.
+    QTRY_VERIFY_WITH_TIMEOUT(m_questions->lue(), 5000);
     QTest::qWait(100);
     // Seule la discussion en attente est listée, et le total la compte.
     QVERIFY(parNom(racine, QStringLiteral("questions-discussion-s1")));
@@ -1242,7 +1250,7 @@ void TestPagesInteractions::preparationProposeConnexionPuisAnnuleParLesBoutons()
     m_fenetre->setColor(fondAvant);
     m_fenetre->resize(1280, 850);
     m_serveur->route("GET", kP + QStringLiteral("/meta"), [](const RequeteRecue &) {
-        return ReponseFaux::json(404, QJsonObject{{QStringLiteral("detail"), QStringLiteral("Not Found")}});
+        return ReponseFaux::json(200, fixture(QStringLiteral("meta.json")));
     });
 }
 
@@ -1307,7 +1315,7 @@ void TestPagesInteractions::workspaceConserveBrouillonEtSuspendPagesMasquees()
     passerelle->fermer();
     navigation->setCurrentRoute(QStringLiteral("home"));
     m_serveur->route("GET", kP + QStringLiteral("/meta"), [](const RequeteRecue &) {
-        return ReponseFaux::json(404, QJsonObject{{QStringLiteral("detail"), QStringLiteral("Not Found")}});
+        return ReponseFaux::json(200, fixture(QStringLiteral("meta.json")));
     });
 }
 

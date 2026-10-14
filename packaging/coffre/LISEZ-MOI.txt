@@ -23,6 +23,13 @@ Pour récupérer une archive, copiez son fichier .md vers un nouveau nom de note
 le fichier .json voisin indique son chemin d’origine. Ne supprimez pas le journal
 .acp/operations : il empêche la répétition d’une opération interrompue.
 
+Après une longue déconnexion, Hermes peut ne plus retrouver une ancienne opération.
+Son résultat non acquitté est alors conservé sous
+%LOCALAPPDATA%/ACP/coffre-notes/resultats-non-acquittes, sans rejouer l’opération.
+Relisez la note avant de la modifier à nouveau. Si l’archivage est impossible
+ou atteint 128 copies, le bridge s’arrête en gardant le résultat en attente ;
+rangez les copies dans un dossier de sauvegarde avant de redémarrer.
+
 Le renommage déplace la note sans réécrire les liens dans les autres notes. Le graphe
 couvre les liens Markdown et wikiliens textuels ; les extensions et tous les détails
 du cache Obsidian ne sont pas interprétés. Les liens ambigus restent non résolus.

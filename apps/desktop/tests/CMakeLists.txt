@@ -25,13 +25,14 @@ function(acp_add_cpp_test name)
     target_link_libraries(${name} PRIVATE acp_core Qt6::Test)
     target_include_directories(${name} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/cpp")
     target_compile_definitions(${name} PRIVATE ACP_FIXTURES_PARTAGEES_DIR="${ACP_FIXTURES_PARTAGEES_DIR}")
-    # Les tests sont des programmes de console : pas de sous-système fenêtré sur Windows,
-    # sans quoi leur sortie serait invisible pour ctest.
+    # Les tests sont des programmes de console, pas des applications fenêtrées.
     set_target_properties(${name} PROPERTIES WIN32_EXECUTABLE FALSE)
     add_test(NAME ${name} COMMAND ${name})
     # Les tests n'ouvrent aucune fenêtre : la plateforme « offscreen » évite qu'un runner
     # sans session graphique ne les fasse échouer pour une mauvaise raison.
-    set_tests_properties(${name} PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+    # Sans console attachée, Qt Test peut écrire dans OutputDebugString au lieu
+    # du flux capturé par CTest. Garder les diagnostics visibles sur le runner.
+    set_tests_properties(${name} PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_FORCE_STDERR_LOGGING=1")
 endfunction()
 
 acp_add_cpp_test(tst_sse_parser)
@@ -78,7 +79,7 @@ acp_add_cpp_test(tst_texte_discussion)
 acp_add_cpp_test(tst_catalogue cpp/support/FauxHermes.cpp cpp/support/FauxHermes.h)
 acp_add_cpp_test(tst_obsidian cpp/support/FauxHermes.cpp cpp/support/FauxHermes.h)
 acp_add_cpp_test(tst_coffre_interactions cpp/support/FauxHermes.cpp cpp/support/FauxHermes.h cpp/support/FauxCoffre.h cpp/support/Fixtures.h)
-target_link_libraries(tst_coffre_interactions PRIVATE Qt6::QuickControls2
+target_link_libraries(tst_coffre_interactions PRIVATE Qt6::QuickControls2 Qt6::QuickTest
     acp_designplugin acp_themeplugin acp_controlsplugin acp_componentsplugin
     acp_pagesplugin acp_stationplugin acp_desktop_qmlplugin)
 target_compile_definitions(tst_coffre_interactions PRIVATE ACP_TEST_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures")
@@ -143,4 +144,4 @@ target_link_libraries(tst_qml_shell PRIVATE
 )
 set_target_properties(tst_qml_shell PROPERTIES WIN32_EXECUTABLE FALSE)
 add_test(NAME tst_qml_shell COMMAND tst_qml_shell)
-set_tests_properties(tst_qml_shell PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+set_tests_properties(tst_qml_shell PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_FORCE_STDERR_LOGGING=1")

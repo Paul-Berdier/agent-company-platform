@@ -125,7 +125,7 @@ public:
     Q_INVOKABLE void ouvrir(const QString &identifiantStocke);
     Q_INVOKABLE void nouvelle();
     Q_INVOKABLE void preparerConsigne(const QString &texte);
-    /*! Vrai si le message est parti vers Hermes (la zone de saisie peut alors être vidée). */
+    /*! Vrai si la requête est lancée ; le brouillon correspondant est vidé et le texte gardé jusqu’à la réponse. */
     Q_INVOKABLE bool envoyer(const QString &texte);
     Q_INVOKABLE void arreter();
     /*! Quitte la session affichée (fermée si aucun tour n'y tourne). */
@@ -172,6 +172,7 @@ private:
     void reinitialiserOptionsSession();
     void appliquerModele(const QString &fournisseur, const QString &modele, bool confirme);
     bool sessionModifiable();
+    void restaurerEnvoiRefuse(const QString &cle);
 
     GatewayClient *m_passerelle = nullptr;
     JsonListModel *m_sessions = nullptr;
@@ -195,6 +196,12 @@ private:
     QString m_erreurSessions;
     // Brouillons en mémoire, isolés par discussion ; oubliés à la déconnexion.
     QHash<QString, QString> m_brouillons;
+    struct EnvoiEnAttente {
+        QString session;
+        QString texte;
+    };
+    // Une réponse tardive peut restaurer le texte dans sa discussion, jamais après l’oubli.
+    QHash<QString, EnvoiEnAttente> m_envoisEnAttente;
     QString m_consigneEnAttente;
     quint64 m_generationConsigne = 0;
     QString m_stockee;

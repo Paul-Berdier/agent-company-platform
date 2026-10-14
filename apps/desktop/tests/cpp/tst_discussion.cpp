@@ -212,6 +212,12 @@ private slots:
     void autreSessionIgnoreeEtTypesInconnusComptes();
     void erreurInterruptionEtEchec();
     void envoiRefuseGardeLeMessage();
+    void coupureConserveLeTexteSansConfirmerSonRefus();
+    void refusRestaureLeBrouillonApresNavigation();
+    void refusTardifConserveLesSaisies_data();
+    void refusTardifConserveLesSaisies();
+    void succesTardifNeRestaurePasLeTexteEnvoye();
+    void refusApresOubliNeRessuscitePasLeTexte();
     void nouvelleFermeLaPrecedenteSeulementInactive();
     void titreEtSessionsChanged();
     void approbationDepuisLesChoixOfferts();
@@ -447,6 +453,159 @@ void TestDiscussion::envoiRefuseGardeLeMessage()
     QCOMPARE(banc.derniereLigne().value(QStringLiteral("statut")).toString(), QStringLiteral("Non envoyé"));
     QVERIFY(banc.discussion.erreurGeste().startsWith(QStringLiteral("Hermes a refusé « prompt.submit »")));
     QVERIFY(banc.discussion.erreurGeste().contains(QStringLiteral("-32601")));
+}
+
+void TestDiscussion::coupureConserveLeTexteSansConfirmerSonRefus()
+{
+    Banc banc;
+    banc.ouvrirPasserelle();
+    banc.ouvrirSession();
+    CanalManuel manuel(banc.passerelle);
+    banc.discussion.setBrouillon(QStringLiteral("Consigne sans accusé"));
+    QVERIFY(banc.discussion.envoyer(banc.discussion.brouillon()));
+    QVERIFY(banc.discussion.brouillon().isEmpty());
+    banc.discussion.setBrouillon(QStringLiteral("Saisie après envoi"));
+    const QJsonObject envoi = manuel.derniere(QStringLiteral("prompt.submit"));
+    QVERIFY(!envoi.isEmpty());
+    const auto tramesAvantCoupure = manuel.trames.size();
+
+    manuel.canal->detacher(QStringLiteral("Connexion interrompue avant la réponse"));
+    QVERIFY(!banc.discussion.gesteEnCours());
+    QCOMPARE(banc.derniereLigne().value(QStringLiteral("statut")).toString(), QStringLiteral("Envoi non confirmé"));
+    QCOMPARE(banc.discussion.brouillon(), QStringLiteral("Consigne sans accusé\n\nSaisie après envoi"));
+    QVERIFY(banc.discussion.erreurGeste().contains(QStringLiteral("Connexion interrompue avant la réponse")));
+    QVERIFY(!banc.discussion.erreurGeste().contains(QStringLiteral("Hermes a refusé")));
+    QCOMPARE(manuel.trames.size(), tramesAvantCoupure);
+
+    // Un accusé reçu après la terminaison locale ne prouve pas l'état courant
+    // du tour et ne doit ni effacer le brouillon conservé ni provoquer un rejeu.
+    manuel.repondre(envoi, QJsonObject{{QStringLiteral("status"), QStringLiteral("accepted")}});
+    QCOMPARE(banc.derniereLigne().value(QStringLiteral("statut")).toString(), QStringLiteral("Envoi non confirmé"));
+    QCOMPARE(banc.discussion.brouillon(), QStringLiteral("Consigne sans accusé\n\nSaisie après envoi"));
+    QCOMPARE(manuel.trames.size(), tramesAvantCoupure);
+}
+
+void TestDiscussion::refusRestaureLeBrouillonApresNavigation()
+{
+    Banc banc;
+    banc.ouvrirPasserelle();
+    banc.ouvrirSession();
+    banc.discussion.setBrouillon(QStringLiteral("Consigne refusée"));
+    banc.serveur.methodes.remove(QStringLiteral("prompt.submit"));
+    QVERIFY(banc.discussion.envoyer(banc.discussion.brouillon()));
+    QVERIFY(banc.discussion.brouillon().isEmpty());
+    QTRY_VERIFY(!banc.discussion.gesteEnCours());
+    QCOMPARE(banc.discussion.brouillon(), QStringLiteral("Consigne refusée"));
+    QCOMPARE(banc.derniereLigne().value(QStringLiteral("statut")).toString(), QStringLiteral("Non envoyé"));
+    banc.ouvrirSession(QStringLiteral("s2"));
+    banc.discussion.setBrouillon(QStringLiteral("Autre discussion"));
+    banc.ouvrirSession();
+    QCOMPARE(banc.discussion.brouillon(), QStringLiteral("Consigne refusée"));
+    QCOMPARE(banc.serveur.tramesDeMethode(QStringLiteral("prompt.submit")).size(), 1);
+}
+
+void TestDiscussion::refusTardifConserveLesSaisies_data()
+{
+    QTest::addColumn<bool>("retourAvantRefus");
+    QTest::newRow("refus-pendant-lautre-discussion") << false;
+    QTest::newRow("refus-apres-retour-a-la-discussion") << true;
+}
+
+void TestDiscussion::refusTardifConserveLesSaisies()
+{
+    QFETCH(bool, retourAvantRefus);
+    Banc banc;
+    banc.ouvrirPasserelle();
+    banc.ouvrirSession();
+    CanalManuel manuel(banc.passerelle);
+    banc.discussion.setBrouillon(QStringLiteral("Consigne initiale"));
+    QVERIFY(banc.discussion.envoyer(banc.discussion.brouillon()));
+    const auto envoi = manuel.derniere(QStringLiteral("prompt.submit"));
+    QVERIFY(!envoi.isEmpty());
+    QVERIFY(banc.discussion.brouillon().isEmpty());
+    banc.discussion.setBrouillon(QStringLiteral("Saisie plus récente"));
+    banc.discussion.ouvrir(QStringLiteral("s2"));
+    manuel.repondre(manuel.derniere(QStringLiteral("session.resume")), QJsonObject{
+        {QStringLiteral("session_id"), QStringLiteral("rt-s2")}, {QStringLiteral("messages"), QJsonArray{}}});
+    banc.discussion.setBrouillon(QStringLiteral("Brouillon indépendant B"));
+    banc.discussion.renommer(QStringLiteral("Titre B"));
+    const auto renommage = manuel.derniere(QStringLiteral("session.title"));
+    QVERIFY(banc.discussion.gesteEnCours());
+    if (retourAvantRefus) {
+        banc.discussion.ouvrir(QStringLiteral("s1"));
+        manuel.repondre(manuel.derniere(QStringLiteral("session.resume")), QJsonObject{
+            {QStringLiteral("session_id"), QStringLiteral("rt-s1")}, {QStringLiteral("messages"), QJsonArray{}}});
+        QCOMPARE(banc.discussion.brouillon(), QStringLiteral("Saisie plus récente"));
+    }
+    QSignalSpy changements(&banc.discussion, &DiscussionViewModel::brouillonChange);
+    const auto tramesAvantRefus = manuel.trames.size();
+    manuel.refuser(envoi);
+    QCOMPARE(manuel.trames.size(), tramesAvantRefus); // aucun renvoi automatique
+    QCOMPARE(changements.size(), retourAvantRefus ? 1 : 0);
+    if (!retourAvantRefus) {
+        QCOMPARE(banc.discussion.brouillon(), QStringLiteral("Brouillon indépendant B"));
+        QVERIFY(banc.discussion.gesteEnCours()); // le refus de A ne termine pas le renommage de B
+        QVERIFY(banc.discussion.erreurGeste().isEmpty());
+        manuel.repondre(renommage, QJsonObject{{QStringLiteral("title"), QStringLiteral("Titre B")}});
+        banc.discussion.ouvrir(QStringLiteral("s1"));
+        manuel.repondre(manuel.derniere(QStringLiteral("session.resume")), QJsonObject{
+            {QStringLiteral("session_id"), QStringLiteral("rt-s1")}, {QStringLiteral("messages"), QJsonArray{}}});
+    }
+    QCOMPARE(banc.discussion.brouillon(), QStringLiteral("Consigne initiale\n\nSaisie plus récente"));
+    banc.discussion.ouvrir(QStringLiteral("s2"));
+    manuel.repondre(manuel.derniere(QStringLiteral("session.resume")), QJsonObject{
+        {QStringLiteral("session_id"), QStringLiteral("rt-s2")}, {QStringLiteral("messages"), QJsonArray{}}});
+    QCOMPARE(banc.discussion.brouillon(), QStringLiteral("Brouillon indépendant B"));
+}
+
+void TestDiscussion::succesTardifNeRestaurePasLeTexteEnvoye()
+{
+    Banc banc;
+    banc.ouvrirPasserelle();
+    banc.ouvrirSession();
+    CanalManuel manuel(banc.passerelle);
+    banc.discussion.setBrouillon(QStringLiteral("Texte accepté"));
+    QVERIFY(banc.discussion.envoyer(banc.discussion.brouillon()));
+    const auto envoi = manuel.derniere(QStringLiteral("prompt.submit"));
+    banc.discussion.setBrouillon(QStringLiteral("Suite non envoyée"));
+    banc.discussion.ouvrir(QStringLiteral("s2"));
+    manuel.repondre(manuel.derniere(QStringLiteral("session.resume")), QJsonObject{
+        {QStringLiteral("session_id"), QStringLiteral("rt-s2")}, {QStringLiteral("messages"), QJsonArray{}}});
+    const auto tramesAvantReponse = manuel.trames.size();
+    manuel.repondre(envoi, QJsonObject{{QStringLiteral("status"), QStringLiteral("streaming")}});
+    QCOMPARE(manuel.trames.size(), tramesAvantReponse);
+    QVERIFY(banc.discussion.brouillon().isEmpty());
+    banc.discussion.ouvrir(QStringLiteral("s1"));
+    manuel.repondre(manuel.derniere(QStringLiteral("session.resume")), QJsonObject{
+        {QStringLiteral("session_id"), QStringLiteral("rt-s1")}, {QStringLiteral("messages"), QJsonArray{}}});
+    QCOMPARE(banc.discussion.brouillon(), QStringLiteral("Suite non envoyée"));
+}
+
+void TestDiscussion::refusApresOubliNeRessuscitePasLeTexte()
+{
+    Banc banc;
+    banc.ouvrirPasserelle();
+    banc.ouvrirSession();
+    CanalManuel manuel(banc.passerelle);
+    banc.discussion.setBrouillon(QStringLiteral("Ancienne identité"));
+    QVERIFY(banc.discussion.envoyer(banc.discussion.brouillon()));
+    const auto ancienEnvoi = manuel.derniere(QStringLiteral("prompt.submit"));
+    banc.discussion.oublier();
+    QVERIFY(banc.discussion.brouillon().isEmpty());
+    // Même identifiant stocké après oubli : une réponse de l’ancienne identité
+    // ne doit pas repeupler le brouillon de la nouvelle.
+    banc.discussion.ouvrir(QStringLiteral("s1"));
+    manuel.repondre(manuel.derniere(QStringLiteral("session.resume")), QJsonObject{
+        {QStringLiteral("session_id"), QStringLiteral("rt-s1")}, {QStringLiteral("messages"), QJsonArray{}}});
+    QVERIFY(banc.discussion.brouillon().isEmpty());
+    banc.discussion.setBrouillon(QStringLiteral("Nouvelle identité"));
+    QSignalSpy changements(&banc.discussion, &DiscussionViewModel::brouillonChange);
+    const auto tramesAvantRefus = manuel.trames.size();
+    manuel.refuser(ancienEnvoi);
+    QCOMPARE(manuel.trames.size(), tramesAvantRefus);
+    QCOMPARE(changements.size(), 0);
+    QCOMPARE(banc.discussion.brouillon(), QStringLiteral("Nouvelle identité"));
+    QVERIFY(banc.discussion.erreurGeste().isEmpty());
 }
 
 void TestDiscussion::nouvelleFermeLaPrecedenteSeulementInactive()

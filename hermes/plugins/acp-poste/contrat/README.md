@@ -157,6 +157,19 @@ du volume peuvent conserver des copies au-delà de ces délais. Ce mécanisme n'
 pas un effacement cryptographique et ne remplace pas la politique de sauvegarde.
 Les archives et le journal local du bridge ont leur propre rétention locale.
 
+Si le bridge conserve un résultat après cette purge, seul le refus **404** avec
+`detail.code=operation_inconnue` sur `POST /coffre/v1/resultat` lui permet de reprendre
+la file. Il déplace d'abord le résultat intact, sans écrasement, vers
+`%LOCALAPPDATA%/ACP/coffre-notes/resultats-non-acquittes/<UUID>.json`, puis annonce
+**« Résultat non acquitté »**. Ce n'est ni une confirmation par Hermes ni une
+réexécution de la mutation : relire la note et ses archives avant de la modifier.
+Ces copies locales restent récupérables jusqu'à leur rangement par le propriétaire.
+Le dossier est limité à 128 fichiers ; une copie déjà présente, un dossier plein ou
+un échec de déplacement conserve l'outbox et bloque la reprise avec un refus explicite.
+Tout autre refus HTTP conserve aussi le résultat en attente. Après réassociation,
+confirmer l'empreinte dans ACP avant de redémarrer le bridge ; une identité encore
+`a_confirmer` ne donne pas le droit de transmettre l'ancien résultat.
+
 La présence est périmée après **75 secondes**. Le bridge utilise un long-poll de
 25 secondes puis une pause d'une seconde ; les erreurs réseau temporaires déclenchent
 une attente progressive de 2 à 60 secondes. Aucun démarrage automatique d'Obsidian,

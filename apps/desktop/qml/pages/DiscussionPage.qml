@@ -404,7 +404,7 @@ Item {
                             id: envoyer; objectName: "discussion-envoyer"
                             primary: true; label: qsTr("Envoyer"); iconName: "arrowUp"
                             manualEnabled: Discussion.passerellePrete && !Discussion.ouverture && saisie.text.trim().length > 0
-                            onTriggered: if (Discussion.envoyer(saisie.text)) Discussion.brouillon = ""
+                            onTriggered: Discussion.envoyer(saisie.text)
                         }
                     }
                 }

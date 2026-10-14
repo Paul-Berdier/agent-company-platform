@@ -145,3 +145,94 @@ def test_borne_https_defaut_conservee():
     assert ClientHermes("https://hermes.test", delai_connexion_s=1, limite_reponse=192 * 1024).limite_reponse == 192 * 1024
     with pytest.raises(ErreurReseau):
         ClientHermes("https://hermes.test", delai_connexion_s=1, limite_reponse=192 * 1024 + 1)
+
+
+def _resultat_en_attente(b, notes):
+    result = {"protocole": contrat.PROTOCOLE, "coffre_id": notes.coffre_id, "id_operation": str(uuid4()),
+              "etat": "refusee", "resultat": None, "erreur": {"code": "absent", "message": "Absent."}}
+    b._sauver(b.sortie, result)
+    return result
+
+
+@pytest.mark.parametrize("status,detail", [(404, {}), (404, {"code": "autre"}),
+    (409, {"code": "operation_inconnue"}), (403, {"code": "operation_inconnue"}),
+    (401, {"code": "operation_inconnue"})])
+def test_seul_refus_exact_operation_purgee_debloque_outbox(bridge, status, detail):
+    b, client = bridge
+    notes = association(b, client)
+    _resultat_en_attente(b, notes)
+    pending = b.sortie.read_bytes()
+    client.responses.append((status, {"detail": detail}))
+    with pytest.raises(RefusBridge):
+        b.cycle(ProtocoleCoffre(client), notes, TOKEN, attente=0)
+    assert b.sortie.read_bytes() == pending
+    assert not (b.dossier / "resultats-non-acquittes").exists()
+
+
+def test_refus_operation_inconnue_sur_reclamation_ne_devient_pas_acquittement(bridge):
+    b, client = bridge
+    notes = association(b, client)
+    client.responses.append((404, {"detail": {"code": "operation_inconnue"}}))
+    with pytest.raises(RefusBridge) as exc:
+        b.cycle(ProtocoleCoffre(client), notes, TOKEN, attente=0)
+    assert exc.value.code != "operation_inconnue"
+    assert not b.sortie.exists()
+
+
+@pytest.mark.parametrize("obstacle", ["existant", "echec", "plein"])
+def test_archive_impossible_conserve_resultat_et_ne_reclame_rien(bridge, monkeypatch, obstacle):
+    from acp_poste import obsidian_bridge as module
+    b, client = bridge
+    notes = association(b, client)
+    result = _resultat_en_attente(b, notes)
+    pending = b.sortie.read_bytes()
+    archives = b.dossier / "resultats-non-acquittes"
+    archives.mkdir()
+    destination = archives / (result["id_operation"] + ".json")
+    if obstacle == "existant":
+        destination.write_bytes(pending)  # Même copie : aucun écrasement silencieux.
+    elif obstacle == "echec":
+        def refuser(*args):
+            raise OSError("écriture impossible")
+        monkeypatch.setattr(module, "renommer_handle", refuser)
+    else:
+        for n in range(module.MAX_RESULTATS_NON_ACQUITTES):
+            (archives / f"copie-{n}.json").write_bytes(b"{}")
+    client.responses.append((404, {"detail": {"code": "operation_inconnue"}}))
+    with pytest.raises(RefusBridge, match="conservé"):
+        b.cycle(ProtocoleCoffre(client), notes, TOKEN, attente=0)
+    assert b.sortie.read_bytes() == pending
+    assert client.calls[-1][1] == contrat.ROUTE_RESULTAT
+    if obstacle == "existant":
+        assert destination.read_bytes() == pending
+
+
+def test_resultat_non_acquitte_est_annonce_sans_faux_succes(bridge, capsys):
+    b, client = bridge
+    notes = association(b, client)
+    result = _resultat_en_attente(b, notes)
+    pending = b.sortie.read_bytes()
+    client.responses.append((404, {"detail": {"code": "operation_inconnue"}}))
+    assert b.servir(une_fois=True) == 0
+    out = capsys.readouterr().out
+    assert "Résultat non acquitté" in out and "Résultat du coffre acquitté" not in out
+    assert not b.sortie.exists()
+    assert (b.dossier / "resultats-non-acquittes" / (result["id_operation"] + ".json")).read_bytes() == pending
+
+
+def test_resultat_en_attente_apres_reassociation_attend_confirmation(bridge, capsys):
+    b, client = bridge
+    notes = association(b, client)
+    result = _resultat_en_attente(b, notes)
+    pending = b.sortie.read_bytes()
+    client.responses.append((409, {"detail": {"code": "coffre_a_confirmer"}}))
+    with pytest.raises(RefusBridge, match="Confirmez l'empreinte"):
+        b.servir(une_fois=True)
+    assert b.sortie.read_bytes() == pending
+    assert b.contexte.coffre.present("jeton-coffre")
+    # La confirmation propriétaire ne dépend pas du polling du bridge. Après
+    # confirmation, le même résultat est accepté avant toute demande suivante.
+    client.responses.append((200, {"ok": True, "id_operation": result["id_operation"], "deja": False}))
+    assert b.servir(une_fois=True) == 0
+    assert not b.sortie.exists()
+    assert [call[1] for call in client.calls[1:]] == [contrat.ROUTE_RESULTAT, contrat.ROUTE_RESULTAT]

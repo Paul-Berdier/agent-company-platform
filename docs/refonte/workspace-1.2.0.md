@@ -14,7 +14,9 @@ coût. Il utilise la portée `--session` : le modèle par défaut du serveur n�
 modifié. Un choix accepté ou différé n’est pas une preuve du modèle effectivement
 utilisé ; l’affichage suit les informations de session renvoyées par Hermes.
 Les brouillons sont conservés en mémoire par discussion pendant la navigation.
-Ils ne sont pas restaurés après fermeture ou perte de session.
+Un texte dont l’envoi est refusé ou non confirmé rejoint le brouillon de sa
+discussion sans effacer une saisie récente ni être renvoyé automatiquement.
+Ces brouillons ne sont pas restaurés après fermeture ou perte de session.
 
 La page **Outils** réunit le catalogue du serveur et dix fiches d’intégration. Elle
 permet de rechercher, lire les conditions d’utilisation, consulter la provenance,
@@ -111,6 +113,13 @@ garder. Les versions remplacées et notes archivées restent dans `.acp/archives
 leur fichier JSON voisin indique le chemin d’origine. Pour récupérer une archive,
 copier son Markdown vers un nouveau nom de note. Ne pas supprimer le journal
 `.acp/operations`, qui évite de répéter une mutation interrompue.
+
+Après une longue déconnexion, Hermes peut avoir purgé une opération dont le pont
+n’a pas reçu l’accusé. Le pont conserve alors son résultat dans
+`%LOCALAPPDATA%/ACP/coffre-notes/resultats-non-acquittes`, annonce explicitement
+« non acquitté » et reprend la liaison sans rejouer cette opération. Relire la note
+avant une nouvelle modification. Un archivage impossible arrête la reprise et
+garde le résultat en attente ; voir les bornes et la récupération dans le contrat.
 
 Le renommage ne réécrit pas automatiquement les liens des autres notes. Le pont
 interprète les liens Markdown et wikiliens textuels, pas l’ensemble des extensions,

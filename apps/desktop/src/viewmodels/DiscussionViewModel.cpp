@@ -113,6 +113,7 @@ void DiscussionViewModel::surActivite(bool actif)
 void DiscussionViewModel::surOubli()
 {
     m_brouillons.clear();
+    m_envoisEnAttente.clear();
     m_consigneEnAttente.clear();
     m_generationConsigne = 0;
     ++m_generationListe;
@@ -821,6 +822,22 @@ int DiscussionViewModel::ligneDeCle(const QString &cle) const
     return -1;
 }
 
+void DiscussionViewModel::restaurerEnvoiRefuse(const QString &cle)
+{
+    const auto trouve = m_envoisEnAttente.find(cle);
+    if (trouve == m_envoisEnAttente.end()) return; // déjà traité, ou identité oubliée
+    const EnvoiEnAttente envoi = trouve.value();
+    m_envoisEnAttente.erase(trouve);
+    const QString recent = m_brouillons.value(envoi.session);
+    // Ne pas écraser une saisie commencée après l’envoi. Les deux textes restent
+    // éditables ; aucun des deux n’est soumis de nouveau automatiquement.
+    const QString restaure = recent.isEmpty() || recent == envoi.texte
+        ? envoi.texte : envoi.texte + QStringLiteral("\n\n") + recent;
+    m_brouillons.insert(envoi.session, restaure);
+    const QString courante = m_stockee.isEmpty() ? m_vivante : m_stockee;
+    if (courante == envoi.session) emit brouillonChange();
+}
+
 bool DiscussionViewModel::envoyer(const QString &texte)
 {
     if (m_vivante.isEmpty()) {
@@ -837,6 +854,11 @@ bool DiscussionViewModel::envoyer(const QString &texte)
     }
     // Le message apparaît tout de suite, à sa place, avec son état réel d'envoi.
     const QString cle = QStringLiteral("envoi-%1").arg(++m_compteur);
+    const QString sessionBrouillon = m_stockee.isEmpty() ? m_vivante : m_stockee;
+    m_envoisEnAttente.insert(cle, EnvoiEnAttente{sessionBrouillon, texte});
+    // Le modèle porte la transition, afin qu’un refus rapide ne soit pas effacé
+    // ensuite par la vue. Une autre saisie que le texte soumis reste intacte.
+    if (brouillon() == texte) setBrouillon(QString());
     ajouter(QJsonObject{{QStringLiteral("cle"), cle},
                         {QStringLiteral("role"), QStringLiteral("utilisateur")},
                         {QStringLiteral("auteur"), QStringLiteral("Vous")},
@@ -849,6 +871,7 @@ bool DiscussionViewModel::envoyer(const QString &texte)
                                                      QJsonObject{{QStringLiteral("session_id"), vivante},
                                                                  {QStringLiteral("text"), texte}});
     connect(appel, &AppelRpc::reussi, this, [this, cle, generation](const QJsonValue &resultat) {
+        m_envoisEnAttente.remove(cle);
         if (generation != m_generation) return;
         const int index = ligneDeCle(cle);
         if (index >= 0) {
@@ -859,11 +882,13 @@ bool DiscussionViewModel::envoyer(const QString &texte)
         terminerGeste(messageEnvoi(resultat.toObject().value(QStringLiteral("status"))));
     });
     connect(appel, &AppelRpc::echoue, this, [this, cle, generation](const ErreurRpc &erreur) {
+        restaurerEnvoiRefuse(cle);
         if (generation != m_generation) return;
         const int index = ligneDeCle(cle);
         if (index >= 0) {
             QJsonObject ligne = m_transcription->itemAt(index);
-            ligne.insert(QStringLiteral("statut"), QStringLiteral("Non envoyé"));
+            ligne.insert(QStringLiteral("statut"), erreur.locale
+                ? QStringLiteral("Envoi non confirmé") : QStringLiteral("Non envoyé"));
             m_transcription->setItem(index, ligne);
         }
         echecRpc(QStringLiteral("prompt.submit"), erreur);

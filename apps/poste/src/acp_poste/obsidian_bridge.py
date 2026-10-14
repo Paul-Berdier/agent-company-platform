@@ -20,8 +20,11 @@ from . import __version__
 from .client_hermes import ClientHermes, ErreurReseau
 from .coffre import CoffreErreur, ecrire_atomiquement
 from .obsidian import CAPACITES, CoffreNotes, RefusNotes, creer_coffre, _mkdir
-from .obsidian_fichiers import RefusFichier, dossier_epingle, fichier_epingle
+from .obsidian_fichiers import RefusFichier, dossier_epingle, fichier_epingle, renommer_handle
 from .verrou import Verrou, VerrouOccupe
+
+
+MAX_RESULTATS_NON_ACQUITTES = 128
 
 
 class RefusBridge(RuntimeError):
@@ -67,6 +70,11 @@ class ProtocoleCoffre:
                 raise RefusBridge("Association du coffre révoquée ; arrêt du bridge.", code="coffre_revoque")
             if response.statut == 401:
                 raise RefusBridge("Identité du coffre refusée ; jeton conservé. Vérifiez l'association dans ACP.", code="identite_refusee")
+            if route == contrat.ROUTE_RESULTAT and response.statut == 404 and code == "operation_inconnue":
+                raise RefusBridge("Hermes ne retrouve plus cette opération ; son résultat n'est pas acquitté.",
+                                  code="operation_inconnue")
+            if route == contrat.ROUTE_RESULTAT and response.statut == 409 and code == "coffre_a_confirmer":
+                raise RefusBridge("Confirmez l'empreinte dans ACP, puis redémarrez le bridge ; le résultat local reste conservé.")
             if response.statut >= 500 or response.statut == 429:
                 raise RefusBridge("Hermes temporairement indisponible ; nouvel essai différé.", temporaire=True)
             raise RefusBridge(f"Hermes a refusé l'échange (HTTP {response.statut}) ; arrêt sans redirection.")
@@ -181,26 +189,50 @@ class BridgeCoffre:
         except (ValueError, TypeError):
             raise RefusBridge("Identité protégée du coffre invalide ; aucune connexion n'est tentée.") from None
 
+    def _transmettre_resultat(self, protocole, token, pending):
+        try:
+            protocole.resultat(token, pending)
+        except RefusBridge as exc:
+            if exc.code != "operation_inconnue":
+                raise
+            # Une absence explicite après purge ne vaut pas un acquittement. Garder
+            # le fichier exact, sans rejouer la mutation, avant de débloquer la file.
+            archives = self.dossier / "resultats-non-acquittes"
+            try:
+                try:
+                    _mkdir(archives)
+                except FileExistsError:
+                    pass
+                with dossier_epingle(archives):
+                    if sum(1 for _ in archives.iterdir()) >= MAX_RESULTATS_NON_ACQUITTES:
+                        raise RefusBridge("Archives des résultats non acquittés pleines ; résultat en attente conservé. Rangez les copies avant de redémarrer.")
+                    destination = archives / (pending["id_operation"] + ".json")
+                    with fichier_epingle(self.sortie, deplacer=True) as (stream, parent):
+                        actuel = contrat.Resultat.model_validate(json.loads(stream.read(contrat.TAILLE_MAX_CORPS + 1))).model_dump()
+                        if actuel != pending:
+                            raise RefusBridge("Le résultat local a changé ; aucune copie n'est déplacée.")
+                        renommer_handle(stream, self.sortie, destination, parent)
+            except (OSError, RefusFichier, ValueError):
+                raise RefusBridge("Archivage du résultat non acquitté impossible ou copie déjà présente ; résultat en attente conservé. Vérifiez les copies locales avant de redémarrer.") from None
+            return "resultat_non_acquitte"
+        with dossier_epingle(self.dossier):
+            self.sortie.unlink()
+        return "resultat_transmis"
+
     def cycle(self, protocole, notes, token, *, attente=25):
         # Une réponse non acquittée est prioritaire sur toute nouvelle opération.
         if self.sortie.exists():
             pending = contrat.Resultat.model_validate(_charger_json(self.sortie)).model_dump()
             if pending["coffre_id"] != notes.coffre_id:
                 raise RefusBridge("Le résultat local appartient à un autre coffre ; envoi refusé.")
-            protocole.resultat(token, pending)
-            with dossier_epingle(self.dossier):
-                self.sortie.unlink()
-            return "resultat_transmis"
+            return self._transmettre_resultat(protocole, token, pending)
         response = protocole.reclamer(token, notes.coffre_id, attente)
         if response.operation is None:
             return response.etat
         result = notes.executer(response.operation.model_dump())
         contrat.Resultat.model_validate(result)
         self._sauver(self.sortie, result)
-        protocole.resultat(token, result)
-        with dossier_epingle(self.dossier):
-            self.sortie.unlink()
-        return "resultat_transmis"
+        return self._transmettre_resultat(protocole, token, result)
 
     def servir(self, *, une_fois=False, pause=time.sleep):
         self._preparer()
@@ -216,7 +248,8 @@ class BridgeCoffre:
                     if state != previous:
                         print({"a_confirmer": "Association reçue ; comparez l'empreinte et confirmez dans ACP.",
                                "actif": "Coffre associé : le bridge attend les opérations ACP.",
-                               "resultat_transmis": "Résultat du coffre acquitté par Hermes."}[state])
+                               "resultat_transmis": "Résultat du coffre acquitté par Hermes.",
+                               "resultat_non_acquitte": "Résultat non acquitté par Hermes, conservé dans coffre-notes/resultats-non-acquittes. Relisez la note avant toute nouvelle modification ; la liaison continue."}[state])
                         previous = state
                     if une_fois:
                         return 0

@@ -13,6 +13,7 @@
 #include <QQmlComponent>
 #include <QQuickItem>
 #include <QQuickWindow>
+#include <QtQuickTest/quicktest.h>
 #include <QSettings>
 #include <QTemporaryDir>
 #include <QTest>
@@ -31,7 +32,18 @@ QQuickItem *parNom(QQuickItem *racine,const QString &nom)
 }
 bool cliquer(QQuickWindow &fenetre,QQuickItem *item)
 {
-    if (!item || !item->isVisible() || !item->isEnabled()) return false;
+    // Le retour à une note en conflit réaffiche la comparaison et agrandit le
+    // contenu. Attendre le layout avant de mesurer la limite de défilement ;
+    // un délai fixe après la mesure peut laisser le bouton hors de la fenêtre.
+    if (!QQuickTest::qWaitForPolish(&fenetre,2000)) {
+        qWarning() << "Mise en page inachevée avant le défilement";
+        return false;
+    }
+    if (!item || !item->isVisible() || !item->isEnabled()) {
+        qWarning() << "Clic impossible avant défilement" << (item ? item->objectName() : QStringLiteral("absent"))
+                   << "visible" << (item && item->isVisible()) << "actif" << (item && item->isEnabled());
+        return false;
+    }
     for (auto *parent=item->parentItem();parent;parent=parent->parentItem()) {
         if (!parent->inherits("QQuickFlickable")) continue;
         auto *contenu=parent->property("contentItem").value<QQuickItem *>();
@@ -42,9 +54,19 @@ bool cliquer(QQuickWindow &fenetre,QQuickItem *item)
         if (haut<actuel || haut+item->height()>actuel+parent->height())
             parent->setProperty("contentY",std::clamp(haut-30.0,0.0,maximum));
     }
-    QTest::qWait(30);
+    if (!QQuickTest::qWaitForPolish(&fenetre,2000)) {
+        qWarning() << "Mise en page inachevée après le défilement";
+        return false;
+    }
     const auto point=item->mapToScene(QPointF(item->width()/2,item->height()/2));
-    if (!QRectF(QPointF(0,0),fenetre.size()).contains(point)) return false;
+    if (!QRectF(QPointF(0,0),fenetre.size()).contains(point)) {
+        qWarning() << "Clic hors fenêtre après défilement" << item->objectName() << "centre" << point << "fenêtre" << fenetre.size();
+        for (auto *parent=item->parentItem();parent;parent=parent->parentItem())
+            if (parent->inherits("QQuickFlickable"))
+                qWarning() << "Défilement" << parent->objectName() << "y" << parent->property("contentY")
+                           << "contenu" << parent->property("contentHeight") << "hauteur" << parent->height();
+        return false;
+    }
     QTest::mouseClick(&fenetre,Qt::LeftButton,Qt::NoModifier,point.toPoint()); return true;
 }
 bool taper(QQuickWindow &fenetre,QQuickItem *item,const QString &texte,bool remplacer=false)
