@@ -5,7 +5,7 @@ $ErrorActionPreference = 'Stop'
 $pythonCoffre = Join-Path $PSScriptRoot 'runtime\python.exe'
 if (-not (Test-Path -LiteralPath $pythonCoffre -PathType Leaf)) { throw 'Le runtime du coffre est absent du paquet.' }
 function Invoke-Coffre([string[]] $ArgumentsCoffre) {
-    & $pythonCoffre -I -B -m acp_poste.cli obsidian @ArgumentsCoffre
+    & $pythonCoffre -I -B -m acp_poste.coffre_cli obsidian @ArgumentsCoffre
     $script:CodeCoffre = $LASTEXITCODE
     if ($script:CodeCoffre -ne 0) { Write-Host 'Le geste a été refusé ; relisez le message avant de continuer.' -ForegroundColor Yellow }
 }

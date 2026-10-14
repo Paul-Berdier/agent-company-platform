@@ -20,6 +20,30 @@ import tempfile
 DISTRIBUTIONS = ("annotated-types", "pydantic", "pydantic-core", "typing-extensions", "typing-inspection")
 
 
+
+# Liste fermée : le desktop livre les notes, jamais les lanceurs/CLI d’agents.
+MODULES_COFFRE = (
+    "__init__.py", "coffre_cli.py", "obsidian.py", "obsidian_bridge.py",
+    "obsidian_fichiers.py", "client_hermes.py", "coffre.py",
+    "credentials_protection.py", "chemins.py", "verrou.py",
+)
+CONTRATS_COFFRE = (
+    "__init__.py", "_validation.py", "coffre.py", "motifs_secrets.py",
+    "machine.py", "inventaire.py", "quotas.py",
+)
+
+
+def copier_modules_coffre(repo: Path, packages: Path):
+    for source, cible, noms in (
+        (repo / "apps/poste/src/acp_poste", packages / "acp_poste", MODULES_COFFRE),
+        (repo / "hermes/plugins/acp-poste/contrat/acp_poste_contrat",
+         packages / "acp_poste_contrat", CONTRATS_COFFRE),
+    ):
+        cible.mkdir(parents=True, exist_ok=True)
+        for nom in noms:
+            shutil.copy2(source / nom, cible / nom)
+
+
 def construire(repo: Path, output: Path):
     if sys.platform != "win32" or sys.version_info[:2] != (3, 12) or sys.maxsize <= 2**32:
         raise RuntimeError("Le bundle exige Python 3.12 x64 Windows.")
@@ -58,8 +82,7 @@ def construire(repo: Path, output: Path):
             target = packages.joinpath(*parts)
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(source, target)
-    shutil.copytree(repo / "apps/poste/src/acp_poste", packages / "acp_poste", ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
-    shutil.copytree(repo / "hermes/plugins/acp-poste/contrat/acp_poste_contrat", packages / "acp_poste_contrat", ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+    copier_modules_coffre(repo, packages)
     paths = "Lib\nDLLs\npackages\n"
     # Aucun import site : ni .pth, ni site utilisateur, ni PYTHONPATH, ni répertoire courant.
     (runtime / "python312._pth").write_text(paths, encoding="ascii")
@@ -80,13 +103,15 @@ def construire(repo: Path, output: Path):
                 if source.is_file():
                     shutil.copy2(source, licenses / (distribution.metadata["Name"] + "-" + source.name))
     probe = r"""
-import ctypes, hashlib, json, pathlib, ssl, sys, tempfile, time
+import ctypes, hashlib, importlib.util, json, pathlib, ssl, sys, tempfile, time
 from uuid import uuid4
 import pydantic
 from acp_poste.obsidian import CoffreNotes, creer_coffre
 from acp_poste.obsidian_bridge import ProtocoleCoffre
 from acp_poste_contrat.coffre import Operation, Resultat
 assert sys.flags.isolated and sys.flags.no_site
+for module in ('cli', 'execution', 'service', 'service_executant', 'app_server', 'comptes_codex', 'contexte', 'local_runner'):
+    assert importlib.util.find_spec('acp_poste.' + module) is None, module
 assert not any('site-packages' in p or p == '' for p in sys.path)
 with tempfile.TemporaryDirectory(prefix='acp-coffre-paquet-') as temp:
     root = pathlib.Path(temp) / 'Coffre neuf'
@@ -111,8 +136,8 @@ print(json.dumps({'python':sys.version.split()[0], 'pydantic':pydantic.__version
     if completed.returncode:
         raise RuntimeError("La vérification fonctionnelle du runtime a échoué : " + completed.stderr[-3000:])
     evidence = json.loads(completed.stdout)
-    # La CLI complète doit elle aussi s'importer sans l'environnement de build.
-    cli = subprocess.run([str(runtime / "python.exe"), "-I", "-B", "-m", "acp_poste.cli", "obsidian", "--help"],
+    # Le lanceur limité aux notes doit s’importer sans le worker ni l’environnement de build.
+    cli = subprocess.run([str(runtime / "python.exe"), "-I", "-B", "-m", "acp_poste.coffre_cli", "obsidian", "--help"],
         cwd=str(output), capture_output=True, timeout=30)
     if cli.returncode:
         raise RuntimeError("Le lanceur autonome du coffre ne s'importe pas.")
