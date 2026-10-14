@@ -29,8 +29,12 @@ interfaces que nomme la section 1.0.0 (D130), et une rupture de l'une d'elles ap
 
 - Géométrie des messages Markdown : défilement stable pendant la lecture de l’historique.
 - Brouillons du coffre conservés pendant la sauvegarde et les conflits avec une modification dans Obsidian.
+- Textes refusés à l’envoi dans Discussion conservés lors d’un changement de session, y compris après un refus tardif ;
+  une coupure sans accusé est signalée comme un envoi non confirmé, sans répétition automatique.
 - Refus définitif distingué d’un résultat incertain, sans répétition automatique d’une mutation.
 - Liens relatifs du graphe et notes homonymes résolus selon leur contexte.
+- Reprise du pont après purge d’une ancienne opération sur Hermes : son résultat non acquitté reste archivé
+  localement et les nouvelles demandes peuvent reprendre, sans répétition de la mutation.
 
 ### Sécurité
 
@@ -43,10 +47,12 @@ interfaces que nomme la section 1.0.0 (D130), et une rupture de l'une d'elles ap
 
 ### Vérifié localement
 
-- Compilation Qt 6.8.3 / MSVC Release ; 41/41 suites natives réussies en 143,16 s. Captures des quatre thèmes
+- Compilation Qt 6.8.3 / MSVC Release ; 41/41 suites natives réussies en 140,76 s. Captures des quatre thèmes
   en 1280×720 et 1920×1080 contre un faux Hermes ; coffre et graphe relus.
-- Suite Python Windows : 1 407 tests et 464 sous-tests réussis, 107 ignorés selon la plateforme ou les prérequis,
-  aucun échec en 443,99 s après correction des attentes du catalogue navigateur. Les trois tests HTTP tournent
+- Banc Qt : attente de la mise en page avant les clics du coffre, fixture de compatibilité cohérente entre les pages,
+  sorties Qt capturées et journaux CTest conservés en CI. Discussion passe ses 30 cas, dont les refus et coupures tardifs.
+- Suite Python Windows : 1 419 tests et 464 sous-tests réussis, 107 ignorés selon la plateforme ou les prérequis,
+  aucun échec en 909,31 s après correction de la reprise du pont. Les trois tests HTTP tournent
   obligatoirement dans l’image Hermes ; le ciblé réel coffre, machine et catalogue y passe : 30 tests en 47,07 s.
 - Double initialisation SQLite : 20 anciennes tables, leurs lignes et compteurs préservés ; seules les trois tables
   du coffre et leurs index sont ajoutés. Base 1.0.1 et 1.2.0 identique avant cette extension.
@@ -54,6 +60,8 @@ interfaces que nomme la section 1.0.0 (D130), et une rupture de l'une d'elles ap
 - Banc navigateur : attentes strictes de 31 compétences Hermes et 41 entrées du catalogue ; plafond des captures
   porté à 20 000 px CSS, avec refus des pages tronquées conservé. Les trois tests PNG passent ; ils ne
   remplacent pas la validation complète du parcours dans le navigateur.
+- Reprise après purge réelle en SQLite : résultat non acquitté archivé, modification locale et journal préservés,
+  nouvelle lecture réussie ; 38 tests ciblés du pont et de son serveur, sans réexécution de l’écriture.
 - Runtime autonome : imports et parcours sur coffre jetable ; menu PowerShell 5.1 et lanceur CMD vérifiés.
   Aucun test de mutation sur le coffre personnel.
 
