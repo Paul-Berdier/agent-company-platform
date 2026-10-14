@@ -9,10 +9,7 @@ P = "/api/plugins/acp-poste"
 
 @pytest.fixture
 def pile_comptes(pile_machine):
-    from hermes_cli.dashboard_auth.token_auth import register_token_route
-    # La fixture historique ne monte que ROUTES du protocole machine ; le registre produit
-    # ajoute ce chemin dédié avec le même fournisseur et la même identité.
-    register_token_route(C.ROUTE_MACHINE)
+    # Le fixture commun monte les dix routes, comme le registre produit.
     return pile_machine
 
 
@@ -29,6 +26,19 @@ def test_couture_auth_et_cycle_comptes_reels(pile_comptes,noyau,conn):
     assert p.post(P+"/machine/v1/inventaire",inventaire_linux(),jeton=jeton).status_code==200
     corps={"instance_id":str(uuid4()),"libre":True}
     assert p.post(C.ROUTE_MACHINE,corps,jeton=jeton).status_code==200
+    # La route d'inventaire a réellement séparé les relevés et ajouté les alertes.
+    compte=p.get(P+"/v1/comptes").json()["comptes"][0]
+    assert compte["compte_connecte"] is True and compte["version"]=="0.156.1"
+    assert compte["observation"]["etat"]=="a_jour" and compte["observation"]["origine_modeles"]=="compte"
+    assert len(compte["modeles"])==2 and compte["observation"]["quotas"]
+    # Le relevé demandé autorise une nouvelle publication sans attendre la cadence.
+    noyau.ordres.creer(conn,machine,"releve","proprietaire:test")
+    deconnecte=inventaire_linux()
+    deconnecte["connexions"]["codex"]="non_connecte"
+    assert p.post(P+"/machine/v1/inventaire",deconnecte,jeton=jeton).status_code==200
+    compte=p.get(P+"/v1/comptes").json()["comptes"][0]
+    assert compte["compte_connecte"] is False and compte["etat"]=="non_configure"
+    assert compte["observation"]["connexion"]=="non_connecte" and compte["modeles"]==[]
     assert p.post(route,{"idempotency_key":str(uuid4())},jeton=jeton,entetes={"x-test-sans-session":"1"}).status_code==401
     cle=str(uuid4())
     r=p.post(route,{"idempotency_key":cle})

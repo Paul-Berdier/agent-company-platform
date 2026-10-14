@@ -23,6 +23,8 @@ sys.modules[NOM] = paquet
 spec.loader.exec_module(paquet)
 ka = ModuleType(NOM + ".kanban_adapter")
 ka.masquer = lambda texte: texte
+ka.VOIE_INTEGRATION = "poste-integration"
+ka.VOIES_POSTE = ("poste-codex", "poste-claude")
 sys.modules[ka.__name__] = ka
 base = importlib.import_module(NOM + ".base")
 c = importlib.import_module(NOM + ".comptes")
@@ -236,18 +238,67 @@ def test_http_auth_bornes_origine_et_poll_apres_reouverture(banc):
         assert http.post("/v1/comptes/connexions/"+r.json()["id"]+"/annuler",json={},headers=h).json()["etat"]=="annulation_demandee"
 
 
-def test_projection_inventaire_frais_et_logout_observe_sans_inference(banc):
-    inv=json.loads((GREFFON.parents[1]/"tests/outils/fixtures_machine/inventaire_requete_linux.json").read_text(encoding="utf-8"))
+def publier_inventaire(banc, inv):
+    # Vrai réceptionnaire + validation + relevés séparés + SQLite ; seules l'identité
+    # kanban et les données fournisseur restent factices dans ce banc sans Hermes.
+    reception = importlib.import_module(NOM + ".inventaire")
     with banc.ouvrir() as conn:
-        conn.execute("UPDATE inventaires SET contenu=?",(json.dumps(inv),))
+        with base.transaction(conn):
+            reception.recevoir_dans(conn, MACHINE, inv)
+        contenu = json.loads(conn.execute("SELECT contenu FROM inventaires ORDER BY id DESC LIMIT 1").fetchone()[0])
+        assert isinstance(contenu["releves"], dict) and "alertes" in contenu
+
+
+def inventaire_compte():
+    return json.loads((GREFFON.parents[1]/"tests/outils/fixtures_machine/inventaire_requete_linux.json").read_text(encoding="utf-8"))
+
+
+def test_projection_inventaire_recu_et_logout_remplace_connexion_recente(banc):
+    op=creer(banc)
+    echange(banc)
+    echange(banc,observation=observation(op["id"],etat="connecte"))
+    inv=inventaire_compte()
+    publier_inventaire(banc,inv)
+    # Réouverture SQLite et perte des défis éphémères : le relevé persistant suffit.
+    c._DEFIS.clear()
+    with banc.ouvrir() as conn:
         vue=c.etat(conn)["comptes"][0]
         assert vue["compte_connecte"] is True and vue["version"]=="0.156.1"
         assert len(vue["modeles"])==2 and vue["observation"]["quotas"][0]["windows"][0]["used_percent"]==41
+        assert vue["observation"]["etat"]=="a_jour" and vue["observation"]["origine_modeles"]=="compte"
         assert vue["inference_verifiee"] is False
-        inv["connexions"]["codex"]="non_connecte"
-        conn.execute("UPDATE inventaires SET contenu=?",(json.dumps(inv),))
+    banc.horloge[0]+=1
+    inv["connexions"]["codex"]="non_connecte"
+    publier_inventaire(banc,inv)
+    with banc.ouvrir() as conn:
         vue=c.etat(conn)["comptes"][0]
         assert vue["compte_connecte"] is False and vue["modeles"]==[]
+        assert vue["etat"]=="non_configure" and vue["observation"]["connexion"]=="non_connecte"
+        # Le succès historique reste consultable sans supplanter le nouvel inventaire.
+        assert vue["connexion"]["compte_connecte"] is True
         banc.horloge[0]+=7201
         vue=c.etat(conn)["comptes"][0]
         assert vue["compte_connecte"] is None and vue["observation"]["etat"]=="perime"
+
+
+def test_projection_catalogue_embarque_ne_promet_pas_modeles_de_compte(banc):
+    inv=inventaire_compte()
+    inv["releves"][0]["origine_liste"]="catalogue_embarque"
+    publier_inventaire(banc,inv)
+    with banc.ouvrir() as conn:
+        vue=c.etat(conn)["comptes"][0]
+        assert vue["compte_connecte"] is True and vue["modeles"]==[]
+        assert vue["observation"]["origine_modeles"]=="catalogue_embarque"
+        assert vue["inference_verifiee"] is False
+
+
+@pytest.mark.parametrize("alterer", ["absent", "autre_machine", "autre_voie"])
+def test_projection_refuse_reference_de_releve_incoherente(banc,alterer):
+    publier_inventaire(banc,inventaire_compte())
+    with banc.ouvrir() as conn:
+        if alterer=="absent": conn.execute("DELETE FROM releves WHERE voie='poste-codex'")
+        elif alterer=="autre_machine": conn.execute("UPDATE releves SET machine_id=NULL WHERE voie='poste-codex'")
+        else: conn.execute("UPDATE releves SET voie='poste-claude' WHERE voie='poste-codex'")
+        vue=c.etat(conn)["comptes"][0]
+        assert vue["compte_connecte"] is None and vue["modeles"]==[]
+        assert vue["observation"]["etat"]=="inconnu"

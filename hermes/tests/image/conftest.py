@@ -588,8 +588,9 @@ def pile_machine(noyau, monkeypatch):
     fournisseur = jeton_machine.FournisseurJetonMachine()
     register_global_provider(fournisseur)
     from acp_poste_contrat.machine import ROUTES
+    from acp_poste_contrat.comptes import ROUTE_MACHINE as ROUTE_COMPTES
 
-    for chemin in ROUTES:
+    for chemin in (*ROUTES, ROUTE_COMPTES):
         register_token_route(chemin)
     application = FastAPI()
 

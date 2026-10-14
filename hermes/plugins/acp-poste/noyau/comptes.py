@@ -94,7 +94,32 @@ def _inventaire_compte(conn, machine_id, connexion):
     if ligne is None:
         return None, None, [], observation
     try:
-        inventaire = valider_inventaire(json.loads(ligne["contenu"]))
+        # recevoir_dans() stocke les relevés séparément : le document interne porte
+        # leurs ID par voie et ses alertes, pas le corps InventairePoste reçu.
+        contenu = json.loads(ligne["contenu"])
+        if not isinstance(contenu, dict):
+            raise ValueError("Inventaire stocké invalide")
+        references = contenu.get("releves")
+        if not isinstance(references, dict) or not 1 <= len(references) <= 2:
+            raise ValueError("Références de relevés invalides")
+        releves = []
+        for voie, identifiant in references.items():
+            if voie not in ("poste-codex", "poste-claude") or type(identifiant) is not int or identifiant <= 0:
+                raise ValueError("Référence de relevé invalide")
+            releve = conn.execute("SELECT contenu FROM releves WHERE id=? AND machine_id=? AND voie=?",
+                                  (identifiant, machine_id, voie)).fetchone()
+            if releve is None:
+                raise ValueError("Relevé manquant ou étranger")
+            donnees = json.loads(releve["contenu"])
+            if not isinstance(donnees, dict) or donnees.get("voie") != voie:
+                raise ValueError("Contenu de relevé incohérent")
+            # Le greffon a calculé ce résumé au stockage ; InventairePoste exige
+            # sa forme d'entrée null. La vue utilise les compteurs source validés.
+            donnees["quotas"] = None
+            releves.append(donnees)
+        contenu["releves"] = releves
+        contenu.pop("alertes", None)
+        inventaire = valider_inventaire(contenu)
     except (ValueError, TypeError):
         return None, None, [], observation
     observation["recu_le"] = ligne["recu_le"]
