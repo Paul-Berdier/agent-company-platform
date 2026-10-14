@@ -5,6 +5,59 @@ Le projet suit le versionnage sémantique. Tant que la version majeure restait �
 les interfaces pouvaient encore évoluer entre deux versions mineures ; depuis 1.0.0, l'engagement porte sur les
 interfaces que nomme la section 1.0.0 (D130), et une rupture de l'une d'elles appelle une nouvelle version majeure.
 
+## [2.0.0] — en cours, non publiée
+
+### Ajouté
+
+- Connexion Codex officielle déclenchée dans le desktop et suivie sur l'exécutant
+  Linux : code temporaire, annulation, idempotence et réconciliation sans second login.
+- Journal public d'exécution paginé, sessions natives, état des outils et modèle
+  effectivement rapporté ; événements conservés avant envoi et dédupliqués dans Hermes.
+- Vue Comptes séparant accès ACP, moteurs et coordinateur Hermes.
+
+### Modifié
+
+- Navigation principale : Projets, Activité, À valider, Comptes et modèles, Paramètres.
+- Les missions sont réservées aux exécutants Linux distants. Le desktop reste
+  un client Qt ; anciennes identités et données conservées.
+- Le paquet facultatif des notes n'embarque plus les modules ni lanceurs du worker.
+
+### Corrigé
+
+- Une perte de réponse de connexion n'entraîne pas un deuxième login.
+- Une réponse d'une ancienne session Qt ne remplace pas l'état de la nouvelle.
+- Un refus d'événement persistant ne peut pas être masqué par une fin de tâche réussie.
+
+### Sécurité
+
+- Liste fermée des méthodes d'authentification, URL officielle contrôlée,
+  magasin d'identifiants géré par Codex sous son UID distant.
+- Aucun code d'appareil ni jeton fournisseur conservé dans le journal/SQLite ACP.
+- Événements publics filtrés et masqués avant découpage ; aucune sortie brute d'outil
+  ni raisonnement privé transmis.
+- Gardes d'isolement, de dépôts et de dépenses conservées.
+
+### Vérifié localement
+
+- Suite Python : 1 473 tests et 464 sous-tests réussis, 108 tests ignorés
+  explicitement ; derniers correctifs revalidés dans leurs suites ciblées.
+- Qt 6.8.3 : compilation, 43 suites natives et captures de quatre thèmes
+  sur deux tailles, avec données simulées signalées.
+- Contrôles de versions, thèmes générés, catalogue et moteur Pixel Office gelé.
+- Paquet de notes Python 3.12 isolé : créer/lire/écrire/archiver/graphe sur un coffre
+  temporaire, menu PowerShell 5.1, absence des modules d'exécution.
+- Les bilans complets et les essais distants sont suivis dans
+  [remote-only.md](docs/refonte/remote-only.md).
+
+### Limites connues
+
+- Aucun compte fournisseur personnel connecté ni inférence réelle prouvée dans ce lot.
+- Connexions graphiques Claude/Vibe et déconnexion Codex encore absentes.
+- Création distante des dépôts, fichiers/diff/artefacts téléchargeables,
+  publication GitHub et workspace complet restent à compléter.
+- Aucun déploiement ni installation personnelle : seule la production Railway a
+  été identifiée. La version 2.0 n'est pas une release prête à installer.
+
 ## [1.2.0] - 2026-10-14 — workspace Hermes et coffre Obsidian
 
 ### Ajouté
