@@ -250,7 +250,9 @@ def test_projet_sur_depot_refuse_windows_puis_accepte_linux_distant_simule(pile)
     demande = {"titre": "Projet sur le dépôt jetable", "objectif": "Vérifier le dépôt.", "depot": "jetable",
                "exploration": {"voie": "poste-codex", "modele": "factice-codex-1", "effort": "low"}}
     code, refuse = api(pile, "POST", "/v1/projets", demande)
-    assert code == 400 and refuse["detail"]["code"] == "voie_fermee", (code, refuse)
+    # La création de projet expose le refus de routage sous son code public exploration.
+    assert code == 400 and refuse["detail"]["code"] == "exploration", (code, refuse)
+    assert "la voie poste-codex est fermée" in refuse["detail"]["message"]
     assert "serveur distant Linux" in refuse["detail"]["message"]
     # L'ordre autorise un nouveau relevé sans attendre le délai anti-spam. Aucun agent réel.
     assert api(pile, "POST", "/v1/poste/releve", {})[0] == 202
