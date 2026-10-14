@@ -1,6 +1,7 @@
 # Préparer la mise à jour vers ACP 2.0
 
-**Statut : préparation, non déployée. Aucun installateur personnel 2.0 prêt.**
+**Statut : préparation, non déployée.**
+Un candidat Windows 2.0 a été construit, mais il n’est pas encore prêt à installer.
 Ce guide décrit le parcours prévu après les dernières validations et
 l’autorisation applicable. Il ne demande aucune action de production maintenant.
 Le commit exact validé (SHA) et le futur installateur devront être indiqués
@@ -24,8 +25,11 @@ budget existant ; aucun coût supplémentaire n'est autorisé par ce guide.
 1. Mettez les projets en pause et attendez qu’aucune tâche ne soit en cours.
 2. Dans Railway, sauvegardez **`executant-donnees` puis `hermes-donnees`**,
    dans cet ordre. Notez les heures et les références des sauvegardes.
-3. Faites l’**export chiffré** depuis ACP et conservez-le avec son mot de passe
-   en lieu sûr. Vérifiez que les sauvegardes et l’export sont disponibles.
+3. Faites l’**export chiffré** depuis ACP et conservez le fichier ainsi que le
+   profil Windows qui l’a créé. L’export est protégé par Windows (DPAPI), sans
+   mot de passe distinct : perdre ce profil peut rendre le fichier inutilisable.
+   La sauvegarde de volume Railway reste la sauvegarde principale.
+   Vérifiez que les sauvegardes et l’export sont disponibles.
 4. Préparez le retour arrière avec le
    [manuel, § 6.4](exploitation.md#64-vos-gestes-et-le-point-de-non-retour).
    Revenir à une ancienne image ne remet pas automatiquement les données d’avant.
