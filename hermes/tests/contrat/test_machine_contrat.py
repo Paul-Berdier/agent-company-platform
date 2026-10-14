@@ -10,7 +10,7 @@ Ce qui est prouvé ici, sur l'image réellement construite :
 - les trois chemins machine ne répondent qu'au jeton machine (401 de la couture sans porteur, avec la session OIDC
   du propriétaire, avec un jeton d'une autre forme) ; étape P6 : les six routes de l'exécution sont des chemins à
   jeton (le gestionnaire répond, 422 sur un corps vide) — leur parcours est prouvé par test_execution_contrat.py ;
-- /v1/meta voit, dans le tableau de bord, le fournisseur enregistré et les neuf chemins à jeton (P6) ;
+- /v1/meta voit, dans le tableau de bord, le fournisseur enregistré et les dix chemins à jeton (P6 + comptes) ;
 - enrôlement par code à usage unique, empreinte recalculée identique, confirmation par la page, présence ;
 - inventaire visible dans le poste, le routage et les quotas ; un projet sur dépôt n'est plus refusé ;
 - ordre « Relever maintenant » servi en moins de 3 s ; révocation pendant l'attente : 401 poste_revoque aussitôt,
@@ -177,7 +177,7 @@ def test_meta_bloc_machine(pile):
     machine = meta["machine"]
     afficher("/v1/meta : bloc machine", json.dumps(machine, ensure_ascii=False, indent=1))
     assert machine["fournisseur"] == "enregistre" and all(machine["chemins_a_jeton"].values())
-    assert len(machine["chemins_a_jeton"]) == 9 and machine["base"] == "ok"  # étape P6 : neuf chemins exacts
+    assert len(machine["chemins_a_jeton"]) == 10 and machine["base"] == "ok"  # P6 + comptes distants
     assert "self-hosted" in machine["fournisseurs_de_session"]
     assert not any("jeton machine" in a or "chemins machine" in a.lower() or "connexion interactive" in a
                    for a in meta["alertes"]), meta["alertes"]
@@ -246,10 +246,19 @@ def test_inventaire_visible_dans_poste_routage_quotas(pile):
                                                           ensure_ascii=False, indent=1))
 
 
-def test_projet_sur_depot_accepte_apres_inventaire(pile):
-    code, projet = api(pile, "POST", "/v1/projets", {
-        "titre": "Projet sur le dépôt jetable", "objectif": "Vérifier le dépôt.", "depot": "jetable",
-        "exploration": {"voie": "poste-codex", "modele": "factice-codex-1", "effort": "low"}})
+def test_projet_sur_depot_refuse_windows_puis_accepte_linux_distant_simule(pile):
+    demande = {"titre": "Projet sur le dépôt jetable", "objectif": "Vérifier le dépôt.", "depot": "jetable",
+               "exploration": {"voie": "poste-codex", "modele": "factice-codex-1", "effort": "low"}}
+    code, refuse = api(pile, "POST", "/v1/projets", demande)
+    assert code == 400 and refuse["detail"]["code"] == "voie_fermee", (code, refuse)
+    assert "serveur distant Linux" in refuse["detail"]["message"]
+    # L'ordre autorise un nouveau relevé sans attendre le délai anti-spam. Aucun agent réel.
+    assert api(pile, "POST", "/v1/poste/releve", {})[0] == 202
+    assert faux(pile, "reclamer", "--attente", "5")["corps"]["ordres"]
+    assert faux(pile, "inventaire", "--linux-distant")["statut"] == 200
+    vue = api(pile, "GET", "/v1/poste")[1]["inventaire"]["contenu"]
+    assert (vue["poste"]["plateforme"], vue["poste"]["hote"]) == ("linux", "railway")
+    code, projet = api(pile, "POST", "/v1/projets", demande)
     assert code == 201, projet
     assert projet["projet"]["depot"] == "jetable" and projet["projet"]["id"].startswith("p_")
 

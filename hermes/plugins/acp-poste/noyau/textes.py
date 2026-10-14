@@ -331,8 +331,8 @@ LISTE_DE_SECOURS = ("le relevé Codex du {date} est une liste de secours ({raiso
 RAISON_IDENTIQUE_EMBARQUE = "identique au catalogue embarqué de Codex {v}"
 RAISON_SANS_COMPTE = "Codex sans compte ChatGPT : catalogue embarqué"
 CLI_HORS_VERSION = "{cli} {lue} n'est pas la version testée par le poste ({testee})."
-INTERDIT_PAR_LE_POSTE = ("le poste refuse {objet} (poste.toml, [politique] {cle}) ; seule une modification locale sur "
-                         "le PC peut le lever.")
+INTERDIT_PAR_LE_POSTE = ("le poste refuse {objet} (poste.toml, [politique] {cle}) ; seule une modification de la politique sur "
+                         "le serveur distant peut le lever.")
 EFFORTS_INCONNUS = "efforts de « {alias} » inconnus pour Claude Code {version} (documentation relevée le {date})."
 SUGGESTION_SANS_DEFAUT_CLAUDE = "Aucune suggestion : le relevé Claude ne désigne pas de modèle par défaut."
 SUGGESTION_SANS_DEFAUT = "Aucune suggestion : le relevé de {v} ne désigne pas de modèle par défaut."

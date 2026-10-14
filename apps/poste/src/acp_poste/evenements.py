@@ -271,3 +271,101 @@ def sortie_claude(flux: FluxClaude) -> Any:
     if structure is not None:
         return structure
     return flux.resultat.get("result")
+
+
+class ProjectionPublique:
+    """Liste blanche de faits publics : jamais arguments, sorties d'outils ni raisonnement.
+
+    Le balayage porte sur le texte entier AVANT découpage, y compris les identifiants.
+    La tentative distingue plusieurs invocations du moteur dans un même run ACP.
+    """
+
+    def __init__(self, moteur, nettoyer, horloge):
+        import uuid
+        self.moteur, self.nettoyer, self.horloge = moteur, nettoyer, horloge
+        self.tentative_id, self.ordre = str(uuid.uuid4()), 0
+        self.session = self.modele = None
+
+    def _identifiant(self, valeur):
+        if not isinstance(valeur, str) or not re.fullmatch(r"[A-Za-z0-9_.:/-]{1,128}", valeur):
+            return None
+        # Une valeur remplacée par le balayage ne peut pas devenir un identifiant.
+        return valeur if self.nettoyer(valeur) == valeur else None
+
+    def recevoir(self, ligne):
+        import uuid
+        from acp_poste_contrat.machine import EvenementExecution
+        resultats = []
+
+        def ajouter(genre, texte="", *, outil=None, item=None, parent=None):
+            texte = self.nettoyer(_CONTROLES.sub("", str(texte)))
+            for debut in range(0, max(1, len(texte)), 500):
+                self.ordre += 1
+                document = dict(id=str(uuid.uuid4()), tentative_id=self.tentative_id, ordre=self.ordre,
+                    quand=self.horloge().isoformat(), moteur=self.moteur, genre=genre,
+                    session_native=self.session, modele_servi=self.modele,
+                    parent_natif=self._identifiant(parent), item_natif=self._identifiant(item),
+                    outil=self._identifiant(outil), texte=texte[debut:debut + 500])
+                resultats.append(EvenementExecution.model_validate(document).model_dump(mode="json"))
+
+        for evenement in _lignes_json([ligne]):
+            genre = evenement.get("type")
+            if self.moteur == "codex":
+                if genre == "thread.started":
+                    self.session = self._identifiant(evenement.get("thread_id"))
+                    ajouter("session", "Session Codex démarrée.")
+                elif genre in ("item.started", "item.completed"):
+                    item = evenement.get("item")
+                    if not isinstance(item, dict):
+                        continue
+                    sorte, identifiant = item.get("type"), item.get("id")
+                    if sorte == "agent_message" and genre == "item.completed":
+                        if isinstance(item.get("text"), str):
+                            ajouter("message", item["text"], item=identifiant)
+                    elif sorte in ("command_execution", "mcp_tool_call", "web_search"):
+                        nom = {"command_execution": "shell", "web_search": "web_search"}.get(sorte, item.get("tool"))
+                        ajouter("outil", "Outil démarré." if genre == "item.started" else "Outil terminé.",
+                                outil=nom, item=identifiant)
+                    elif sorte == "file_change" and genre == "item.completed":
+                        for changement in (item.get("changes") if isinstance(item.get("changes"), list) else [])[:100]:
+                            if isinstance(changement, dict) and isinstance(changement.get("path"), str):
+                                ajouter("fichier", changement["path"], item=identifiant)
+                elif genre == "turn.completed":
+                    ajouter("termine", "Tour Codex terminé ; validation ACP à suivre.")
+                elif genre in ("turn.failed", "error"):
+                    ajouter("erreur", "Le moteur Codex a signalé un échec.")
+            else:
+                self.session = self._identifiant(evenement.get("session_id")) or self.session
+                parent = evenement.get("parent_tool_use_id")
+                if genre == "system" and evenement.get("subtype") == "init":
+                    self.modele = self._identifiant(evenement.get("model"))
+                    ajouter("session", "Session Claude démarrée.", parent=parent)
+                elif genre == "assistant":
+                    message = evenement.get("message")
+                    if not isinstance(message, dict):
+                        continue
+                    self.modele = self._identifiant(message.get("model")) or self.modele
+                    contenu = message.get("content")
+                    if not isinstance(contenu, list):
+                        continue
+                    for bloc in contenu:
+                        if not isinstance(bloc, dict):
+                            continue
+                        if bloc.get("type") == "text" and isinstance(bloc.get("text"), str):
+                            ajouter("message", bloc["text"], item=message.get("id"), parent=parent)
+                        elif bloc.get("type") == "tool_use":
+                            ajouter("outil", "Outil demandé.", outil=bloc.get("name"), item=bloc.get("id"), parent=parent)
+                elif genre == "user":
+                    message = evenement.get("message")
+                    contenu = message.get("content") if isinstance(message, dict) else None
+                    if isinstance(contenu, list):
+                        for bloc in contenu:
+                            if isinstance(bloc, dict) and bloc.get("type") == "tool_result":
+                                ajouter("outil", "Résultat d’outil reçu.", item=bloc.get("tool_use_id"), parent=parent)
+                elif genre == "result":
+                    ajouter("erreur" if evenement.get("is_error") else "termine",
+                            "Le moteur Claude a signalé un échec." if evenement.get("is_error") else
+                            "Tour Claude terminé ; validation ACP à suivre.", parent=parent)
+                elif genre == "rate_limit_event":
+                    ajouter("limite", "État de limite signalé par Claude.", parent=parent)
+        return resultats

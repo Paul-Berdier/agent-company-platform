@@ -42,6 +42,8 @@ from acp_poste_contrat.machine import (  # noqa: E402
 
 _log = logging.getLogger(__name__)
 
+from acp_poste_contrat.comptes import ROUTE_MACHINE as ROUTE_COMPTES
+
 NOM = "acp-poste-machine"
 PORTEE_MACHINE = "machine"
 PORTEE_ENROLEMENT = "enrolement"
@@ -146,14 +148,14 @@ def enregistrer(ctx) -> None:
     ``HERMES_DASHBOARD_OIDC_ISSUER`` ni ``HERMES_DASHBOARD_OIDC_CLIENT_ID`` ; l'écart restant est dit dans
     docs/refonte/poste.md § 11."""
     ctx.register_dashboard_auth_provider(FournisseurJetonMachine())
-    for chemin in ROUTES:
+    for chemin in (*ROUTES, ROUTE_COMPTES):
         aa.register_token_route(chemin)
 
 
 def etat_dans_ce_processus() -> dict:
     """Bloc de ``/v1/meta`` : fournisseur enregistré ? chemins à jeton en place ? fournisseurs de session ?"""
     jetons = [p for p in aa.list_token_providers() if getattr(p, "name", None) == NOM]
-    chemins = {chemin: bool(aa.is_token_route(chemin)) for chemin in ROUTES}
+    chemins = {chemin: bool(aa.is_token_route(chemin)) for chemin in (*ROUTES, ROUTE_COMPTES)}
     sessions = [getattr(p, "name", "?") for p in aa.list_session_providers()]
     return {"fournisseur": "enregistre" if jetons else "absent", "chemins_a_jeton": chemins,
             "fournisseurs_de_session": sessions}

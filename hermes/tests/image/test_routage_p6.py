@@ -62,10 +62,12 @@ def test_conditions_non_decidees_ferment_la_voie(noyau, conn):
             in reponse["alertes"])
 
 
-def test_inventaire_windows_p5_ne_ferme_rien(noyau, conn):
+def test_ancien_inventaire_windows_ferme_les_moteurs(noyau, conn):
     machine, _jeton = poste_confirme(noyau, conn)
     _recevoir(noyau, conn, machine, inventaire_factice())
-    assert noyau.routage.voies_fermees(conn) == {}
+    fermees = noyau.routage.voies_fermees(conn)
+    assert set(fermees) == {"poste-codex", "poste-claude"}
+    assert all("serveur distant" in raison for raison in fermees.values())
 
 
 def test_relecture_repli_meme_voie_autre_modele(noyau, conn):

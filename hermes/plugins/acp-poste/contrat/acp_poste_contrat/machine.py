@@ -755,7 +755,7 @@ class ErreurMachine(_Contrat):
 # ------------------------------------------------------------------ routes de l'exécution (étape P6, § 5.3 à § 5.8)
 
 GENRES_BLOCAGE = ("capacite", "quota", "secret", "memoire", "disque", "duree", "politique")
-MOTIFS_REPRENDRE = ("redemarrage", "reclamation_perdue")
+MOTIFS_REPRENDRE = ("redemarrage", "reclamation_perdue", "compte_occupe")
 MOTIFS_ARRET = ("sigterm", "pause_locale", "annulee")
 REGIMES = ("A", "B", "inconnu")
 ETATS_VERIFICATION = ("reussie", "echouee", "non_executee")
@@ -814,10 +814,79 @@ class _RequeteCarte(_Contrat):
         return _entier(valeur, "run_id", 1, 2**62)
 
 
+class EvenementExecution(_Contrat):
+    """Projection publique bornée d'un moteur : aucun raisonnement ni flux brut."""
+
+    id: str
+    tentative_id: str
+    ordre: int
+    quand: str
+    moteur: str
+    genre: str
+    session_native: Optional[str] = None
+    modele_servi: Optional[str] = None
+    parent_natif: Optional[str] = None
+    item_natif: Optional[str] = None
+    outil: Optional[str] = None
+    texte: str = ""
+
+    @field_validator("id", "tentative_id", mode="before")
+    @classmethod
+    def _uuid(cls, valeur: Any, info) -> str:
+        return _identifiant(valeur, info.field_name, ID_ENVOI, 36)
+
+    @field_validator("ordre", mode="before")
+    @classmethod
+    def _ordre(cls, valeur: Any) -> int:
+        return _entier(valeur, "ordre", 1, 100_000)
+
+    @field_validator("quand", mode="before")
+    @classmethod
+    def _quand(cls, valeur: Any) -> str:
+        return _instant(valeur, champ="quand").isoformat()
+
+    @field_validator("moteur", mode="before")
+    @classmethod
+    def _moteur(cls, valeur: Any) -> str:
+        if valeur not in ("codex", "claude"):
+            raise ValueError("Moteur d'événement inconnu.")
+        return valeur
+
+    @field_validator("genre", mode="before")
+    @classmethod
+    def _genre(cls, valeur: Any) -> str:
+        if valeur not in ("session", "message", "outil", "fichier", "termine", "erreur", "limite"):
+            raise ValueError("Genre d'événement public inconnu.")
+        return valeur
+
+    @field_validator("session_native", "modele_servi", "parent_natif", "item_natif", "outil", mode="before")
+    @classmethod
+    def _id_public(cls, valeur: Any, info) -> Optional[str]:
+        if valeur is None:
+            return None
+        return _identifiant(valeur, info.field_name, re.compile(r"[A-Za-z0-9_.:/-]{1,128}"), 128)
+
+    @field_validator("texte", mode="before")
+    @classmethod
+    def _texte_public(cls, valeur: Any) -> str:
+        return "" if valeur == "" else _texte(valeur, champ="texte", maximum=500)
+
+
 class RequeteBattement(_RequeteCarte):
     """Toutes les 60 s ; ``note`` est composée par l'exécutant (étape, compte des tests), jamais une sortie brute."""
 
     note: str
+    evenements: List[EvenementExecution] = []
+
+    @field_validator("evenements", mode="before")
+    @classmethod
+    def _evenements(cls, valeur: Any) -> Any:
+        if not isinstance(valeur, list) or len(valeur) > 4:
+            raise ValueError("Un battement porte au plus quatre événements publics.")
+        documents = [v.model_dump(mode="json") if isinstance(v, EvenementExecution) else v for v in valeur]
+        if len(json.dumps(documents, ensure_ascii=False).encode("utf-8")) > 6144:
+            raise ValueError("Lot d’événements publics trop volumineux.")
+        return valeur
 
     @field_validator("note", mode="before")
     @classmethod
@@ -832,6 +901,14 @@ class ReponseBattement(_Contrat):
     valide: bool
     pause: bool
     annuler: bool
+    evenements_recus: List[str] = []
+
+    @field_validator("evenements_recus", mode="before")
+    @classmethod
+    def _recus(cls, valeur: Any) -> List[str]:
+        if not isinstance(valeur, list) or len(valeur) > 4:
+            raise ValueError("Acquittement d’événements invalide.")
+        return [_identifiant(v, "evenements_recus", ID_ENVOI, 36) for v in valeur]
 
     @field_validator("valide", "pause", "annuler", mode="before")
     @classmethod

@@ -395,6 +395,11 @@ def depots_du_poste(conn, inventaire: Optional[Dict[str, Any]] = None) -> List[D
 
 def _voies_fermees_du_poste(inventaire: Dict[str, Any]) -> Dict[str, str]:
     """Fermetures qui valent pour TOUT dépôt (isolement, bac à sable, conditions d'usage)."""
+    from . import distant
+
+    raison = distant.raison_inventaire(inventaire)
+    if raison is not None:
+        return {"poste-codex": raison, "poste-claude": raison}
     fermees: Dict[str, str] = {}
     isolement = inventaire.get("isolement_linux")
     bac = inventaire.get("bac_a_sable_codex")

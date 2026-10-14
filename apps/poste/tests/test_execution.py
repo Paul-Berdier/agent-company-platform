@@ -73,7 +73,8 @@ class Hermes:
             raise self.panne
         self.envois.append((route, corps))
         if route == "battement":
-            return contrat.ReponseBattement.model_validate(self.battement)
+            return contrat.ReponseBattement.model_validate(dict(self.battement,
+                evenements_recus=[e["id"] for e in corps.get("evenements", [])]))
         reponses = {"terminer": ("ReponseTerminer", {"etat": "done"}),
                     "question": ("ReponseQuestion", {"question": "q_0123456789ab", "etat": "ouverte"}),
                     "bloquer": ("ReponseBloquer", {"etat": "bloquee"}),

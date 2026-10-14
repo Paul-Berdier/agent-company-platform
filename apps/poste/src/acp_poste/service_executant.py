@@ -131,6 +131,23 @@ class ServiceExecutant(Service):
         self.demarrage_fait = False
         self.annonce: dict[str, Any] = {}
         self.prochaine_purge = 0.0  # monotone : la première au premier tour, puis toutes les 24 h
+        from .comptes_codex import ControleurComptes
+        # Le long-poll et les comptes ont chacun leur transport interruptible.
+        from .protocole import Protocole
+        protocole_comptes = protocole if protocole is not None else Protocole(contexte.client(politique))
+        self.comptes = ControleurComptes(contexte, politique, protocole_comptes, jeton,
+            libre=lambda: self.politique_valide and not self.suspendu and (self.tache_carte is None or self.tache_carte.done()),
+            apres=self.demande.set,
+            autorise=lambda: self.politique_valide and not self.fin.is_set()
+                and self.politique.hermes.origine == politique.hermes.origine,
+            refus_definitif=self._refus_definitif,
+            politique_courante=lambda: self.politique,
+            suspendre=self._suspendre_compte)
+
+    def _suspendre_compte(self) -> None:
+        self.suspendu = SUSPENDU
+        self.journal.ecrire("erreur", "execution_suspendue", SUSPENDU)
+        console(SUSPENDU)
 
     @staticmethod
     def _verif(contexte: Contexte) -> dict[str, Any]:
@@ -240,6 +257,8 @@ class ServiceExecutant(Service):
         voies: list[str] = []
         if self.suspendu:
             raison = self.suspendu
+        elif self.comptes.occupe:
+            raison = "Connexion du compte Codex en cours sur le serveur."
         elif self.arret_global.is_set():
             raison = "Arrêt de l'exécutant en cours."
         elif not self.politique_valide:
@@ -273,6 +292,13 @@ class ServiceExecutant(Service):
         return self.calculer_annonce()
 
     def _carte_recue(self, carte: Any) -> None:
+        if self.comptes.occupe:
+            # La carte est déjà attribuée : restitution durable avant le prochain
+            # long-poll, y compris si le réseau ou le superviseur tombe entre-temps.
+            self.sortie.deposer("reprendre", {"tableau": carte.tableau, "carte": carte.carte,
+                                            "run_id": carte.run_id, "motif": "compte_occupe"})
+            self.journal.ecrire("info", "compte_occupe", "Restitution de la carte enregistrée pendant la connexion du compte.", carte=carte.carte)
+            return
         if self.tache_carte is not None and not self.tache_carte.done():
             self.journal.ecrire("erreur", "carte_en_trop", "Carte servie alors qu'une carte est en main : ignorée "
                                 "(elle reviendra à l'échéance de sa réclamation).", carte=carte.carte)
@@ -386,7 +412,7 @@ class ServiceExecutant(Service):
         self._apres_issue(issue)
 
     def _releves_permis(self) -> bool:
-        if self._pause_locale():
+        if self._pause_locale() or self.comptes.occupe or self.suspendu:
             return False
         return self.tache_carte is None or self.tache_carte.done()
 
@@ -432,8 +458,8 @@ class ServiceExecutant(Service):
         echeance = self.echeance_jeton_claude()
         if echeance is not None and (echeance - self.horloge().date()).days <= PREAVIS_JETON_CLAUDE_JOURS:
             message = (f"Jeton Claude de l'exécutant : expiration estimée le {echeance.isoformat()} (setup-token "
-                       "valable un an) ; renouvelez-le (« claude setup-token » sur votre PC, puis « acp-poste "
-                       "connexion claude --stdin » dans une session railway ssh).")
+                       "valable un an) ; renouvelez la connexion officielle de Claude Code sur le serveur. "
+                       "Le parcours graphique de renouvellement n’est pas encore disponible.")
             if self.journal.ecrire_au_plus("echeance_jeton_claude", 86400, "avertissement", "echeance_jeton",
                                            message):
                 console(message)
@@ -468,7 +494,8 @@ class ServiceExecutant(Service):
                             regime=self.isolement.get("regime"))
         taches = [asyncio.create_task(self._garde(self._attendre(), "attente")),
                   asyncio.create_task(self._garde(self._relever(), "relevés")),
-                  asyncio.create_task(self._garde(self._surveiller(), "surveillance"))]
+                  asyncio.create_task(self._garde(self._surveiller(), "surveillance")),
+                  asyncio.create_task(self._garde(self.comptes.servir(self.fin), "comptes distants"))]
         try:
             try:
                 await asyncio.wait_for(self.fin.wait(), timeout=duree_max_s)

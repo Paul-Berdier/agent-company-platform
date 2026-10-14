@@ -203,8 +203,10 @@ class Banc:
         self.executant = r.nom("executant")
         r.conteneurs.append(self.executant)
         assert self.image_executant, "construire_executant() d'abord"
+        # Hébergement Railway SIMULÉ dans ce conteneur jetable ; aucun appel à Railway.
+        # La garde remote-only refuserait sinon l'hôte « pc » annoncé par le vrai worker Linux.
         docker("run", "-d", "--name", self.executant, "--network", self.reseau, "-v",
-               f"{self.volume_executant}:/donnees", self.image_executant)
+               f"{self.volume_executant}:/donnees", "-e", "RAILWAY_SERVICE_ID=acp-banc-simule", self.image_executant)
         attendre(lambda: "[acp] volume prêt" in docker("logs", self.executant, verifier=False).stdout, 60,
                  "entrée de l'exécutant non passée")
 
