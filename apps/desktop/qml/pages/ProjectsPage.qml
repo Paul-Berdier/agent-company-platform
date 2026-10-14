@@ -95,7 +95,7 @@ Item {
                 }
                 Discret {
                     visible: Projets.vue === "liste"
-                    text: qsTr("Retrouvez le travail en cours et reprenez là où vous en étiez.")
+                    text: qsTr("Vos projets s’exécutent sur le serveur distant. Fermer ce client ne les arrête pas.")
                 }
             }
             AcpButton {
@@ -702,51 +702,7 @@ Item {
                         }
                     }
                 }
-                ColumnLayout {
-                    spacing: Space.space5
-                    TitreSection {
-                        text: qsTr("Journal du projet")
-                    }
-                    Discret {
-                        text: qsTr("Les événements rapportés par Hermes, dans l'ordre fourni par le serveur.")
-                    }
-                    Discret {
-                        visible: Projets.journal.count === 0
-                        text: qsTr("Aucun événement pour l'instant.")
-                    }
-                    ListView {
-                        id: listeJournal
-                        Layout.fillWidth: true
-                        Layout.fillHeight: true
-                        clip: true
-                        spacing: Space.space4
-                        model: Projets.journal
-                        ScrollBar.vertical: ScrollBar {}
-                        delegate: ColumnLayout {
-                            id: evenement
-                            required property var item
-                            width: listeJournal.width - Space.space5
-                            spacing: Space.space3
-                            Discret {
-                                text: evenement.item.quand + "  ·  " + evenement.item.acteur
-                            }
-                            TitreSection {
-                                font.pixelSize: Type.tableCellEmphasis.pixelSize
-                                text: [evenement.item.action, evenement.item.cible].filter(t => t.length > 0).join(" · ")
-                            }
-                            BlocTexte {
-                                Layout.fillWidth: true
-                                visible: evenement.item.detail.length > 0
-                                texte: evenement.item.detail
-                            }
-                            Rectangle {
-                                Layout.fillWidth: true
-                                height: 1
-                                color: Colors.borderSubtle
-                            }
-                        }
-                    }
-                }
+                JournalProjet {}
                 ScrollView {
                     id: defilementReglages
                     objectName: "projets-reglages"
@@ -1101,6 +1057,7 @@ Item {
                     }
                 }
                 Discret {
+                    objectName: "projets-aide-depot"
                     visible: formulaire.f.aideDepot.length > 0
                     text: formulaire.f.aideDepot
                 }
@@ -1117,7 +1074,7 @@ Item {
                 }
                 Discret {
                     text: formulaire.f.routageAutomatique
-                        ? qsTr("Auto choisit dans la table de routage autorisée et respecte vos verrous. Après connexion et relevé : Assistants → Modèles d'exécution, relisez et appliquez les suggestions souhaitées, puis Valider la table.")
+                        ? qsTr("Auto choisit dans la table de routage autorisée et respecte vos verrous. Après connexion et relevé : Comptes et modèles → Modèles d'exécution, relisez et appliquez les suggestions souhaitées, puis Valider la table.")
                         : qsTr("Choix manuel : les paramètres d'exploration ci-dessous sont envoyés explicitement.")
                 }
 
@@ -1158,7 +1115,7 @@ Item {
                     }
 
                     Alerte {
-                        text: formulaire.f.releveFactice ? qsTr("Relevé factice : ces modèles viennent d'un relevé de test, pas de votre poste.") : ""
+                        text: formulaire.f.releveFactice ? qsTr("Relevé factice : ces modèles viennent d'un relevé de test, pas de votre serveur.") : ""
                     }
 
                     ColumnLayout {
@@ -1174,7 +1131,7 @@ Item {
                             font.weight: Type.panelTitle.weight
                         }
                         Discret {
-                            text: qsTr("Le poste lit le dépôt, sans rien y modifier, avant la planification.")
+                            text: qsTr("Le serveur distant lit le dépôt, sans rien y modifier, avant la planification.")
                         }
                         Discret {
                             text: qsTr("Exécutant")
@@ -1244,7 +1201,7 @@ Item {
                             text: qsTr("Relevé du %1").arg(formulaire.f.releveDu)
                         }
                         Alerte {
-                            text: formulaire.f.relevePerime ? qsTr("Relevé périmé : le poste doit publier un nouvel inventaire.") : ""
+                            text: formulaire.f.relevePerime ? qsTr("Relevé périmé : le serveur distant doit publier un nouvel inventaire.") : ""
                         }
                         Alerte {
                             text: formulaire.f.modeleExige ? qsTr("Choisissez un modèle pour l'exploration : le relevé de cet exécutant n'en désigne aucun par défaut.") : ""
@@ -1266,7 +1223,8 @@ Item {
                 AcpButton {
                     objectName: "projets-lancer"
                     primary: true
-                    label: Projets.gesteEnCours ? qsTr("Envoi…") : qsTr("Lancer le projet")
+                    label: Projets.gesteEnCours ? qsTr("Envoi…")
+                        : formulaire.f.depot.length > 0 ? qsTr("Lancer le projet") : qsTr("Lancer avec Hermes (sans dépôt)")
                     manualEnabled: formulaire.f.pret && formulaire.complet && !Projets.gesteEnCours
                     onTriggered: Projets.lancer(titreChamp.text, objectifChamp.text, profilChoix.currentValue, formulaire.reponses, effortChoix.currentIndex > 0 ? formulaire.f.efforts[effortChoix.currentIndex - 1] : "")
                 }

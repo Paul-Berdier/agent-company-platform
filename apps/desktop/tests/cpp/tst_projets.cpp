@@ -286,7 +286,7 @@ void TestProjets::cartesRangeesDansLOrdreDuGraphe()
     const QJsonObject exploration = lignes.at(0).toObject();
     QCOMPARE(exploration.value(QStringLiteral("groupe")).toString(), QStringLiteral("Exploration du dépôt"));
     QCOMPARE(exploration.value(QStringLiteral("statutLibelle")).toString(), QStringLiteral("Suspendue"));
-    QCOMPARE(exploration.value(QStringLiteral("voie")).toString(), QStringLiteral("Poste (Claude)"));
+    QCOMPARE(exploration.value(QStringLiteral("voie")).toString(), QStringLiteral("Claude Code"));
     QCOMPARE(exploration.value(QStringLiteral("palier")).toString(), QStringLiteral("Standard"));
     QCOMPARE(exploration.value(QStringLiteral("mention")).toString(), QStringLiteral("quota inconnu"));
     QCOMPARE(exploration.value(QStringLiteral("modeleServi")).toString(), QStringLiteral("Non observé"));
@@ -507,7 +507,7 @@ void TestProjets::formulaireSansInventaireOuPosteIllisible()
     QVariantMap f = banc.projets.formulaire();
     QCOMPARE(f.value(QStringLiteral("depotsConnus")).toBool(), false);
     QCOMPARE(f.value(QStringLiteral("aideDepot")).toString(),
-             QStringLiteral("Aucun dépôt connu : le poste n'a encore publié aucun inventaire (page Poste)."));
+             QStringLiteral("Dépôts inconnus : le serveur n’a pas encore publié d’inventaire."));
     QCOMPARE(f.value(QStringLiteral("avecExploration")).toBool(), false);
     QCOMPARE(f.value(QStringLiteral("reponsesSansObjet")).toBool(), true);
     QCOMPARE(f.value(QStringLiteral("profilDefaut")).toString(), QStringLiteral("base"));
@@ -515,6 +515,33 @@ void TestProjets::formulaireSansInventaireOuPosteIllisible()
     // Un dépôt qui ne vient pas du serveur n'est jamais retenu.
     banc.projets.choisirDepot(QStringLiteral("invente"));
     QCOMPARE(banc.projets.formulaire().value(QStringLiteral("depot")).toString(), QString());
+
+    // Un inventaire reçu, mais vide, n'est ni absent ni une preuve d'accès à un dépôt.
+    banc.poste = fixture(QStringLiteral("poste-releve.json"));
+    QJsonObject catalogue = banc.poste.value(QStringLiteral("catalogue")).toObject();
+    QJsonObject voies = catalogue.value(QStringLiteral("voies")).toObject();
+    for (const QString &voie : voies.keys()) {
+        QJsonObject releve = voies.value(voie).toObject();
+        releve.insert(QStringLiteral("depots"), QJsonArray{});
+        voies.insert(voie, releve);
+    }
+    catalogue.insert(QStringLiteral("voies"), voies);
+    banc.poste.insert(QStringLiteral("catalogue"), catalogue);
+    banc.projets.actualiser();
+    QTRY_VERIFY(banc.projets.formulaire().value(QStringLiteral("depotsConnus")).toBool());
+    f = banc.projets.formulaire();
+    QVERIFY(f.value(QStringLiteral("depots")).toStringList().isEmpty());
+    QCOMPARE(f.value(QStringLiteral("aideDepot")).toString(),
+             QStringLiteral("Aucun dépôt déclaré sur le serveur. Connecter Claude ne configure pas l’accès aux dépôts. L’ajout depuis ACP n’est pas encore disponible."));
+    QVERIFY(!f.value(QStringLiteral("avecExploration")).toBool());
+    QVERIFY(f.value(QStringLiteral("reponsesSansObjet")).toBool());
+    banc.projets.choisirDepot(QStringLiteral("invente"));
+    QVERIFY(banc.projets.formulaire().value(QStringLiteral("depot")).toString().isEmpty());
+
+    banc.poste = fixture(QStringLiteral("poste-releve.json"));
+    banc.projets.actualiser();
+    QTRY_VERIFY(banc.projets.formulaire().value(QStringLiteral("depots")).toStringList().contains(QStringLiteral("jetable")));
+    QVERIFY(banc.projets.formulaire().value(QStringLiteral("aideDepot")).toString().isEmpty());
 
     banc.statutPoste = 404;
     banc.projets.actualiser();
@@ -954,9 +981,9 @@ void TestProjets::executantFermePourLeDepotJamaisRetenu()
     QCOMPARE(liste.at(0).toMap().value(QStringLiteral("fermee")).toBool(), false);
     QCOMPARE(liste.at(1).toMap().value(QStringLiteral("valeur")).toString(), QStringLiteral("poste-codex"));
     QCOMPARE(liste.at(1).toMap().value(QStringLiteral("fermee")).toBool(), true);
-    QCOMPARE(liste.at(1).toMap().value(QStringLiteral("libelle")).toString(), QStringLiteral("Poste (Codex) — fermé pour ce dépôt"));
+    QCOMPARE(liste.at(1).toMap().value(QStringLiteral("libelle")).toString(), QStringLiteral("Codex — fermé pour ce dépôt"));
     QCOMPARE(f.value(QStringLiteral("voiesFermees")).toStringList(),
-             QStringList{QStringLiteral("Poste (Codex) : Fermé pour ce dépôt (grisé dans la liste) — %1").arg(raison)});
+             QStringList{QStringLiteral("Codex : Fermé pour ce dépôt (grisé dans la liste) — %1").arg(raison)});
 
     // Le choisir quand même (clavier) : refusé en français, rien ne change, rien n'est émis.
     banc.projets.choisirVoie(QStringLiteral("poste-codex"));

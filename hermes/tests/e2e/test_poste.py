@@ -166,17 +166,18 @@ def test_page_poste_bureau_et_telephone(playwright_sync, pile):
         page.wait_for_selector("text=Poste confirmé")
         assert api(page, "/v1/poste")["corps"]["machine"]["machine"]["etat"] == "actif"
         assert faux(hermes, "reclamer", "--attente", "5")["statut"] == 200
-        assert faux(hermes, "inventaire")["statut"] == 200
+        # Routage positif : Linux Railway régime A SIMULÉ, jamais un agent Windows.
+        assert faux(hermes, "inventaire", "--linux-distant")["statut"] == 200
 
         # ------------------------------------------------------------ D. en ligne : état, routage, quotas
         for format_, p in pages.items():
             p.goto(f"{URL_HERMES}/poste")
             attendre_page_acp(p, "poste")
-            p.wait_for_selector("#acp-poste-bac")
+            p.wait_for_selector("#acp-poste-compte")
             etat = texte_de(p, "#acp-poste-etat >> xpath=..")
             assert "En ligne" in etat, etat
-            assert "Compte dédié acp-poste" in texte_de(p, "#acp-poste-compte >> xpath=..")
-            assert "elevated" in texte_de(p, "#acp-poste-bac >> xpath=..")
+            assert "Un compte Linux dédié par agent" in texte_de(p, "#acp-poste-compte >> xpath=..")
+            assert p.locator("#acp-poste-bac").count() == 0
             connexions = texte_de(p, "#acp-poste-connexions >> xpath=..")
             assert "Compte ChatGPT" in connexions and "Jeton reconnu" in connexions
             assert "jetable" in texte_de(p, "#acp-poste-depots >> xpath=..")

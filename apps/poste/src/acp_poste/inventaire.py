@@ -107,8 +107,13 @@ def construire(politique: Politique, codex: ResultatCodex | None, claude: Result
         from .sonde_plateforme import isolement as bloc_isolement
 
         details = dict(infos or {"plateforme": "linux", "hote": "pc", "noyau": None})
-        inventaire["poste"].update({"windows": None, "plateforme": "linux", "hote": details.get("hote", "pc"),
-                                    "noyau": details.get("noyau")})
+        # Seule une politique Linux validée et protégée peut déclarer un VPS ; le détecteur
+        # de plateforme conserve « pc » hors Railway. Aucune variable d'environnement VPS.
+        declare = politique.deploiement is not None and politique.deploiement.cible == "vps" \
+            and politique.deploiement.distant_confirme is True
+        inventaire["poste"].update({"windows": None, "plateforme": "linux",
+                                    "hote": "vps" if declare else details.get("hote", "pc"),
+                                    "execution_distante_declaree": declare, "noyau": details.get("noyau")})
         sans = politique.codex.sans_bac_a_sable if politique.codex else "refuse"
         inventaire["isolement_linux"] = isolement or bloc_isolement(None, sans_bac_a_sable=sans, maintenant=instant)
     try:

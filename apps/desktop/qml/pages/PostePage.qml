@@ -68,7 +68,7 @@ Item {
                 spacing: Space.space4
                 Text {
                     Layout.fillWidth: true
-                    text: qsTr("Assistants et machine")
+                    text: qsTr("Serveur d’exécution")
                     textFormat: Text.PlainText
                     color: Colors.textPrimary
                     font.family: Type.pageTitle.family
@@ -83,7 +83,7 @@ Item {
             }
 
             Discret {
-                text: qsTr("Connectez les outils qui travaillent sur vos projets, puis vérifiez ce que votre machine publie réellement.")
+                text: qsTr("Paramètres avancés du serveur distant. Les comptes se connectent dans Comptes et modèles.")
             }
             // Cadence RÉELLE (temps réel ou sondage), jamais écrite en dur (relecture de P8b, constat desktop-4).
             Discret {
@@ -139,63 +139,12 @@ Item {
                 Ligne { label: qsTr("Environnement"); value: Poste.assistantMachine.type }
                 Ligne { label: qsTr("Dernier relevé des assistants"); value: Poste.assistantMachine.releve }
                 Ligne { label: qsTr("Cartes du poste en attente"); value: Poste.etat.cartesEnAttente }
-                Discret { text: qsTr("Une seule machine active est prise en charge : un PC Windows ou un exécutant Linux/Railway. Se connecter sur votre PC ne connecte pas l'exécutant Railway.") }
+                Discret { text: qsTr("ACP exécute les projets sur un serveur distant. Un ancien poste Windows doit être remplacé par un exécutant distant ; ce PC reste uniquement un client graphique.") }
             }
 
-            // Trois identités distinctes : ACP, le coordinateur, puis les outils de la machine.
-            GridLayout {
-                Layout.fillWidth: true
-                columns: page.width >= 900 ? 2 : 1
-                columnSpacing: Space.space4
-                rowSpacing: Space.space4
-                Carte {
-                    Layout.fillWidth: true
-                    Layout.alignment: Qt.AlignTop
-                    titre: qsTr("Votre accès ACP")
-                    sousTitre: qsTr("L'identité qui vous permet d'ouvrir ce workspace et de piloter Hermes.")
-                    Discret { text: qsTr("Elle est indépendante de vos comptes ChatGPT et Claude Code. Les réglages de connexion ACP ne changent pas les comptes de la machine.") }
-                    AcpButton { label: qsTr("Réglages ACP"); onTriggered: Navigation.setCurrentRoute("settings") }
-                }
-                HermesConnectionCard {
-                    objectName: "assistants-hermes"
-                    Layout.fillWidth: true
-                    Layout.alignment: Qt.AlignTop
-                    preparation: PreparationHermes
-                }
-            }
-
-            SectionHeader { Layout.fillWidth: true; title: qsTr("Sur votre machine d'exécution") }
-            GridLayout {
-                Layout.fillWidth: true
-                columns: page.width >= 900 ? 2 : 1
-                columnSpacing: Space.space4
-                rowSpacing: Space.space4
-                Repeater {
-                    model: Poste.assistants
-                    delegate: Carte {
-                        required property var modelData
-                        objectName: "assistant-" + modelData.fournisseur
-                        Layout.fillWidth: true
-                        Layout.alignment: Qt.AlignTop
-                        titre: modelData.nom
-                        cle: modelData.cle
-                        libelleEtat: modelData.etat
-                        Ligne { label: qsTr("Mode observé"); value: modelData.mode }
-                        Ligne { label: qsTr("Version lue"); value: modelData.version; monospace: true }
-                        Ligne { label: qsTr("Offre observée"); value: modelData.offre }
-                        Discret { text: modelData.detail }
-                        AcpButton {
-                            objectName: "assistants-guide-" + modelData.fournisseur
-                            label: qsTr("Configurer / reconnecter")
-                            manualEnabled: Poste.assistantMachine.guideDisponible === true
-                            onTriggered: Poste.ouvrirGuide(modelData.fournisseur)
-                        }
-                    }
-                }
-            }
-            Discret {
-                visible: !Poste.assistantMachine.guideDisponible
-                text: qsTr("Le guide de connexion devient disponible quand une machine active et sa plateforme sont connues. Enrôlez-la ou actualisez son état.")
+            AcpButton {
+                label: qsTr("Ouvrir Comptes et modèles")
+                onTriggered: Navigation.setCurrentRoute("accounts")
             }
 
             Carte {
@@ -233,8 +182,12 @@ Item {
                 objectName: "poste-resultats"
                 Layout.fillWidth: true
                 visible: Poste.lue
-                titre: qsTr("Résultats à récupérer")
-                sousTitre: qsTr("Branches signalées terminées par Hermes. Leur présence sur l'exécutant est contrôlée lors de la génération du bundle.")
+                titre: qsTr("Résultats sur le serveur")
+                sousTitre: qsTr("Branches et commits signalés terminés par Hermes.")
+                Discret {
+                    objectName: "poste-resultats-livraison"
+                    text: qsTr("Le téléchargement depuis le serveur n'est pas encore disponible dans cette version.")
+                }
                 Discret {
                     objectName: "poste-resultats-message"
                     visible: Poste.resultatsMessage.length > 0
@@ -249,14 +202,8 @@ Item {
                         visible: index < 3 || page.resultatsDeveloppes
                         spacing: Space.space2
                         SectionHeader { Layout.fillWidth: true; title: modelData.titre; subtitle: qsTr("Dépôt %1 · terminé le %2").arg(modelData.depot).arg(modelData.termineLe) }
-                        BlocTexte { Layout.fillWidth: true; libelle: qsTr("Branche locale"); texte: modelData.branche; monospace: true }
-                        BlocTexte { Layout.fillWidth: true; libelle: qsTr("Commit attendu"); texte: modelData.tete; monospace: true }
-                        AcpButton {
-                            objectName: "poste-recuperer-resultat-" + index
-                            label: qsTr("Préparer la récupération")
-                            manualEnabled: Poste.erreur.length === 0
-                            onTriggered: Poste.ouvrirGuideRecuperation(modelData.projet, modelData.branche, modelData.tete)
-                        }
+                        BlocTexte { objectName: "poste-resultat-branche-" + index; Layout.fillWidth: true; libelle: qsTr("Branche sur le serveur"); texte: modelData.branche; monospace: true }
+                        BlocTexte { objectName: "poste-resultat-commit-" + index; Layout.fillWidth: true; libelle: qsTr("Commit rapporté"); texte: modelData.tete; monospace: true }
                         Item { Layout.preferredHeight: Space.space3 }
                     }
                 }
@@ -302,7 +249,7 @@ Item {
                 objectName: "poste-enroler"
                 Layout.fillWidth: true
                 visible: Poste.lue && Poste.peutEnroler
-                titre: qsTr("Enrôler un poste")
+                titre: qsTr("Associer un serveur distant")
                 sousTitre: qsTr("Génère un code à usage unique, valable 10 minutes, à coller dans la commande "
                                 + "d'enrôlement ci-dessous, lancée dans la console du compte du poste. Le jeton du "
                                 + "poste n'est jamais affiché.")
@@ -342,7 +289,7 @@ Item {
                     }
                     BlocTexte {
                         Layout.fillWidth: true
-                        libelle: qsTr("Commande à lancer sur le poste")
+                        libelle: qsTr("Commande à lancer sur le serveur distant")
                         texte: Poste.commande
                         monospace: true
                     }

@@ -23,20 +23,20 @@ from . import textes as T
 from acp_poste_contrat.quotas import SubscriptionQuotaView  # noqa: E402
 
 SOURCES = {"poste-codex": "codex_app_server", "poste-claude": "ligne_etat_sessions_proprietaire"}
-# Exécutant Railway (étape P6, garde_quota.py) : quotas Claude tirés du dernier ``rate_limit_event`` de ses cartes.
+# Exécutant Linux (étape P6, garde_quota.py) : quotas Claude tirés du dernier ``rate_limit_event`` de ses cartes.
 SOURCE_CLAUDE_EXECUTANT = "claude_code_rate_limit_event"
 
 
-def _hote(conn, machine_id: Any) -> Any:
-    """Hôte publié par la machine du relevé (``railway`` ou ``pc``), sinon celui de la machine courante ; ``None``."""
+def _plateforme(conn, machine_id: Any) -> Any:
+    """Plateforme de la machine du relevé, sinon de la machine courante ; jamais déduite de son hébergeur."""
     ligne = None
     if machine_id:
-        ligne = conn.execute("SELECT hote FROM machines WHERE id = ?", (machine_id,)).fetchone()
+        ligne = conn.execute("SELECT plateforme FROM machines WHERE id = ?", (machine_id,)).fetchone()
     if ligne is None:
         ligne = conn.execute(
-            "SELECT hote FROM machines ORDER BY CASE etat WHEN 'actif' THEN 0 WHEN 'a_confirmer' THEN 1 ELSE 2 END, "
+            "SELECT plateforme FROM machines ORDER BY CASE etat WHEN 'actif' THEN 0 WHEN 'a_confirmer' THEN 1 ELSE 2 END, "
             "cree_le DESC, rowid DESC LIMIT 1").fetchone()
-    return ligne["hote"] if ligne is not None else None
+    return ligne["plateforme"] if ligne is not None else None
 
 
 def _vues(releve, *, machine_id: str, nom: str, recu_le: int, perime: bool, maintenant: int,
@@ -66,7 +66,7 @@ def vue(conn) -> Dict[str, Any]:
             ligne = conn.execute("SELECT machine_id, recu_le FROM releves WHERE id = ?", (dernier[0],)).fetchone()
         if voie == "poste-codex":
             bloc["source_libelle"] = T.QUOTAS_SOURCE_CODEX
-        elif _hote(conn, ligne["machine_id"] if ligne else None) == "railway":
+        elif _plateforme(conn, ligne["machine_id"] if ligne else None) == "linux":
             bloc.update(source=SOURCE_CLAUDE_EXECUTANT, source_libelle=T.QUOTAS_SOURCE_CLAUDE_EXECUTANT)
         else:
             bloc["source_libelle"] = T.QUOTAS_SOURCE_CLAUDE

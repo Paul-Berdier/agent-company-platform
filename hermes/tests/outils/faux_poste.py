@@ -1,7 +1,9 @@
 """FAUX poste Windows, pour les tests de contrat seulement (étape P5) : il parle le protocole ``acp-machine/1`` au
 VRAI tableau de bord de Hermes (bouclage local du conteneur de test, ``http://127.0.0.1:9119``), à travers la vraie
 couture d'authentification par jeton. Il n'exécute rien : il s'enrôle, attend ses ordres en long-poll et publie
-l'inventaire de l'exemple partagé (``fixtures_machine/inventaire_requete.json``, daté de maintenant).
+l'inventaire Windows historique par défaut (``fixtures_machine/inventaire_requete.json``).
+``inventaire --linux-distant`` simule explicitement Linux Railway, régime A, pour les parcours positifs.
+Aucun de ces inventaires ne prouve un compte réel ni un isolement matériel.
 
 Chaque réponse du greffon est validée par les MODÈLES DU CONTRAT PARTAGÉ (``acp_poste_contrat.machine``), comme le
 fera le vrai poste : une réponse hors contrat fait échouer la commande (code 5).
@@ -16,7 +18,7 @@ Sous-commandes (sortie : un objet JSON sur la dernière ligne de la sortie stand
                                       appel d'une route machine (P : jeton, aucun, code:<code>, brut:<valeur>,
                                       fichier:<chemin>)
   reclamer [--attente N] [--acquitter 1,2]   une réclamation (long-poll)
-  inventaire                          publie l'inventaire de l'exemple (daté de maintenant)
+  inventaire [--linux-distant]         publie un inventaire simulé daté de maintenant (Windows par défaut)
   servir [--attente N] [--duree S]    boucle : réclamer, acquitter, publier sur ordre « releve » ; s'arrête sur 401
                                       poste_revoque (jeton effacé, code 0), sur le 401 de la couture (jeton gardé, code 4)
                                       ou à la fin de la durée (code 0)
@@ -111,11 +113,21 @@ def mesurer_depots(inventaire: dict, quand: str) -> None:
             depot.update(visibilite="prive", lecture="ok", verifie_le=quand)
 
 
-def inventaire_de_l_exemple() -> dict:
+def inventaire_de_l_exemple(*, linux_distant: bool = False) -> dict:
     inventaire = json.loads((FIXTURES / "inventaire_requete.json").read_text(encoding="utf-8"))
     quand = dt.datetime.now(dt.timezone.utc).replace(microsecond=0).strftime("%Y-%m-%dT%H:%M:%SZ")
     inventaire["releve_le"] = quand
     inventaire["bac_a_sable_codex"]["lu_le"] = quand
+    if linux_distant:
+        # Garde les modèles/quota P5 ; seuls hôte, isolement et conditions sont simulés distants.
+        linux = json.loads((FIXTURES / "inventaire_requete_linux.json").read_text(encoding="utf-8"))
+        inventaire["poste"] = linux["poste"]
+        inventaire["bac_a_sable_codex"] = None
+        inventaire["isolement_linux"] = linux["isolement_linux"]
+        inventaire["isolement_linux"].update(
+            regime="A", bwrap="fonctionne", proc_neuf=True, reseau_coupe=True,
+            ecriture_admise={"codex": True, "claude": True}, raison=None, sonde_le=quand)
+        inventaire["politique"]["conditions"] = linux["politique"]["conditions"]
     for releve in inventaire["releves"]:
         releve["releve_le"] = quand
         for compteur in releve["compteurs"]:
@@ -208,7 +220,8 @@ def main(argv) -> int:
     a = sous.add_parser("reclamer")
     a.add_argument("--attente", type=int, default=5)
     a.add_argument("--acquitter", default="")
-    sous.add_parser("inventaire")
+    a = sous.add_parser("inventaire")
+    a.add_argument("--linux-distant", action="store_true")
     a = sous.add_parser("servir")
     a.add_argument("--attente", type=int, default=25)
     a.add_argument("--duree", type=float, default=600)
@@ -234,7 +247,8 @@ def main(argv) -> int:
             _valider(contrat.ReponseReclamer, corps, "réponse de réclamation")
         return _sortie({"statut": statut, "corps": corps, "entetes": entetes, "duree": duree})
     if arguments.commande == "inventaire":
-        statut, corps, entetes, duree = poster(contrat.ROUTE_INVENTAIRE, inventaire_de_l_exemple(), _jeton())
+        statut, corps, entetes, duree = poster(contrat.ROUTE_INVENTAIRE,
+                                               inventaire_de_l_exemple(linux_distant=arguments.linux_distant), _jeton())
         if statut == 200:
             _valider(contrat.ReponseInventaire, corps, "réponse d'inventaire")
         return _sortie({"statut": statut, "corps": corps, "entetes": entetes, "duree": duree})

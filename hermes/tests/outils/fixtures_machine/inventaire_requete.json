@@ -141,7 +141,7 @@
     "lu_le": "2026-09-26T09:14:04Z"
   },
   "isolement_linux": null,
-  "connexions": {"codex": "compte_chatgpt", "plan_codex": "prolite", "claude": "jeton_reconnu"},
+  "connexions": {"codex": "compte_chatgpt", "plan_codex": "prolite", "claude": "compte_claude"},
   "versions": {
     "codex": {"lue": "0.156.1", "testee": "0.156.1", "conforme": true},
     "claude": {"lue": "2.1.280", "testee": "2.1.280", "conforme": true}

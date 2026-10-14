@@ -80,6 +80,13 @@ public:
     ApiCall *meta();
     /*! Verrou du catalogue (`/v1/catalogue`) : types de projet offerts au lancement. */
     ApiCall *catalogue();
+    ApiCall *comptes();
+    ApiCall *connecterCompteCodex(const QString &cle);
+    ApiCall *connecterCompteClaude(const QString &cle);
+    ApiCall *connexionCompte(const QString &identifiant, const QString &defi = {}, const QString &soumission = {});
+    ApiCall *soumettreCodeCompte(const QString &identifiant, const QString &defi, const QString &soumission, const QString &code);
+    [[nodiscard]] static bool codeConnexionValide(const QString &code);
+    ApiCall *annulerConnexionCompte(const QString &identifiant);
     // Coffre Markdown ACP : bridge distinct, opérations bornées et authentifiées.
     ApiCall *coffre();
     ApiCall *enrolerCoffre();
@@ -90,6 +97,7 @@ public:
 
     ApiCall *projets();
     ApiCall *projet(const QString &identifiant);
+    ApiCall *evenementsProjet(const QString &identifiant, qint64 apres, int limite = 100);
     ApiCall *carteDuProjet(const QString &identifiant, const QString &carte);
     ApiCall *questions();
     ApiCall *poste();

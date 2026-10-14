@@ -1,4 +1,4 @@
-Coffre ACP — bridge local pour Obsidian
+Coffre ACP — copie locale facultative des notes pour Obsidian
 
 Double-cliquez Lancer-Coffre-ACP.cmd dans votre session Windows habituelle.
 Le menu permet de créer un dossier neuf, de saisir le code d’association de façon
@@ -38,3 +38,6 @@ et les archives avant de demander un nouveau geste. Aucun faux succès n’est a
 
 Ce paquet embarque son Python et ses dépendances ; aucun téléchargement au démarrage.
 Les licences sont dans licences/ et les preuves d’empaquetage dans manifest-coffre.json.
+
+Les missions distantes fonctionnent sans ce pont. Le paquet des notes n’inclut
+aucun worker ni lanceur de moteur Codex, Claude Code ou Vibe.

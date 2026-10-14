@@ -73,7 +73,8 @@ class Hermes:
             raise self.panne
         self.envois.append((route, corps))
         if route == "battement":
-            return contrat.ReponseBattement.model_validate(self.battement)
+            return contrat.ReponseBattement.model_validate(dict(self.battement,
+                evenements_recus=[e["id"] for e in corps.get("evenements", [])]))
         reponses = {"terminer": ("ReponseTerminer", {"etat": "done"}),
                     "question": ("ReponseQuestion", {"question": "q_0123456789ab", "etat": "ouverte"}),
                     "bloquer": ("ReponseBloquer", {"etat": "bloquee"}),
@@ -194,9 +195,9 @@ def test_claude_implementation_verifiee_et_terminee(banc):
     message = subprocess.run(["git", f"--git-dir={nu}", "log", "-1", "--format=%an%n%B", m["tete"]],
                              capture_output=True, text=True, check=True).stdout
     assert message.startswith("ACP exécutant\nimplementation(t_ab12cd34): Travail fait") and "Co-Authored" not in message
-    # Commandes imposées, consigne par l'entrée standard, jeton dans l'environnement de Claude seulement.
+    # Commandes imposées, consigne par l'entrée standard, magasin officiel sans jeton injecté.
     appel = banc.invocations()[0]
-    assert appel["outil"] == "claude" and "--restricted" in appel["argv"] and appel["jeton"] is True
+    assert appel["outil"] == "claude" and "--restricted" in appel["argv"] and appel["jeton"] is False
     assert "Ajouter la commande « compter »" in appel["stdin"] and "Ajouter la commande" not in " ".join(appel["argv"])
     assert "CLAUDE_CODE_SKIP_PROMPT_HISTORY" not in appel["noms"]
     # Premier battement aussitôt ; file de sortie vide ; carte oubliée ; budget compté.
@@ -778,7 +779,7 @@ def test_integration_fusionne_et_bloque_sur_conflit(banc):
     # Relecture finale de P7 (constat scenario-2) : la carte d'intégration n'a pas d'agent, aucune consigne n'y est lue ;
     # la raison dit ce que le propriétaire peut réellement faire, jamais « tranchez » par une consigne.
     assert "« Relancer » rejoue la même fusion" in conflit.corps["raison"]
-    assert "git bundle" in conflit.corps["raison"] and "clôturez le projet" in conflit.corps["raison"]
+    assert "git bundle" not in conflit.corps["raison"] and "les branches restent sur le serveur" in conflit.corps["raison"]
     assert "tranchez" not in conflit.corps["raison"]
 
 
@@ -965,3 +966,42 @@ def test_preparation_introuvable_dite_sans_verification_ni_reprise(tmp_path):
     assert len([i for i in banc.invocations() if i.get("outil") == "claude"]) == 1
     # Préparation non marquée faite : elle sera retentée à la reprise, après correction de la politique.
     assert not banc.execution.session("t_ab12cd34").get("prepare")
+
+
+
+def test_claude_sans_jeton_legacy_execute_avec_compte_officiel(banc):
+    banc.coffre.valeurs.clear()
+    banc.jouer(ECRIT)
+    assert banc.executer(banc.carte()).route == "terminer"
+    assert banc.invocations()[0]["jeton"] is False
+
+
+def test_claude_compte_revoque_entre_sonde_et_carte_refuse(banc):
+    banc.jouer(ECRIT)
+    scenario = json.loads(banc.scenario.read_text(encoding="utf-8"))
+    scenario["statut_claude"] = {"loggedIn": False, "authMethod": "none"}
+    banc.scenario.write_text(json.dumps(scenario), encoding="utf-8")
+    issue = banc.executer(banc.carte())
+    assert issue.route == "bloquer" and issue.corps["genre"] == "capacite"
+    assert "Compte Claude non connecté" in issue.corps["raison"]
+    assert banc.invocations() == []
+
+
+def test_secrets_claude_rafraichis_masques_et_resultat_bloque(banc):
+    magasin = banc.racine / "magasin-claude"
+    magasin.mkdir()
+    credentials = magasin / ".credentials.json"
+    ancien, nouveau = "ancien-acces-opaque-12345", "nouveau-acces-opaque-67890"
+    credentials.write_text(json.dumps({"claudeAiOauth": {"accessToken": ancien}}), encoding="utf-8")
+    banc.execution.politique = dataclasses.replace(banc.politique,
+        claude=dataclasses.replace(banc.politique.claude, config_dir=magasin))
+    resume = f"Valeurs interdites {ancien} et {nouveau}"
+    banc.jouer({"ecrire": {**ECRIT["ecrire"], str(credentials): json.dumps({"claudeAiOauth": {"accessToken": nouveau}})},
+                "sortie": {"issue": "termine", "resume": resume, "question": None, "verdict": None,
+                           "corrections": None}})
+    issue = banc.executer(banc.carte())
+    assert issue.route == "bloquer" and issue.corps["genre"] == "secret"
+    publics = json.dumps(banc.hermes.envois, ensure_ascii=False)
+    journal = banc.execution.journal.chemin.read_text(encoding="utf-8")
+    assert ancien not in publics + journal and nouveau not in publics + journal
+    assert {ancien, nouveau} <= set(banc.execution._valeurs_secretes().values())

@@ -221,6 +221,13 @@ class Protocole:
                                delai_lecture_s=60)
         return _valide(ReponseInventaire, classer(reponse, 200), "Réponse d'inventaire refusée")
 
+    def comptes(self, jeton: Jeton, corps: dict[str, Any]) -> dict[str, Any]:
+        from acp_poste_contrat import comptes as C
+        requete = C.Echange.model_validate(corps)
+        reponse = self._poster(C.ROUTE_MACHINE, requete.model_dump(mode="json"), jeton.en_tete(),
+                              limite=4096, delai_lecture_s=15)
+        return C.Reponse.model_validate(classer(reponse, 200)).model_dump(mode="json")
+
     def sante(self) -> tuple[bool, str]:
         """``GET /api/health`` sans jeton (chemin public de Hermes) : (joignable, message français)."""
         try:

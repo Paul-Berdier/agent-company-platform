@@ -6,7 +6,7 @@ Jamais lancé par le code de production (lanceur injecté par les tests). Invoca
 Clés du scénario : ``version`` (sortie de ``--version``), ``code_auth`` (code de sortie d'``auth status``),
 ``auth_bloque`` (ne se termine jamais), ``enregistrer`` (fichier : argv, noms des variables reçues, présence et
 empreinte de ``CLAUDE_CODE_OAUTH_TOKEN``). ``auth status`` écrit toujours une adresse électronique sur sa sortie :
-le poste doit la jeter sans la lire.
+le poste ne doit jamais la publier.
 """
 
 from __future__ import annotations
@@ -35,7 +35,12 @@ def main(argv: list[str]) -> int:
         print(scenario.get("version", "2.1.280 (Claude Code)"))
         return 0
     if arguments == ["auth", "status"]:
-        print(json.dumps({"loggedIn": True, "email": "titulaire@example.com"}))
+        code = int(scenario.get("code_auth", 0))
+        statut = {"loggedIn": code == 0, "authMethod": "claude.ai" if code == 0 else "none",
+                  "apiProvider": "firstParty", "configDirectory": os.environ.get("CLAUDE_CONFIG_DIR"),
+                  "email": "titulaire@example.com"}
+        statut.update(scenario.get("statut") or {})
+        print(json.dumps(statut))
         print("secret-de-sortie-jamais-lu", file=sys.stderr)
         sys.stdout.flush()
         if scenario.get("auth_bloque"):

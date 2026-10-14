@@ -15,6 +15,8 @@
 #include "navigation/NavigationModel.h"
 #include "services/CompatibiliteHermes.h"
 #include "support/FauxHermes.h"
+#include "support/FauxComptes.h"
+#include "viewmodels/ComptesViewModel.h"
 #include "support/Fixtures.h"
 #include "gateway/DiscussionsEnAttente.h"
 #include "viewmodels/AccueilViewModel.h"
@@ -30,6 +32,7 @@
 #include <QCoreApplication>
 #include <QDir>
 #include <QGuiApplication>
+#include <QImage>
 #include <QKeySequence>
 #include <QJsonArray>
 #include <QPointer>
@@ -110,6 +113,9 @@ private slots:
     void pastilleDesQuestionsDitCeQuElleCompte();
     void greffonSansEtapeP7NiAccueilNiGestes();
     // En dernier : charge la fenêtre racine (App.qml).
+    void resultatsServeurSansRecuperationLocale();
+    void comptesDistantsParLesVraisBoutons();
+    void claudeSaisieStableEnvoiEtRepriseParLeClavier();
     void chaqueRaccourciDeLaPaletteAgit();
 
 private:
@@ -520,6 +526,10 @@ void TestPagesInteractions::executantFermeGriseDansLeFormulaire()
     QTRY_VERIFY_WITH_TIMEOUT(m_projets->formulaire().value(QStringLiteral("pret")).toBool(), 5000);
     QTest::qWait(100);
 
+    QQuickItem *lancer = parNom(racine, QStringLiteral("projets-lancer"));
+    QVERIFY(lancer);
+    QCOMPARE(lancer->property("label").toString(), QStringLiteral("Lancer avec Hermes (sans dépôt)"));
+
     // Dépôt « demo » choisi au clavier dans la vraie liste (Sans dépôt, demo, jetable).
     QQuickItem *depot = parNom(racine, QStringLiteral("projets-champ-depot"));
     QVERIFY(depot && depot->isEnabled());
@@ -527,6 +537,7 @@ void TestPagesInteractions::executantFermeGriseDansLeFormulaire()
     QTRY_VERIFY(depot->hasActiveFocus());
     QTest::keyClick(m_fenetre.get(), Qt::Key_Down);
     QTRY_COMPARE(m_projets->formulaire().value(QStringLiteral("depot")).toString(), QStringLiteral("demo"));
+    QTRY_COMPARE(lancer->property("label").toString(), QStringLiteral("Lancer le projet"));
     QTest::qWait(50);
 
     QVERIFY(cliquer(parNom(racine, QStringLiteral("projets-routage-manuel"))));
@@ -542,7 +553,7 @@ void TestPagesInteractions::executantFermeGriseDansLeFormulaire()
     QPointer<QQuickItem> codex;
     QTRY_VERIFY((codex = parNom(m_fenetre->contentItem(), QStringLiteral("projets-voie-option-poste-codex"))) && codex->isVisible());
     QCOMPARE(codex->isEnabled(), false);
-    QCOMPARE(codex->property("text").toString(), QStringLiteral("Poste (Codex) — fermé pour ce dépôt"));
+    QCOMPARE(codex->property("text").toString(), QStringLiteral("Codex — fermé pour ce dépôt"));
     QQuickItem *claude = parNom(m_fenetre->contentItem(), QStringLiteral("projets-voie-option-poste-claude"));
     QVERIFY(claude && claude->isEnabled());
     QTest::mouseClick(m_fenetre.get(), Qt::LeftButton, Qt::NoModifier,
@@ -560,6 +571,61 @@ void TestPagesInteractions::executantFermeGriseDansLeFormulaire()
     QTRY_COMPARE(voie->property("currentValue").toString(), QStringLiteral("poste-claude"));
     QCOMPARE(m_projets->formulaire().value(QStringLiteral("voie")).toString(), QStringLiteral("poste-claude"));
     QCOMPARE(m_serveur->filtrer("POST", kP + QStringLiteral("/projets")).size(), 0);
+
+    // Un inventaire vide garde le parcours Hermes et expose sa limite dans le vrai formulaire.
+    for (const QString &nom : voies.keys()) {
+        QJsonObject releve = voies.value(nom).toObject();
+        releve.insert(QStringLiteral("depots"), QJsonArray{});
+        voies.insert(nom, releve);
+    }
+    catalogue.insert(QStringLiteral("voies"), voies);
+    poste.insert(QStringLiteral("catalogue"), catalogue);
+    m_serveur->route("GET", kP + QStringLiteral("/poste"), [poste](const RequeteRecue &) { return ReponseFaux::json(200, poste); });
+    m_projets->afficherListe();
+    m_projets->afficherNouveau();
+    QTRY_VERIFY(m_projets->formulaire().value(QStringLiteral("pret")).toBool());
+    QTRY_VERIFY(m_projets->formulaire().value(QStringLiteral("depots")).toStringList().isEmpty());
+    QQuickItem *aide = parNom(racine, QStringLiteral("projets-aide-depot"));
+    lancer = parNom(racine, QStringLiteral("projets-lancer"));
+    QVERIFY(aide && aide->isVisible() && lancer);
+    QCOMPARE(aide->property("text").toString(),
+             QStringLiteral("Aucun dépôt déclaré sur le serveur. Connecter Claude ne configure pas l’accès aux dépôts. L’ajout depuis ACP n’est pas encore disponible."));
+    QCOMPARE(lancer->property("label").toString(), QStringLiteral("Lancer avec Hermes (sans dépôt)"));
+    QVERIFY(m_projets->formulaire().value(QStringLiteral("depotsConnus")).toBool());
+    QVERIFY(!m_projets->formulaire().value(QStringLiteral("avecExploration")).toBool());
+
+    const QString captures = qEnvironmentVariable("ACP_CAPTURES_DIR");
+    if (!captures.isEmpty()) {
+        const QSize tailleInitiale = m_fenetre->size();
+        const QColor fondInitial = m_fenetre->color();
+        const auto restaurer = qScopeGuard([this, racine, tailleInitiale, fondInitial] {
+            m_fenetre->resize(tailleInitiale);
+            racine->setSize(tailleInitiale);
+            m_fenetre->setColor(fondInitial);
+        });
+        m_fenetre->resize(1366, 768);
+        racine->setSize(QSizeF(1366, 768));
+        m_fenetre->setColor(QColor(QStringLiteral("#151923")));
+        QQmlComponent etiquette(m_moteur.get());
+        etiquette.setData(QByteArrayLiteral("import QtQuick; Rectangle { z: 100000; anchors.top: parent.top; anchors.right: parent.right; anchors.margins: 4; width: 220; height: 22; color: '#25313d'; radius: 3; Text { anchors.centerIn: parent; text: 'TEST · DONNÉES SIMULÉES'; color: '#ffffff'; font.pixelSize: 11 } }"), QUrl());
+        QVERIFY2(etiquette.isReady(), qPrintable(etiquette.errorString()));
+        std::unique_ptr<QObject> marquage(etiquette.createWithInitialProperties({{QStringLiteral("parent"), QVariant::fromValue(m_fenetre->contentItem())}}));
+        QVERIFY(marquage);
+        QTest::qWait(100);
+        for (QQuickItem *parent = lancer->parentItem(); parent; parent = parent->parentItem()) {
+            if (parent->inherits("QQuickFlickable")) {
+                parent->setProperty("contentY", std::max(0.0, parent->property("contentHeight").toDouble() - parent->height()));
+                break;
+            }
+        }
+        QTest::qWait(100);
+        for (QQuickItem *item : {aide, lancer}) {
+            const QRectF rectangle(item->mapToScene(QPointF(0, 0)), item->size());
+            QVERIFY2(QRectF(QPointF(0, 0), m_fenetre->size()).contains(rectangle), qPrintable(item->objectName()));
+        }
+        QVERIFY(QDir().mkpath(captures));
+        QVERIFY(m_fenetre->grabWindow().save(captures + QStringLiteral("/Nouveau-projet-simule-sans-depot-1366x768.png")));
+    }
     QVERIFY2(m_avertissements.isEmpty(), qPrintable(m_avertissements.join(QLatin1Char('\n'))));
     m_projets->afficherListe();
     page.reset();
@@ -681,10 +747,10 @@ void TestPagesInteractions::pastilleDesQuestionsDitCeQuElleCompte()
     QVERIFY(entree);
     const auto nom = [entree] { return QQmlProperty(entree, QStringLiteral("Accessible.name"), qmlContext(entree)).read().toString(); };
     // Discussions lues : le total les compte, le nom ne dit plus le contraire.
-    QTRY_COMPARE(nom(), QStringLiteral("À traiter (%1 demandes à traiter par vous)").arg(m_flux->aTraiter()));
+    QTRY_COMPARE(nom(), QStringLiteral("À valider (%1 demandes à traiter par vous)").arg(m_flux->aTraiter()));
     // Discussions inconnues (passerelle indisponible, refus) : le nom le dit.
     m_flux->discussions()->oublier();
-    QTRY_COMPARE(nom(), QStringLiteral("À traiter (%1 demandes à traiter par vous (discussions non comptées))")
+    QTRY_COMPARE(nom(), QStringLiteral("À valider (%1 demandes à traiter par vous (discussions non comptées))")
                             .arg(m_flux->aTraiter()));
     QVERIFY2(m_avertissements.isEmpty(), qPrintable(m_avertissements.join(QLatin1Char('\n'))));
 }
@@ -1242,7 +1308,7 @@ void TestPagesInteractions::preparationProposeConnexionPuisAnnuleParLesBoutons()
     QVERIFY(preparation->codeAppareil().isEmpty());
     QVERIFY(!code->isVisible());
     QVERIFY(cliquer(parNom(racine, QStringLiteral("accueil-preparer-assistants"))));
-    QCOMPARE(navigation->currentRoute(), QStringLiteral("station"));
+    QCOMPARE(navigation->currentRoute(), QStringLiteral("accounts"));
     QVERIFY2(m_avertissements.isEmpty(), qPrintable(m_avertissements.join(QLatin1Char('\n'))));
     page.reset();
     QTRY_VERIFY(!poste->resumeVisible());
@@ -1299,6 +1365,8 @@ void TestPagesInteractions::workspaceConserveBrouillonEtSuspendPagesMasquees()
     QVERIFY(cliquer(parNom(racine, QStringLiteral("navigation-projects"))));
     QTRY_VERIFY(m_projets->actif());
     QTRY_VERIFY(!accueil->actif());
+    QVERIFY(cliquer(parNom(racine, QStringLiteral("navigation-home"))));
+    QTRY_VERIFY(accueil->actif());
     QVERIFY(cliquer(parNom(racine, QStringLiteral("navigation-chat"))));
     QTRY_VERIFY(discussion->actif());
     QTRY_VERIFY(!m_projets->actif());
@@ -1426,6 +1494,173 @@ void TestPagesInteractions::chaqueRaccourciDeLaPaletteAgit()
     }
     QVERIFY2(m_avertissements.isEmpty(), qPrintable(m_avertissements.join(QLatin1Char('\n'))));
     racine->close();
+}
+
+
+void TestPagesInteractions::resultatsServeurSansRecuperationLocale()
+{
+    auto *poste = m_application->findChild<PosteViewModel *>();
+    QVERIFY(poste);
+    const QString captures = qEnvironmentVariable("ACP_CAPTURES_DIR");
+    const QSize tailleInitiale = m_fenetre->size();
+    const auto restaurerTaille = qScopeGuard([this, tailleInitiale] { m_fenetre->resize(tailleInitiale); });
+    std::unique_ptr<QObject> marquage;
+    std::unique_ptr<QObject> fond;
+    if (!captures.isEmpty()) {
+        QVERIFY(QDir().mkpath(captures));
+        m_fenetre->resize(1366, 768);
+        QQmlComponent fondComposant(m_moteur.get());
+        fondComposant.setData(QByteArrayLiteral("import QtQuick; import Acp.Design; Rectangle { anchors.fill: parent; z: -100; color: Colors.surfaceCanvas }"), QUrl());
+        QVERIFY2(fondComposant.isReady(), qPrintable(fondComposant.errorString()));
+        fond.reset(fondComposant.createWithInitialProperties({{QStringLiteral("parent"), QVariant::fromValue(m_fenetre->contentItem())}}));
+        QVERIFY(fond);
+        QQmlComponent etiquette(m_moteur.get());
+        etiquette.setData(QByteArrayLiteral("import QtQuick; Rectangle { z: 100000; anchors.top: parent.top; anchors.right: parent.right; anchors.margins: 4; width: 220; height: 22; color: '#25313d'; radius: 3; Text { anchors.centerIn: parent; text: 'TEST · DONNÉES SIMULÉES'; color: '#ffffff'; font.pixelSize: 11 } }"), QUrl());
+        QVERIFY2(etiquette.isReady(), qPrintable(etiquette.errorString()));
+        marquage.reset(etiquette.createWithInitialProperties({{QStringLiteral("parent"), QVariant::fromValue(m_fenetre->contentItem())}}));
+        auto *etiquetteItem = qobject_cast<QQuickItem *>(marquage.get());
+        QVERIFY(etiquetteItem);
+        etiquetteItem->setParentItem(m_fenetre->contentItem());
+    }
+    for (const QString &hote : {QStringLiteral("railway"), QStringLiteral("vps")}) {
+        poste->oublier();
+        QJsonObject vue = fixture(QStringLiteral("poste-assistants-railway.json"));
+        QJsonObject enveloppeMachine = vue.value(QStringLiteral("machine")).toObject();
+        QJsonObject machine = enveloppeMachine.value(QStringLiteral("machine")).toObject();
+        machine.insert(QStringLiteral("hote"), hote);
+        enveloppeMachine.insert(QStringLiteral("machine"), machine);
+        vue.insert(QStringLiteral("machine"), enveloppeMachine);
+        QJsonObject executant = vue.value(QStringLiteral("executant")).toObject();
+        executant.insert(QStringLiteral("hote"), hote);
+        executant.insert(QStringLiteral("branches_pretes"), QJsonArray{QJsonObject{
+            {QStringLiteral("projet"), QStringLiteral("p_0123456789ab")},
+            {QStringLiteral("projet_titre"), QStringLiteral("Résultat simulé")},
+            {QStringLiteral("depot"), QStringLiteral("jetable")},
+            {QStringLiteral("branche"), QStringLiteral("hermes/projet-demo")},
+            {QStringLiteral("tete"), QString(40, QLatin1Char('a'))},
+            {QStringLiteral("termine_le"), 1790451600},
+            // Un ancien serveur peut encore publier une commande ; elle reste ignorée.
+            {QStringLiteral("commande"), QStringLiteral("railway ssh -- acp-poste bundle")}}});
+        vue.insert(QStringLiteral("executant"), executant);
+        m_serveur->route("GET", kP + QStringLiteral("/poste"), [vue](const RequeteRecue &) {
+            return ReponseFaux::json(200, vue);
+        });
+        auto page = charger(QStringLiteral("PostePage"));
+        QVERIFY(page);
+        auto *racine = qobject_cast<QQuickItem *>(page.get());
+        QTRY_COMPARE(poste->resultats().size(), 1);
+        QCOMPARE(poste->assistantMachine().value(QStringLiteral("hote")).toString(), hote);
+        QQuickItem *livraison = parNom(racine, QStringLiteral("poste-resultats-livraison"));
+        QVERIFY(livraison && livraison->isVisible());
+        QCOMPARE(livraison->property("text").toString(),
+                 QStringLiteral("Le téléchargement depuis le serveur n'est pas encore disponible dans cette version."));
+        QQuickItem *branche = parNom(racine, QStringLiteral("poste-resultat-branche-0"));
+        QQuickItem *commit = parNom(racine, QStringLiteral("poste-resultat-commit-0"));
+        QVERIFY(branche && commit);
+        QCOMPARE(branche->property("texte").toString(), QStringLiteral("hermes/projet-demo"));
+        QCOMPARE(commit->property("texte").toString(), QString(40, QLatin1Char('a')));
+        QVERIFY(!parNom(racine, QStringLiteral("poste-recuperer-resultat-0")));
+        QVERIFY(poste->guide().isEmpty());
+        if (!captures.isEmpty()) {
+            // Défilement et pixels du vrai panneau QML, avec le marquage du harnais uniquement.
+            QQuickItem *panneau = parNom(racine, QStringLiteral("poste-resultats"));
+            QVERIFY(panneau);
+            QTest::qWait(100); // Laisse le layout calculer contentHeight avant de défiler.
+            for (QQuickItem *parent = panneau->parentItem(); parent; parent = parent->parentItem()) {
+                if (parent->inherits("QQuickFlickable")) {
+                    auto *contenu = parent->property("contentItem").value<QQuickItem *>();
+                    const double haut = panneau->mapToItem(contenu, QPointF(0, 0)).y();
+                    const double maximum = std::max(0.0, parent->property("contentHeight").toDouble() - parent->height());
+                    parent->setProperty("contentY", std::clamp(haut - 40.0, 0.0, maximum));
+                    break;
+                }
+            }
+            QTest::qWait(100);
+            QVERIFY(QRectF(QPointF(0, 0), m_fenetre->size()).contains(commit->mapRectToScene(commit->boundingRect())));
+            QVERIFY(m_fenetre->grabWindow().save(captures + QStringLiteral("/Resultats-simules-%1-1366x768.png").arg(hote)));
+        }
+        QVERIFY2(m_avertissements.isEmpty(), qPrintable(m_avertissements.join(QLatin1Char('\n'))));
+        page.reset();
+    }
+    m_serveur->route("GET", kP + QStringLiteral("/poste"), [](const RequeteRecue &) {
+        return ReponseFaux::json(200, fixture(QStringLiteral("poste-non-configure.json")));
+    });
+}
+
+void TestPagesInteractions::comptesDistantsParLesVraisBoutons()
+{
+    auto *comptes=m_application->findChild<ComptesViewModel *>(); QVERIFY(comptes);
+    comptes->oublier(); comptes->setIntervalleTest(50);
+    auto courant=std::make_shared<QJsonObject>();
+    const QString route=kP+QStringLiteral("/comptes");
+    m_serveur->route("GET",route,[courant](const RequeteRecue &){return ReponseFaux::json(200,comptesTest(*courant));});
+    m_serveur->route("GET",route+QStringLiteral("/connexions/")+connexionTestId(),[courant](const RequeteRecue &){return ReponseFaux::json(200,*courant);});
+    m_serveur->route("POST",route+QStringLiteral("/codex/connexions"),[courant](const RequeteRecue &){*courant=connexionTest();return ReponseFaux::json(202,*courant);});
+    m_serveur->route("POST",route+QStringLiteral("/connexions/")+connexionTestId()+QStringLiteral("/annuler"),[courant](const RequeteRecue &){*courant=connexionTest(QStringLiteral("annulee"));return ReponseFaux::json(200,*courant);});
+    QUrl ouverte; comptes->setOuvreur([&ouverte](const QUrl &url){ouverte=url;return true;});
+    auto page=charger(QStringLiteral("ComptesPage")); QVERIFY(page); auto *racine=qobject_cast<QQuickItem *>(page.get());
+    QTRY_VERIFY(comptes->peutConnecter()); QTest::qWait(80);
+    QVERIFY(cliquer(parNom(racine,QStringLiteral("comptes-connecter-codex")))); QTRY_VERIFY(comptes->attente()); QTest::qWait(80);
+    auto *code=parNom(racine,QStringLiteral("comptes-code")); QVERIFY(code); QVERIFY(code->isVisible()); QCOMPARE(code->property("text").toString(),QStringLiteral("TEST-ACP"));
+    QVERIFY(cliquer(parNom(racine,QStringLiteral("comptes-ouvrir-autorisation")))); QCOMPARE(ouverte,QUrl(QStringLiteral("https://auth.openai.com/codex/device")));
+    QVERIFY(cliquer(parNom(racine,QStringLiteral("comptes-annuler")))); QTRY_VERIFY(!comptes->attente()); QVERIFY(!code->isVisible());
+    QCOMPARE(m_serveur->compter("POST",route+QStringLiteral("/codex/connexions")),1);
+    QVERIFY2(m_avertissements.isEmpty(),qPrintable(m_avertissements.join(QLatin1Char('\n'))));
+    page.reset(); comptes->setOuvreur([](const QUrl &){return false;}); comptes->setIntervalleTest(0); comptes->oublier();
+}
+
+void TestPagesInteractions::claudeSaisieStableEnvoiEtRepriseParLeClavier()
+{
+    auto *comptes=m_application->findChild<ComptesViewModel *>(); QVERIFY(comptes);
+    comptes->setPageVisible(false); QTRY_VERIFY(!comptes->actif());
+    comptes->oublier(); comptes->setIntervalleTest(80);
+    auto courant=std::make_shared<QJsonObject>();
+    const QString route=kP+QStringLiteral("/comptes"), operation=route+QStringLiteral("/connexions/")+connexionTestId();
+    const int annulationsAvant=m_serveur->compter("POST",operation+QStringLiteral("/annuler"));
+    m_serveur->route("GET",route,[courant](const RequeteRecue &){return ReponseFaux::json(200,comptesTest({},*courant));});
+    m_serveur->route("GET",operation,[courant](const RequeteRecue &){return ReponseFaux::json(200,*courant);});
+    m_serveur->route("POST",route+QStringLiteral("/claude/connexions"),[courant](const RequeteRecue &){*courant=connexionClaudeTest();return ReponseFaux::json(202,*courant);});
+    m_serveur->route("POST",operation+QStringLiteral("/code"),[courant](const RequeteRecue &r){
+        courant->insert(QStringLiteral("reception_code"),QJsonObject{{QStringLiteral("defi_id"),r.json().value(QStringLiteral("defi_id"))},
+            {QStringLiteral("soumission_id"),r.json().value(QStringLiteral("soumission_id"))},{QStringLiteral("etat"),QStringLiteral("en_attente")}});
+        return ReponseFaux::json(202,*courant);
+    });
+    m_serveur->route("POST",operation+QStringLiteral("/annuler"),[courant](const RequeteRecue &){*courant=connexionClaudeTest(QStringLiteral("annulee"));return ReponseFaux::json(200,*courant);});
+    QUrl ouverte; comptes->setOuvreur([&](const QUrl &url){ouverte=url;return true;});
+    const QSize avant=m_fenetre->size(); m_fenetre->resize(1366,768);
+    auto nettoyage=qScopeGuard([&]{comptes->setOuvreur([](const QUrl &){return false;});comptes->setIntervalleTest(0);comptes->oublier();m_fenetre->resize(avant);});
+    auto page=charger(QStringLiteral("ComptesPage")); QVERIFY(page); auto *racine=qobject_cast<QQuickItem *>(page.get());
+    QTRY_VERIFY(comptes->peutConnecterClaude()); QTest::qWait(80);
+    QVERIFY(cliquer(parNom(racine,QStringLiteral("comptes-connecter-claude")))); QTRY_VERIFY(comptes->peutSaisirCode()); QTest::qWait(100);
+    QPointer<QQuickItem> champ=parNom(racine,QStringLiteral("comptes-code-claude")); QVERIFY(champ); QVERIFY(champ->isVisible());
+    QVERIFY(QRectF(QPointF(0,0),m_fenetre->size()).contains(champ->mapRectToScene(champ->boundingRect())));
+    QVERIFY(cliquer(parNom(racine,QStringLiteral("comptes-ouvrir-autorisation-claude_code")))); QCOMPARE(ouverte.host(),QStringLiteral("claude.com"));
+    // Le bouton Item ne prend pas le focus au clic : parcourir le vrai ordre de Tab.
+    for (int passage=0; passage<10 && !champ->hasActiveFocus(); ++passage) QTest::keyClick(m_fenetre.get(),Qt::Key_Tab);
+    QVERIFY(champ->hasActiveFocus());
+    QVERIFY(taper(champ,QStringLiteral("BROUILLON-SIMULE")));
+    racine->setVisible(false); QCOMPARE(champ->property("text").toString(),QString());
+    racine->setVisible(true); QTRY_VERIFY(comptes->peutSaisirCode()); QTest::qWait(100);
+    QVERIFY(taper(champ,QStringLiteral("CODE-SIMULE-CLAUDE")));
+    QCOMPARE(champ->property("masked").toBool(),true);
+    const int lectures=m_serveur->compter("GET",operation);
+    QTRY_VERIFY(m_serveur->compter("GET",operation)>=lectures+3);
+    QVERIFY(champ); QCOMPARE(champ->property("text").toString(),QStringLiteral("CODE-SIMULE-CLAUDE")); QVERIFY(champ->hasActiveFocus());
+    QTest::keyClick(m_fenetre.get(),Qt::Key_Return);
+    QCOMPARE(champ->property("text").toString(),QString());
+    QTRY_COMPARE(m_serveur->compter("POST",operation+QStringLiteral("/code")),1); QTRY_VERIFY(!comptes->gesteEnCours());
+    QVERIFY(!comptes->peutSaisirCode()); QVERIFY(!champ->isEnabled());
+    page.reset(); QTest::qWait(40);
+    QCOMPARE(m_serveur->compter("POST",operation+QStringLiteral("/annuler")),annulationsAvant);
+    page=charger(QStringLiteral("ComptesPage")); QVERIFY(page); racine=qobject_cast<QQuickItem *>(page.get());
+    QTRY_VERIFY(comptes->attente()); QTRY_VERIFY(!comptes->chargement());
+    champ=parNom(racine,QStringLiteral("comptes-code-claude")); QVERIFY(champ); QCOMPARE(champ->property("text").toString(),QString());
+    QCOMPARE(m_serveur->compter("POST",route+QStringLiteral("/claude/connexions")),1);
+    QTest::qWait(100); QVERIFY(cliquer(parNom(racine,QStringLiteral("comptes-annuler-claude_code")))); QTRY_VERIFY(!comptes->attente());
+    QVERIFY(!champ->isVisible());
+    QCOMPARE(m_serveur->compter("POST",operation+QStringLiteral("/annuler")),annulationsAvant+1);
+    QVERIFY2(m_avertissements.isEmpty(),qPrintable(m_avertissements.join(QLatin1Char('\n'))));
+    page.reset();
 }
 
 QTEST_MAIN(TestPagesInteractions)

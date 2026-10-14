@@ -8,7 +8,7 @@ Pile : faux fournisseur d'identité (session OIDC du propriétaire), faux serveu
 répartiteur et émetteur à 5 s.
 
 Ce qui est prouvé ici, sur l'image réellement construite :
-- neuf chemins à jeton exacts, vus par /v1/meta dans le tableau de bord ; les six routes P6 refusent la session OIDC du
+- dix chemins à jeton exacts (P6 + comptes distants), vus par /v1/meta dans le tableau de bord ; les six routes P6 refusent la session OIDC du
   propriétaire et tout porteur inconnu (401 de la couture) ;
 - inventaire Linux reçu (régime B, voie Codex fermée) et vu par /v1/poste ;
 - une carte n'est servie qu'à ``peut_executer`` et sur une voie annoncée ; réclamée ``acp-poste:<machine>``, TTL 2 700 s ;
@@ -170,11 +170,12 @@ def lancer_projet(hermes: Conteneur, titre: str) -> Dict[str, Any]:
 # =========================================================================== 1. couture et méta
 
 
-def test_neuf_chemins_a_jeton(pile):
+def test_dix_chemins_a_jeton(pile):
     code, meta = api(pile, "GET", "/v1/meta")
     assert code == 200
     chemins = meta["machine"]["chemins_a_jeton"]
-    assert list(chemins) == [f"{P}/machine/v1/{r}" for r in ("enrolement", "reclamer", "inventaire", *ROUTES_P6)]
+    assert list(chemins) == [f"{P}/machine/v1/{r}" for r in
+                            ("enrolement", "reclamer", "inventaire", *ROUTES_P6, "comptes")]
     assert all(chemins.values())
     oidc = jeton_oidc(pile)
     constats = {}

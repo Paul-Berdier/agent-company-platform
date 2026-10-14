@@ -1,17 +1,41 @@
 # Agent Company Platform (ACP)
 
-Espace de travail personnel d'agents IA, bâti autour de **Hermes Agent** (Nous Research, licence MIT).
-**1.2.0 enrichit le workspace natif et ajoute un coffre Markdown compatible Obsidian**,
-avec un pont Windows autonome, des compétences Addy/Ponytail et un catalogue d’intégrations.
-Lire le [guide de mise à jour et du coffre ACP](docs/refonte/workspace-1.2.0.md).
-Les services tiers décrits dans le catalogue ne sont pas installés par leur seule présence.
-La fusion de 1.0.0 dans `main` et son étiquette ont eu lieu le 10 octobre 2026. L'ancienne plateforme reste entière
-sous `archive/acp-0.10.0-avant-hermes`.
+> **Chantier 2.0 en cours — exécution distante uniquement.** Le desktop est un
+> client Qt : les missions, CLI, dépôts et sessions restent sur le serveur.
+> L'audit et les décisions qui remplacent l'exécutant Windows facultatif et la
+> récupération obligatoire par SSH sont dans [la correction remote-only](docs/refonte/remote-only.md).
+> Cette branche n'est pas déployée. Les descriptions et preuves 1.x ci-dessous
+> décrivent la version précédente, pas l'achèvement de cette nouvelle mission.
 
-**État d'exploitation au début du correctif (10 octobre 2026)** : Authelia démarré sur Railway ; Hermes 1.0.0
-refusé en PID 2 ; exécutant limité à sa sonde, sans compte connecté. Le correctif et les vérifications sont décrits
-dans [Démarrage sous init externe](docs/refonte/init-plateforme.md). Une CI verte ne vaut pas connexion réelle du
-propriétaire ni preuve d'un déploiement. Les bilans du 9 octobre ci-dessous sont historiques.
+
+Espace de travail personnel d'agents IA, bâti autour de **Hermes Agent** (Nous Research, licence MIT).
+Le chantier 2.0 corrige le contrat d'exécution : Hermes orchestre, le serveur Linux
+exécute, le desktop Qt présente les projets et les demandes.
+
+Le premier lot ajoute les parcours officiels de connexion distante Codex et
+Claude Code, une navigation centrée sur les projets et un journal d'exécution
+durable. Le compte Claude est vérifié par son CLI distant ; le retour temporaire
+du navigateur est saisi dans ACP, sans jeton à copier dans une discussion.
+La connexion Vibe, la livraison directe des artefacts et le workspace complet
+restent à construire. Les preuves et limites sont suivies dans
+[le bilan du chantier](docs/refonte/remote-only.md). Le
+[guide de préparation de la mise à jour](docs/mettre-a-jour-2.0.md) décrit l'ordre
+serveur puis desktop ; aucun installateur personnel 2.0 n'est encore prêt.
+
+**État observé le 14 octobre 2026** : le projet Railway ACP contient uniquement
+l'environnement nommé `production`. Hermes et l'exécutant restent épinglés sur
+ACP 1.0.1 (`85b458b`). La branche 2.0 n'est ni fusionnée ni déployée.
+Les sondes réelles de cet exécutant ont confirmé le régime B : Codex y reste
+fermé en écriture. La [déclaration explicite d’un futur VPS Linux](docs/refonte/vps-declaration.md)
+est préparée mais différée : le propriétaire a fixé un budget supplémentaire nul.
+Le parcours Claude vise son Railway et son abonnement existants ; aucun VPS,
+service payant supplémentaire ou remplacement par une API facturée n'est prévu.
+Les essais avec des doubles de CLI ou de compte ne prouvent pas une
+authentification ou une inférence réelle.
+
+Les sources 1.2.0 sont conservées sous `v1.2.0` et l'ancienne plateforme sous
+`archive/acp-0.10.0-avant-hermes`. Le coffre ACP et ses données sont préservés ;
+sa copie Windows reste facultative et indépendante des agents distants.
 
 ## Ce que c'est
 
@@ -32,13 +56,12 @@ fait relire, pose ses questions et notifie. ACP n'a plus de backend propre ; il 
    cartes à Hermes en HTTPS et lance Codex CLI 0.156.1 et Claude Code 2.1.283 sous un UID par agent, dans des
    worktrees de dépôts autorisés par une politique versionnée ; il committe en local, ne pousse jamais. Détail :
    [`docs/refonte/executant.md`](docs/refonte/executant.md).
-4. **Le poste Windows**, facultatif ([`apps/poste`](apps/poste/README.md)) : le même client en mode Windows, sous
-   un compte dédié et un Job Object ; il s'enrôle et publie l'inventaire de ses CLI. Détail :
-   [`docs/refonte/poste.md`](docs/refonte/poste.md).
-5. **La station de travail native** C++23 / Qt 6 / QML ([`apps/desktop`](apps/desktop/README.md)), sans WebView :
-   connexion OIDC native, pages Accueil, Projets, Questions, Discussion, Outils, Coffre ACP, Poste, Quotas, Routage, Diagnostics,
-   Sauvegarde (export chiffré de Hermes) ; alignée sur P7 (flux d'invalidation, Accueil agrégé, gestes de la file
-   Questions) ; elle ne parle qu'au Hermes authentifié. Détail : [`docs/refonte/desktop.md`](docs/refonte/desktop.md).
+4. **Le client de l'exécutant** ([`apps/poste`](apps/poste/README.md)) tourne sur le serveur Linux.
+   Les identités Windows historiques restent conservées pour migration ; le serveur refuse de leur attribuer
+   une nouvelle mission. Le desktop ne démarre aucun worker Windows.
+5. **Le workspace natif** C++23 / Qt 6 / QML ([`apps/desktop`](apps/desktop/README.md)), sans WebView :
+   Projets, Activité, À valider, Comptes et modèles, Paramètres. L'infrastructure et les diagnostics
+   restent accessibles dans les paramètres. Le client ne parle qu'au Hermes authentifié.
 6. **Le navigateur et le téléphone** : le tableau de bord de Hermes habillé en français, avec les pages d'ACP
    (Accueil, Projets et sa file Questions, Poste, Discussion, Catalogue) sur la même URL. Détail :
    [`docs/refonte/interface.md`](docs/refonte/interface.md), [`docs/refonte/questions.md`](docs/refonte/questions.md).
@@ -69,7 +92,7 @@ L'infrastructure Railway (trois services, trois volumes) est déclarée en code 
 - Binaires de la station : **non signés** (aucun certificat de signature de code) ; l'installeur est fabriqué par
   chaque Desktop CI, mais n'a jamais été installé sur un Windows propre.
 
-## Limites connues, en bref
+## Limites historiques de 1.0.0 (ne décrivent pas le chantier 2.0)
 
 - **Constat de sécurité corrigé, avec une limite** : une fois, après un redémarrage du conteneur sur un volume
   piégé, la session du tableau de bord a reçu les outils d'exécution (`terminal`, `write_file`…) posés par le `.env`

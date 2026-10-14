@@ -9,7 +9,7 @@ import datetime as _dt
 
 import pytest
 
-from conftest import inventaire_factice, poste_confirme, releve_factice
+from conftest import inventaire_distant_admis, poste_confirme, releve_factice
 
 _FORMAT = "%Y-%m-%dT%H:%M:%SZ"
 PROJET ={"id": None, "titre": "Outil jetable", "depot_alias": "jetable"}
@@ -22,7 +22,7 @@ def _avancer(noyau, secondes: int) -> None:
 
 def _recevoir(noyau, conn, machine, modifier=None):
     with noyau.base.transaction(conn):
-        return noyau.inventaire.recevoir_dans(conn, machine, inventaire_factice(modifier=modifier))
+        return noyau.inventaire.recevoir_dans(conn, machine, inventaire_distant_admis(modifier=modifier))
 
 
 def _poste_et_inventaire(noyau, conn, modifier=None):
@@ -113,7 +113,7 @@ def test_interdit_par_le_poste(noyau, conn):
     refus = _refus(noyau, conn, voie="poste-claude", modele="opus[1m]", effort=None)
     assert refus.code == "interdit_par_le_poste" and refus.message == (
         "Refusé par ACP : le poste refuse l'alias « opus[1m] » (poste.toml, [politique] alias_claude_permis) ; seule "
-        "une modification locale sur le PC peut le lever.")
+        "une modification de la politique sur le serveur distant peut le lever.")
     assert "l'effort « high »" in _refus(noyau, conn, voie="poste-claude", modele="opus", effort="high").message
     assert "[politique] modeles_codex_permis" in _refus(noyau, conn, voie="poste-codex", modele="factice-codex-1",
                                                         effort=None).message
@@ -161,9 +161,9 @@ def test_voie_non_connectee(noyau, conn):
     assert _poste == 1
 
 
-def test_claude_jeton_present_non_verifie_admis(noyau, conn):
+def test_claude_jeton_present_non_verifie_refuse(noyau, conn):
     _poste_et_inventaire(noyau, conn, lambda i: i["connexions"].update(claude="jeton_present_non_verifie"))
-    assert _admis(noyau, conn, voie="poste-claude", modele="opus", effort=None).voie == "poste-claude"
+    assert _refus(noyau, conn, voie="poste-claude", modele="opus", effort=None).code == "voie_non_connectee"
 
 
 def test_efforts_inconnus_sans_typeerror(noyau, conn):
@@ -297,10 +297,10 @@ def test_vue_des_quotas(noyau, conn):
     codex = vue["poste-codex"]
     assert codex["etat"] == "releve" and codex["seuil_pct"] == 90 and codex["resume"]["pourcentage_utilise"] == 41.0
     [compteur] = codex["compteurs"]
-    assert compteur["worker_id"] == machine and compteur["worker_name"] == "Poste Windows"
+    assert compteur["worker_id"] == machine and compteur["worker_name"] == "Exécutant Railway"
     assert [f["remaining_percent"] for f in compteur["windows"]] == [59, 88] and compteur["stale"] is False
-    assert vue["poste-claude"]["compteurs"] == [] and vue["poste-claude"]["source_libelle"].startswith("Ligne d'état")
-    assert vue["poste-claude"]["source"] == "ligne_etat_sessions_proprietaire"  # poste Windows : la ligne d'état du PC
+    assert vue["poste-claude"]["compteurs"] == [] and vue["poste-claude"]["source_libelle"] == noyau.textes.QUOTAS_SOURCE_CLAUDE_EXECUTANT
+    assert vue["poste-claude"]["source"] == noyau.quotas.SOURCE_CLAUDE_EXECUTANT
     assert vue["poste-codex"]["source_libelle"] == noyau.textes.QUOTAS_SOURCE_CODEX
     assert vue["hermes"]["etat"] == "meme_enveloppe_que_codex"
     _avancer(noyau, 7201)

@@ -1,6 +1,6 @@
 // Page Poste et page Questions de l'étape P6 sur les formes RÉELLES des routes (tests/fixtures-executant.ts) :
 // isolement mesuré (« Inconnu » sans sonde), conditions d'usage, carte en cours, voies fermées, branches prêtes avec
-// la commande de récupération (aucun bouton « Pousser »), revues des fichiers de pilotage (« Accepter », « Refuser »
+// leurs références et une livraison explicitement indisponible, revues des fichiers de pilotage (« Accepter », « Refuser »
 // avec un motif exigé), résolutions observées du routage ; chaque bouton appelle la route réelle ; aucun texte hors du
 // catalogue.
 import { act } from "react";
@@ -100,21 +100,27 @@ describe("page Poste : exécutant Railway (P6)", () => {
     expect(textesHorsCatalogue(r.racine, CATALOGUE)).toEqual([]);
   });
 
-  it("branche prête : commande de récupération copiée, jamais un push", async () => {
-    installerSdk({ [ROUTE_POSTE]: F.poste_executant_branche });
-    const copies: string[] = [];
-    Object.defineProperty(globalThis.navigator, "clipboard", {
-      configurable: true, value: { writeText: async (texte: string) => { copies.push(texte); } },
-    });
+  it.each(["courant", "historique"])("branche prête (%s) : références conservées, aucun accès manuel déduit", async (version) => {
+    // La capture P6 reste intacte. La réponse courante est explicitement simulée ici.
+    const reponse = JSON.parse(JSON.stringify(F.poste_executant_branche));
+    const resultat = reponse.executant.branches_pretes[0];
+    if (version === "courant") {
+      delete resultat.commande;
+      resultat.livraison = { etat: "non_disponible" };
+    }
+    const sdk = installerSdk({ [ROUTE_POSTE]: reponse });
     const r = await rendre(h(Poste, null));
-    const branches = texteDe(zone(r.racine, "acp-poste-branches"));
-    const commande = F.poste_executant_branche.executant.branches_pretes[0].commande as string;
-    expect(branches).toContain(F.poste_executant_branche.executant.branches_pretes[0].branche);
-    expect(branches).toContain(commande);
-    await cliquer(bouton(r.racine, "Copier la commande"));
-    expect(copies).toEqual([commande]);
-    expect(r.texte()).toContain("Commande copiée.");
-    expect(boutons(r.racine).some((b) => /pousser/i.test(b))).toBe(false);
+    const section = zone(r.racine, "acp-poste-branches");
+    const branches = texteDe(section);
+    expect(branches).toContain(resultat.branche);
+    expect(branches).toContain(resultat.tete);
+    expect(valeur(r.racine, "acp-poste-branches", "Livraison dans ACP")).toBe(
+      version === "courant" ? "Non disponible" : "Inconnu");
+    expect(branches).toContain("La livraison du résultat dans ACP n'est pas encore disponible.");
+    expect(branches).not.toMatch(/railway ssh|acp-poste bundle|Commande de récupération/);
+    expect(section?.querySelectorAll("button, a").length).toBe(0);
+    expect(ecritures(sdk)).toEqual([]);
+    expect(textesHorsCatalogue(r.racine, CATALOGUE)).toEqual([]);
   });
 
   it("sans sonde : l'isolement est « Inconnu » et l'écriture refusée", async () => {
@@ -178,7 +184,8 @@ describe("page Questions : revues des fichiers de pilotage (P6)", () => {
     const texte = texteDe(zone(r.racine, "acp-questions-revues"));
     expect(texte).toContain(".github/workflows/ci.yml");
     expect(texte).toContain("CLAUDE.md");
-    expect(texte).toContain("Le diff reste sur l'exécutant");
+    expect(texte).toContain("L'aperçu du diff et sa livraison dans ACP ne sont pas encore disponibles");
+    expect(texte).not.toMatch(/récupérez|git bundle|railway ssh/);
     expect(valeur(r.racine, "acp-questions-revues", "Modification")).toBe("1 fichier(s)12 ajout(s)0 retrait(s)");
     // « Refuser » exige un motif.
     expect(bouton(r.racine, "Refuser").disabled).toBe(true);

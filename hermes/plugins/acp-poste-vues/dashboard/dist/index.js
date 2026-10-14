@@ -1,4 +1,4 @@
-/* acp-poste-vues 1.2.0 (ACP) — bundle généré par apps/interface/esbuild.mjs depuis apps/interface/src ; ne pas modifier à la main. Aucun code tiers embarqué : React vient du SDK du tableau de bord de Hermes. */
+/* acp-poste-vues 2.0.0 (ACP) — bundle généré par apps/interface/esbuild.mjs depuis apps/interface/src ; ne pas modifier à la main. Aucun code tiers embarqué : React vient du SDK du tableau de bord de Hermes. */
 
 "use strict";
 (() => {
@@ -266,8 +266,9 @@
       reponsesSansObjet: "Sans objet sans d\xE9p\xF4t\xA0: aucune question ne na\xEEt d'un projet sans d\xE9p\xF4t\xA0; s'il manque une information, Hermes bloque une carte avec sa raison (page Questions, cartes bloqu\xE9es).",
       champDepot: "D\xE9p\xF4t",
       sansDepot: "Sans d\xE9p\xF4t",
-      aucunDepotConnu: "Aucun d\xE9p\xF4t connu\xA0: le poste n'a encore publi\xE9 aucun inventaire (page Poste).",
+      aucunDepotConnu: "D\xE9p\xF4ts inconnus\xA0: le serveur n\u2019a pas encore publi\xE9 d\u2019inventaire.",
       depotsInconnus: "D\xE9p\xF4ts inconnus\xA0: l'inventaire du poste est illisible (voir l'erreur ci-dessus).",
+      aucunDepotDeclare: "Aucun d\xE9p\xF4t d\xE9clar\xE9 sur le serveur. Connecter Claude ne configure pas l\u2019acc\xE8s aux d\xE9p\xF4ts. L\u2019ajout depuis ACP n\u2019est pas encore disponible.",
       releveFactice: "Relev\xE9 factice\xA0: ces mod\xE8les viennent d'un relev\xE9 de test, pas de votre poste.",
       exploration: "Exploration du d\xE9p\xF4t",
       explorationAide: "Le poste lit le d\xE9p\xF4t, sans rien y modifier, avant la planification.",
@@ -284,6 +285,7 @@
       releveDu: "Relev\xE9 du",
       relevePerime: "Relev\xE9 p\xE9rim\xE9\xA0: le poste doit publier un nouvel inventaire.",
       lancer: "Lancer le projet",
+      lancerSansDepot: "Lancer avec Hermes (sans d\xE9p\xF4t)",
       retour: "Retour aux projets",
       objectif: "Objectif",
       tour: "Tour",
@@ -384,7 +386,7 @@
       bloqueesIntro: "\xAB\xA0Relancer\xA0\xBB remet la carte en route, avec votre consigne si vous en donnez une. Une carte qui rebloque pour la m\xEAme raison revient en d\xE9cision.",
       relancerCarte: "Relancer",
       relanceExecutantAide: "L'agent repart d'une session neuve, sur la branche d\xE9j\xE0 commenc\xE9e.",
-      relanceIntegrationAide: "Carte d'int\xE9gration, sans agent\xA0: \xAB\xA0Relancer\xA0\xBB rejoue la m\xEAme fusion des branches, sans consigne. Un conflit revient tant qu'aucune branche ne change\xA0: r\xE9cup\xE9rez les branches sur l'ex\xE9cutant (git bundle) pour trancher, ou cl\xF4turez le projet.",
+      relanceIntegrationAide: "Carte d'int\xE9gration, sans agent\xA0: \xAB\xA0Relancer\xA0\xBB rejoue la m\xEAme fusion des branches, sans consigne. Un conflit revient tant qu'aucune branche ne change. Vous pouvez relancer sans consigne ou cl\xF4turer le projet. La r\xE9solution graphique du conflit et la livraison des branches dans ACP ne sont pas encore disponibles.",
       relanceeFusion: "La carte repart\xA0: l'ex\xE9cutant rejoue la m\xEAme fusion.",
       relancee: "La carte repart.",
       // Partie E (K25) : carte bloquée pour un secret, travail fautif en quarantaine sur l'exécutant.
@@ -696,15 +698,14 @@
         enAttenteDeVoie: "Cartes en attente d'une voie ferm\xE9e (jamais r\xE9assign\xE9es\xA0; bloqu\xE9es au-del\xE0 de 30 minutes)",
         depuis: "Depuis",
         branchesTitre: "Branches pr\xEAtes",
-        branchesAide: "Branche int\xE9gr\xE9e sur l'ex\xE9cutant. Aucun push\xA0: r\xE9cup\xE9rez-la par un bundle avec la commande ci-dessous (railway ssh), puis v\xE9rifiez la t\xEAte sur votre PC.",
+        branchesAide: "R\xE9f\xE9rences des branches int\xE9gr\xE9es sur le serveur d'ex\xE9cution.",
         aucuneBranche: "Aucune branche pr\xEAte.",
         branche: "Branche",
         tete: "T\xEAte",
         termineLe: "Int\xE9gr\xE9e",
-        commande: "Commande de r\xE9cup\xE9ration",
-        copier: "Copier la commande",
-        copie: "Commande copi\xE9e.",
-        copieImpossible: "Copie impossible\xA0: s\xE9lectionnez la commande \xE0 la main.",
+        livraison: "Livraison dans ACP",
+        livraisonIndisponible: "Non disponible",
+        livraisonAide: "La livraison du r\xE9sultat dans ACP n'est pas encore disponible. Les r\xE9f\xE9rences de la branche restent consultables.",
         revuesEnAttente: "Cartes en revue (page Questions)"
       },
       genresOrdre: {
@@ -720,6 +721,7 @@
         inconnu: "Inconnu"
       },
       connexionsClaude: {
+        compteClaude: "Compte Claude connect\xE9",
         jetonReconnu: "Jeton reconnu",
         jetonPresentNonVerifie: "Jeton pr\xE9sent, non v\xE9rifi\xE9",
         refuse: "Refus\xE9",
@@ -1762,21 +1764,7 @@
   }
   function Branche(props) {
     const b = props.branche;
-    const [copie, fixerCopie] = useState(null);
-    const copier = async () => {
-      const presse = globalThis.navigator?.clipboard;
-      if (!b.commande || !presse || typeof presse.writeText !== "function") {
-        fixerCopie("impossible");
-        return;
-      }
-      try {
-        await presse.writeText(b.commande);
-        fixerCopie("ok");
-      } catch {
-        fixerCopie("impossible");
-      }
-    };
-    return /* @__PURE__ */ h("li", { className: "acp-entree" }, /* @__PURE__ */ h("dl", { className: "acp-liste" }, /* @__PURE__ */ h(Ligne, { libelle: X.projet }, /* @__PURE__ */ h(Donnee, { valeur: b.projet_titre })), /* @__PURE__ */ h(Ligne, { libelle: X.branche }, /* @__PURE__ */ h(Donnee, { valeur: b.branche, mono: true })), /* @__PURE__ */ h(Ligne, { libelle: X.tete }, /* @__PURE__ */ h(Donnee, { valeur: b.tete, mono: true })), /* @__PURE__ */ h(Ligne, { libelle: X.termineLe }, /* @__PURE__ */ h(Horodatage, { valeur: b.termine_le })), /* @__PURE__ */ h(Ligne, { libelle: X.commande }, /* @__PURE__ */ h(Donnee, { valeur: b.commande, mono: true }))), /* @__PURE__ */ h("div", { className: "acp-actions" }, /* @__PURE__ */ h(Bouton, { libelle: X.copier, surClic: copier })), copie === "ok" ? /* @__PURE__ */ h("p", { className: "acp-succes", role: "status" }, X.copie) : null, copie === "impossible" ? /* @__PURE__ */ h("p", { className: "acp-alerte-texte", role: "status" }, X.copieImpossible) : null);
+    return /* @__PURE__ */ h("li", { className: "acp-entree" }, /* @__PURE__ */ h("dl", { className: "acp-liste" }, /* @__PURE__ */ h(Ligne, { libelle: X.projet }, /* @__PURE__ */ h(Donnee, { valeur: b.projet_titre })), /* @__PURE__ */ h(Ligne, { libelle: X.branche }, /* @__PURE__ */ h(Donnee, { valeur: b.branche, mono: true })), /* @__PURE__ */ h(Ligne, { libelle: X.tete }, /* @__PURE__ */ h(Donnee, { valeur: b.tete, mono: true })), /* @__PURE__ */ h(Ligne, { libelle: X.termineLe }, /* @__PURE__ */ h(Horodatage, { valeur: b.termine_le })), /* @__PURE__ */ h(Ligne, { libelle: X.livraison }, /* @__PURE__ */ h("span", null, b.livraison?.etat === "non_disponible" ? X.livraisonIndisponible : T.commun.inconnu))), /* @__PURE__ */ h("p", { className: "acp-discret" }, X.livraisonAide));
   }
   function BranchesPretes(props) {
     return /* @__PURE__ */ h(Carte, { titre: X.branchesTitre, id: "acp-poste-branches" }, /* @__PURE__ */ h("p", { className: "acp-discret" }, X.branchesAide), props.branches.length === 0 ? /* @__PURE__ */ h("p", { className: "acp-discret" }, X.aucuneBranche) : /* @__PURE__ */ h("ul", { className: "acp-entrees acp-entrees--une" }, props.branches.map((b, rang) => /* @__PURE__ */ h(Branche, { key: `${b.branche ?? rang}`, branche: b }))));
@@ -1881,6 +1869,8 @@
   function libelleConnexionClaude(etat) {
     const c = T.poste.connexionsClaude;
     switch (etat) {
+      case "compte_claude":
+        return L(c.compteClaude, "succes");
       case "jeton_reconnu":
         return L(c.jetonReconnu, "succes");
       case "jeton_present_non_verifie":

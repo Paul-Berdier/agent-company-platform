@@ -207,6 +207,10 @@ set(ACP_CORE_SOURCES
     src/services/TexteDiscussion.h
     src/viewmodels/ObsidianViewModel.cpp
     src/viewmodels/ObsidianViewModel.h
+    src/viewmodels/ComptesViewModel.cpp
+    src/viewmodels/ComptesViewModel.h
+    src/viewmodels/JournalExecutionViewModel.cpp
+    src/viewmodels/JournalExecutionViewModel.h
     src/viewmodels/CatalogueViewModel.cpp
     src/viewmodels/CatalogueViewModel.h
     src/viewmodels/DiscussionViewModel.cpp

@@ -18,11 +18,12 @@ def fournisseur(noyau):
     from hermes_cli.dashboard_auth.token_auth import register_token_route
 
     from acp_poste_contrat.machine import ROUTES
+    from acp_poste_contrat.comptes import ROUTE_MACHINE as ROUTE_COMPTES
 
     jeton_machine = meta.sous_module_noyau("jeton_machine")
     instance = jeton_machine.FournisseurJetonMachine()
     register_global_provider(instance)
-    for chemin in ROUTES:
+    for chemin in (*ROUTES, ROUTE_COMPTES):
         register_token_route(chemin)
     yield instance
     unregister_global_provider(instance.name, instance)
@@ -35,7 +36,7 @@ def test_bloc_machine_conforme(fournisseur, noyau, conn, monkeypatch):
     bloc, alertes = meta.bloc_machine()
     assert bloc["fournisseur"] == "enregistre" and all(bloc["chemins_a_jeton"].values())
     assert list(bloc["chemins_a_jeton"]) == ["/api/plugins/acp-poste/machine/v1/" + r for r in (
-        "enrolement", "reclamer", "inventaire", "battement", "terminer", "question", "bloquer", "reprendre", "arret")]
+        "enrolement", "reclamer", "inventaire", "battement", "terminer", "question", "bloquer", "reprendre", "arret", "comptes")]
     assert bloc["base"] == "ok" and bloc["machines"] == {"a_confirmer": 0, "actif": 0, "revoque": 0}
     assert bloc["dernier_inventaire"] is None and alertes == []
     machine, _jeton = poste_confirme(noyau, conn)

@@ -203,8 +203,10 @@ class Banc:
         self.executant = r.nom("executant")
         r.conteneurs.append(self.executant)
         assert self.image_executant, "construire_executant() d'abord"
+        # Hébergement Railway SIMULÉ dans ce conteneur jetable ; aucun appel à Railway.
+        # La garde remote-only refuserait sinon l'hôte « pc » annoncé par le vrai worker Linux.
         docker("run", "-d", "--name", self.executant, "--network", self.reseau, "-v",
-               f"{self.volume_executant}:/donnees", self.image_executant)
+               f"{self.volume_executant}:/donnees", "-e", "RAILWAY_SERVICE_ID=acp-banc-simule", self.image_executant)
         attendre(lambda: "[acp] volume prêt" in docker("logs", self.executant, verifier=False).stdout, 60,
                  "entrée de l'exécutant non passée")
 
@@ -285,6 +287,16 @@ class Banc:
         depose = self.acp_poste("connexion", "claude", "--stdin", entree=JETON_CLAUDE + "\n")
         assert depose.returncode == 0 and "déposé sur le volume (root, 0600)" in depose.stdout, depose.stderr
         assert JETON_CLAUDE not in depose.stdout + depose.stderr
+        # Magasin entièrement factice, commun aux deux versions dans le test de
+        # migration. Le jeton historique ci-dessus reste conservé mais la cible
+        # n'en dépend plus ; le double lit ce marqueur sous son UID dédié.
+        provision = "\n".join([
+            "import json,os,pathlib",
+            "p=pathlib.Path('/donnees/claude/.credentials.json')",
+            "p.write_text(json.dumps({'acpTestAccount':True,'claudeAiOauth':{'accessToken':"
+            + repr(JETON_CLAUDE) + "}}),encoding='utf-8')",
+            "os.chown(p,10002,10002)", "os.chmod(p,0o600)"])
+        docker("exec", self.executant, "python3.12", "-c", provision)
         code, cree = self.api("POST", "/v1/poste/enrolement", {})
         assert code == 201, cree
         enrole = self.acp_poste("enroler", "--code-stdin", entree=cree["code"] + "\n")

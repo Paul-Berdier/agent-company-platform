@@ -130,7 +130,7 @@ void TestRoutage::listesLibellees()
 {
     const QJsonObject voies = fixture(QStringLiteral("routage.json")).value(QStringLiteral("voies")).toObject();
     const QJsonObject codex = RoutageViewModel::construireListe(QStringLiteral("poste-codex"), voies.value(QStringLiteral("poste-codex")).toObject());
-    QCOMPARE(codex.value(QStringLiteral("titre")).toString(), QStringLiteral("Poste (Codex)"));
+    QCOMPARE(codex.value(QStringLiteral("titre")).toString(), QStringLiteral("Codex"));
     QCOMPARE(codex.value(QStringLiteral("badgeLibelle")).toString(), QStringLiteral("Relevé du compte"));
     QCOMPARE(codex.value(QStringLiteral("badgeCle")).toString(), QStringLiteral("succeeded"));
     QCOMPARE(codex.value(QStringLiteral("versionCli")).toString(), QStringLiteral("0.156.1"));
@@ -203,10 +203,10 @@ void TestRoutage::classesDansLOrdreAvecSuggestion()
     QCOMPARE(exploration.value(QStringLiteral("titre")).toString(), QStringLiteral("Exploration du dépôt"));
     QCOMPARE(exploration.value(QStringLiteral("etatLibelle")).toString(), QStringLiteral("Non validée"));
     QCOMPARE(exploration.value(QStringLiteral("vide")).toBool(), true);
-    QCOMPARE(exploration.value(QStringLiteral("voies")).toString(), QStringLiteral("Poste (Claude), Poste (Codex)"));
+    QCOMPARE(exploration.value(QStringLiteral("voies")).toString(), QStringLiteral("Claude Code, Codex"));
     QCOMPARE(exploration.value(QStringLiteral("aSuggestion")).toBool(), true);
     QCOMPARE(exploration.value(QStringLiteral("suggestion")).toString(),
-             QStringLiteral("Poste (Codex) · factice-codex-1 · effort medium · palier Standard"));
+             QStringLiteral("Codex · factice-codex-1 · effort medium · palier Standard"));
     QCOMPARE(exploration.value(QStringLiteral("suggestionLibelle")).toString(),
              QStringLiteral("Suggestion calculée depuis le relevé du 26/09/2026 21:40."));
     QCOMPARE(exploration.value(QStringLiteral("remarques")).toString(),
@@ -240,7 +240,7 @@ void TestRoutage::suggestionPuisValidationCorpsExact()
     QCOMPARE(exploration.value(QStringLiteral("modifiee")).toBool(), true);
     const QJsonObject ligne = exploration.value(QStringLiteral("entrees")).toArray().at(0).toObject();
     QCOMPARE(ligne.value(QStringLiteral("verdict")).toString(), QStringLiteral("À valider"));
-    QCOMPARE(ligne.value(QStringLiteral("texte")).toString(), QStringLiteral("Poste (Codex) · factice-codex-1 · effort medium · palier Standard"));
+    QCOMPARE(ligne.value(QStringLiteral("texte")).toString(), QStringLiteral("Codex · factice-codex-1 · effort medium · palier Standard"));
 
     const QJsonObject jugee = QJsonObject{{QStringLiteral("voie"), QStringLiteral("poste-codex")},
                                           {QStringLiteral("modele"), QStringLiteral("factice-codex-1")},
@@ -374,7 +374,7 @@ void TestRoutage::surchargesEtPolitiques()
     const QJsonObject surcharge = banc.routage.surcharges()->itemAt(0);
     QCOMPARE(surcharge.value(QStringLiteral("id")).toString(), QStringLiteral("7"));
     QCOMPARE(surcharge.value(QStringLiteral("classe")).toString(), QStringLiteral("Implémentation"));
-    QCOMPARE(surcharge.value(QStringLiteral("entree")).toString(), QStringLiteral("Poste (Claude) · opus · effort high"));
+    QCOMPARE(surcharge.value(QStringLiteral("entree")).toString(), QStringLiteral("Claude Code · opus · effort high"));
     QCOMPARE(surcharge.value(QStringLiteral("motif")).toString(), QStringLiteral("Essai d'Opus"));
     banc.routage.desactiverSurcharge(QStringLiteral("7"));
     QTRY_VERIFY(!banc.routage.gesteEnCours());

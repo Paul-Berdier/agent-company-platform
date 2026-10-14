@@ -8,16 +8,16 @@ from __future__ import annotations
 
 import pytest
 
-from conftest import inventaire_factice, poste_confirme
+from conftest import inventaire_distant_admis, poste_confirme
 
 PROJET = {"id": None, "titre": "Outil jetable", "depot_alias": "jetable"}
 
 
-def _poste_windows(noyau, conn, mesure):
+def _serveur_distant(noyau, conn, mesure):
     """Poste de l'exemple (bac à sable Codex admis : la voie Codex n'est fermée que par la garde du dépôt)."""
     machine, _jeton = poste_confirme(noyau, conn)
     with noyau.base.transaction(conn):
-        noyau.inventaire.recevoir_dans(conn, machine, inventaire_factice(mesure=mesure))
+        noyau.inventaire.recevoir_dans(conn, machine, inventaire_distant_admis(mesure=mesure))
     return machine
 
 
@@ -27,7 +27,7 @@ def _codex(noyau, conn, projet=PROJET):
 
 
 def test_depot_prive_mesure_ouvre_codex(noyau, conn):
-    _poste_windows(noyau, conn, mesure=True)
+    _serveur_distant(noyau, conn, mesure=True)
     assert noyau.routage.voies_fermees(conn, depot_alias="jetable") == {}
     assert _codex(noyau, conn).voie == "poste-codex"
 
@@ -40,7 +40,7 @@ def test_depot_prive_mesure_ouvre_codex(noyau, conn):
     (("prive", "inconnue"), "lecture avec le jeton : inconnue"),
 ])
 def test_codex_ferme_si_le_depot_n_est_pas_prouve_prive(noyau, conn, mesure, raison):
-    _poste_windows(noyau, conn, mesure=mesure)
+    _serveur_distant(noyau, conn, mesure=mesure)
     fermees = noyau.routage.voies_fermees(conn, depot_alias="jetable")
     assert fermees == {"poste-codex": f"dépôt « jetable » non prouvé privé ({raison}) : Codex n'y travaille que sur un "
                                       "dépôt privé lu avec le jeton de lecture (D83)"}
@@ -55,7 +55,7 @@ def test_codex_ferme_si_le_depot_n_est_pas_prouve_prive(noyau, conn, mesure, rai
 
 
 def test_depot_absent_de_l_inventaire(noyau, conn):
-    _poste_windows(noyau, conn, mesure=True)
+    _serveur_distant(noyau, conn, mesure=True)
     raison = noyau.routage.voies_fermees(conn, depot_alias="autre")["poste-codex"]
     assert "absent du dernier inventaire de l'exécutant" in raison
 
@@ -63,7 +63,7 @@ def test_depot_absent_de_l_inventaire(noyau, conn):
 def test_resoudre_passe_a_l_entree_suivante_de_la_table(noyau, conn):
     """Hermes gère : la table met Codex d'abord ; dépôt non mesuré → la résolution prend l'entrée suivante (Claude),
     sans question au propriétaire. S'il n'en reste aucune, le refus de routage existant s'applique."""
-    _poste_windows(noyau, conn, mesure=None)
+    _serveur_distant(noyau, conn, mesure=None)
     noyau.routage.enregistrer_routage(conn, "implementation", [
         {"voie": "poste-codex", "modele": "factice-codex-1", "effort": "medium"},
         {"voie": "poste-claude", "modele": "opus", "effort": "medium"}], source="releve_factice", valide_par="test")
@@ -84,7 +84,7 @@ def test_relecture_croisee_vers_codex_prend_le_repli(noyau, conn):
         inventaire["politique"]["alias_claude_permis"] = ["opus", "opus[1m]", "sonnet", "haiku"]
     machine, _jeton = poste_confirme(noyau, conn)
     with noyau.base.transaction(conn):
-        noyau.inventaire.recevoir_dans(conn, machine, inventaire_factice(mesure=("public", "ok"), modifier=haiku))
+        noyau.inventaire.recevoir_dans(conn, machine, inventaire_distant_admis(mesure=("public", "ok"), modifier=haiku))
     noyau.routage.enregistrer_routage(conn, "relecture", [{"voie": "poste-claude", "modele": "haiku"}],
                                       source="releve_factice", valide_par="test")
     resolution = noyau.routage.resoudre_relecture(conn, projet=PROJET, voie_relue="poste-claude", ref="e1",
@@ -94,7 +94,7 @@ def test_relecture_croisee_vers_codex_prend_le_repli(noyau, conn):
 
 
 def test_lancement_avec_exploration_codex_refusee_sur_depot_public(noyau, conn):
-    _poste_windows(noyau, conn, mesure=("public", "ok"))
+    _serveur_distant(noyau, conn, mesure=("public", "ok"))
     with pytest.raises(noyau.textes.RefusACP) as exc:
         noyau.projets.lancer(conn, titre="Public", objectif="o", depot="jetable", origine="tableau_de_bord",
                              auteur="proprietaire:test",
@@ -106,7 +106,7 @@ def test_lancement_avec_exploration_codex_refusee_sur_depot_public(noyau, conn):
 def test_table_de_routage_validee_pour_tout_depot(noyau, conn):
     """Une entrée de table vaut pour TOUT dépôt : sa validation (page Routage) n'est jamais jugée sur un dépôt fictif ;
     la garde s'applique à la résolution, pour le dépôt réel du projet."""
-    _poste_windows(noyau, conn, mesure=None)
+    _serveur_distant(noyau, conn, mesure=None)
     entree = {"voie": "poste-codex", "modele": "factice-codex-1", "effort": "medium"}
     assert noyau.routage.admission(conn, "implementation", entree)["admise"] is True
     noyau.routage.enregistrer_routage(conn, "implementation", [entree], source="releve_factice", valide_par="test")
@@ -122,7 +122,7 @@ def test_depots_du_poste_mesure_publiee_et_voies_par_le_meme_calcul(noyau, conn)
     """Carte « Dépôts » et grisage de « Nouveau projet » (cahier P7 § 11.2) : la mesure TELLE QUE PUBLIÉE par
     l'exécutant, et les voies fermées POUR CE DÉPÔT par le calcul même du routage (aucune fonction parallèle, K24)."""
     assert noyau.routage.depots_du_poste(conn) == []  # aucun inventaire : rien n'est inventé
-    _poste_windows(noyau, conn, mesure=("public", "ok"))
+    _serveur_distant(noyau, conn, mesure=("public", "ok"))
     [depot] = noyau.routage.depots_du_poste(conn)
     assert (depot["alias"], depot["visibilite"], depot["lecture"]) == ("jetable", "public", "ok")
     assert depot["verifie_le"].endswith("Z")
@@ -134,7 +134,7 @@ def test_depots_du_poste_mesure_publiee_et_voies_par_le_meme_calcul(noyau, conn)
 
 @pytest.mark.parametrize("mesure, ouverte", [(True, True), (None, False), (("prive", "refusee"), False)])
 def test_depots_du_poste_selon_la_mesure(noyau, conn, mesure, ouverte):
-    _poste_windows(noyau, conn, mesure=mesure)
+    _serveur_distant(noyau, conn, mesure=mesure)
     [depot] = noyau.routage.depots_du_poste(conn)
     assert ("poste-codex" not in depot["voies_fermees"]) is ouverte
     assert "poste-claude" not in depot["voies_fermees"]

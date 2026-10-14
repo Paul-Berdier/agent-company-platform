@@ -1,6 +1,92 @@
 # Reprise du travail sur un autre poste
 
-## Priorité de reprise — 14 octobre 2026, ACP 1.2.0
+## Priorité courante — 14 octobre 2026, correction distante 2.0
+
+La nouvelle mission du propriétaire remplace l'architecture hybride 1.x.
+Lire [remote-only.md](refonte/remote-only.md) et
+[la comparaison des moteurs](refonte/remote-engines.md) avant de reprendre.
+Branche dédiée : `codex/remote-workspace`, ouverte depuis
+`e99b4968758458c73591f9f1cd7c8c6535795486`.
+Le commit `aee2dad` ouvre la version de travail **2.0.0**, sans publication.
+
+Le PC doit rester un client Qt. Les dépôts, moteurs, sessions, fichiers et tâches
+appartiennent au serveur. Les décisions R1–R9 précisent les anciennes décisions
+remplacées, sans retirer les gardes de sécurité ni effacer les données.
+La première verticale traite le compte Codex distant, le refus d'attribution aux
+anciens postes Windows, le journal durable et une interface native utilisable.
+Les autres lots de la mission ne sont pas déclarés terminés.
+
+État validé : `f3bb19df1fd5c94c7f2cc88ec21e9144fc90a2f4`, dans la
+[PR 34 en brouillon](https://github.com/Paul-Berdier/agent-company-platform/pull/34),
+non fusionnée. La CI finale passe : Linux 1 575 tests (62 ignorés), Windows
+1 525 (112 ignorés), 464 sous-tests par système ; Hermes 907 tests image,
+205 contrats et 10 parcours navigateur. Restauration : 13 contrats et 1 parcours
+navigateur. Deux montées de données jetables passent chacune 6 tests
+(218 désélectionnés, aucun ignoré), avec moteurs simulés : `e99b496` → `f3bb19d`
+et [1.0.1 `85b458b` → `f3bb19d`](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/38584859352).
+Ce second témoin part du code réellement relevé sur Railway ; il conserve les
+lectures, le jeton, l'empreinte et les références Git, reprend l'ancienne session
+et termine une nouvelle mission. Il ne valide ni les volumes personnels,
+ni une migration Authelia, ni un retour arrière ; le schéma reste 4.
+Desktop (43/43 suites et empaquetage) et exécutant (46 tests image et 1 008 tests
+root) sont verts sur `237f257`, dont le code de production est identique à f3 ;
+seuls deux fichiers de tests ont changé. Liens, exclusions et limites dans
+[le bilan final](refonte/remote-only.md#campagnes-finales-et-pr-en-cours).
+Aucun Setup 2.0 installé, aucune release 2.0 publiée et aucune connexion ou
+inférence personnelle validée.
+
+Le projet Railway personnel indiqué par Paul ne contient actuellement que
+`production` ; aucun environnement de test séparé n'a été identifié. Aucun
+déploiement, changement de variable, création de ressource payante ou essai sur
+les données de production n'a eu lieu pour ce chantier. Les journaux réels du
+10 octobre confirment le régime B ; Codex y reste fermé en écriture. Paul ne
+dispose d'aucun VPS et a fixé **un budget supplémentaire nul** le 14 octobre.
+Il confirme un abonnement Claude Pro ou Max ; droits, modèles et quotas sur le
+serveur restent à vérifier, sans connexion personnelle déjà prouvée.
+Le relevé du 14 octobre retrouve les trois services applicatifs en `SUCCESS`.
+Un quatrième service générique `agent-company-platform`, absent de l’IaC,
+échoue avant démarrage : Railpack analyse la racine sans commande de démarrage.
+Ses cinq derniers builds en échec ne prouvent pas une panne des trois services.
+Aucune correction de production n’a été appliquée. Les trois vrais services
+portent `source.commitSha=85b458b` ; le contrat du connecteur Railway décrit ce
+champ comme une épingle qui suspend le suivi de branche. Le quatrième service
+suit `main` sans épingle. La lecture API directe `serviceInstanceAutoDeployStatus`
+confirme `enabled=false` pour les trois services applicatifs et `true` pour le
+service générique. Relire ces réglages avant toute fusion ; les sauvegardes
+restent nécessaires avant le déploiement des services applicatifs.
+
+Ne pas proposer un achat de VPS, une nouvelle pile payante ou une API facturée
+comme prochaine étape nécessaire. La déclaration VPS préparée reste facultative
+et n'ouvre aucune garde à elle seule.
+
+Le nouveau lot **Claude Code sur le Railway existant** est implémenté, validation
+finale en cours : compte officiel distant, API `acp-comptes/2`, formulaire Qt,
+reçu de transmission, reprise sans relance, garde de compte avant mission,
+masquage du magasin officiel y compris après rotation. Le setup-token historique
+reste conservé mais n'est plus injecté. Les relectures croisées ont corrigé
+les courses d'annulation/ACK et la suspension après arrêt non confirmé.
+Le [témoin réel `5b98432`](https://github.com/Paul-Berdier/agent-company-platform/actions/runs/38588066690)
+passe 51 tests image et 1 008 tests root (24 ignorés Windows), sans compte ni
+inférence personnels. Le chemin Claude et `--claudeai` sont confirmés ; une
+connexion personnelle réussie et son renouvellement restent à prouver.
+Ne pas demander de CLI ou de collage de jeton sur le PC. Séparer les comptes
+ACP, coordinateur Hermes et Claude ; aucune API payante de remplacement.
+
+Le premier essai utile proposé est une petite analyse en lecture seule avec
+synthèse et journal dans ACP, puis fermeture/reconnexion du client sans relance.
+L'essai personnel reste dans le périmètre autorisé, après préparation et revue
+des sauvegardes et du déploiement compatible ; les CI simulées ne le remplacent pas.
+La livraison des fichiers, diffs et artefacts reste nécessaire pour déclarer
+un parcours de modification de code complet. Lire
+[le parcours conditionnel](refonte/remote-only.md#budget-nul-et-prochain-parcours-distant)
+avant toute action sur les services existants.
+
+Le coffre `C:/Users/Paul/Documents/ACP-notes`, les assets privés LimeZu et le
+checkout personnel restent préservés. Ne pas réinstaller ni publier 1.2.0 comme
+si cette version réalisait la nouvelle mission. Le bilan 1.2.0 qui suit est
+historique, et ses commandes de livraison ne sont pas une autorisation nouvelle.
+
+## Historique — 14 octobre 2026, ACP 1.2.0
 
 Les sources de **1.2.0** sont fusionnées dans `main` par la
 [PR 32](https://github.com/Paul-Berdier/agent-company-platform/pull/32), le 14 octobre
@@ -41,8 +127,13 @@ nécessaire d’attendre la publication GitHub pour utiliser ce paquet local.
 Les relevés Railway en lecture seule des **12 et 14 octobre** indiquent `hermes`
 et `executant` épinglés sur ACP **1.0.1**, source
 `85b458bbffbfb6dffe1fc40b8c3885f11b779ac7`, avec `staged=null` le 14.
-Le champ `source.commitSha` maintient cette épingle : un push sur `main` ne met
-pas automatiquement ces services à jour. Le Setup ne les met pas à jour non plus.
+Le contrat du connecteur Railway `connect_service_source` décrit `commitSha`
+comme une épingle : la branche n’est plus suivie jusqu’à reconnexion sans SHA.
+Le relevé du 14 octobre confirme cette épingle pour les trois services applicatifs,
+mais pas pour le quatrième service générique. La lecture directe de l’API confirme
+les déclencheurs désactivés sur les trois services applicatifs et activés sur le
+service générique. Relire la configuration avant fusion et déploiement ; le Setup
+ne met pas ces services à jour.
 Les sauvegardes du [manuel § 6.4](exploitation.md#64-vos-gestes-et-le-point-de-non-retour)
 et du [§ 6.5](exploitation.md#65-authelia-binaires-de-lexécutant-acp-lui-même)
 précèdent le futur déploiement manuel du commit validé. Les trois tables du coffre

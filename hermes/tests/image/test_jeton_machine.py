@@ -236,9 +236,9 @@ journal.setLevel(logging.WARNING)
 journal.addHandler(Collecteur(level=logging.WARNING))
 module.register(ctx)
 from hermes_cli.dashboard_auth.token_auth import is_token_route
-# Étape P6 : neuf chemins exacts (les trois de P5, puis les six de l'exécution).
+# Neuf chemins historiques plus le contrôle des comptes, sous la même identité.
 chemins = ["/api/plugins/acp-poste/machine/v1/" + r for r in ("enrolement", "reclamer", "inventaire", "battement",
-                                                            "terminer", "question", "bloquer", "reprendre", "arret")]
+                                                            "terminer", "question", "bloquer", "reprendre", "arret", "comptes")]
 resultat = [[(f.name, f.supports_token, f.supports_session) for f in ctx.fournisseurs],
             [is_token_route(c) for c in chemins],
             [is_token_route(c + "/") for c in chemins] + [is_token_route("/api/plugins/acp-poste/machine/v1/pousser"),
@@ -252,9 +252,9 @@ def test_register_enregistre_le_fournisseur_et_les_chemins_exacts(noyau):
     code = _CODE_REGISTER.replace("__AVEC_SESSION__", "True")
     fournisseurs, exacts, autres, messages = executer_python(code, env=dict(os.environ, HERMES_HOME=str(noyau.home)))
     assert fournisseurs == [["acp-poste-machine", True, False], ["acp-coffre", True, False]]
-    assert exacts == [True] * 9  # étape P6 : test_neuf_chemins_a_jeton
+    assert exacts == [True] * 10  # neuf routes machine et contrôle des comptes distants
     # Chemin exact seulement ; une route non déclarée (pousser, D82) et les routes du propriétaire jamais à jeton.
-    assert autres == [False] * 12
+    assert autres == [False] * 13
     assert list(ROUTES) == ["/api/plugins/acp-poste/machine/v1/" + r for r in (
         "enrolement", "reclamer", "inventaire", "battement", "terminer", "question", "bloquer", "reprendre", "arret")]
     assert [m for m in messages if m[0] == "ERROR"] == []
@@ -268,7 +268,7 @@ def test_register_sans_fournisseur_de_session_enregistre_quand_meme(noyau):
     code = _CODE_REGISTER.replace("__AVEC_SESSION__", "False")
     fournisseurs, exacts, autres, messages = executer_python(code, env=dict(os.environ, HERMES_HOME=str(noyau.home)))
     assert fournisseurs == [["acp-poste-machine", True, False], ["acp-coffre", True, False]]
-    assert exacts == [True] * 9 and autres == [False] * 12
+    assert exacts == [True] * 10 and autres == [False] * 13
     assert [m for m in messages if m[0] == "ERROR"] == []
 
 
@@ -310,7 +310,8 @@ resultat = [[[p.name, bool(getattr(p, "supports_session", True))] for p in list_
     assert actions == ["load_now", "load_now"]
     assert not dependances[0]  # requires_plugins retiré : il n'ordonnait rien pour un greffon groupé
     # Relecture de sécurité de P5 : le jeton machine vaut pour TOUT chemin à jeton de Hermes. Dans l'image épinglée,
-    # seuls les neuf chemins machine et les trois chemins du coffre sont déclarés (drain désactivé).
+    # Routes historiques, comptes distants et coffre : liste exacte (drain désactivé).
     # Chaque famille refuse explicitement le provider et la portée de l’autre ; tout nouveau chemin échoue ici.
     from acp_poste_contrat.coffre import ROUTES as ROUTES_COFFRE
-    assert tous == sorted((*ROUTES, *ROUTES_COFFRE))
+    from acp_poste_contrat.comptes import ROUTE_MACHINE as ROUTE_COMPTES
+    assert tous == sorted((*ROUTES, *ROUTES_COFFRE, ROUTE_COMPTES))

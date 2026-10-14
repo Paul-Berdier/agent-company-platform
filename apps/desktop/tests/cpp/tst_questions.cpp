@@ -292,7 +292,10 @@ void TestQuestions::bloqueesRelancablesSelonLeGreffon()
     QCOMPARE(i.value(QStringLiteral("peutRelancer")).toBool(), true);
     QCOMPARE(i.value(QStringLiteral("integration")).toBool(), true);
     QCOMPARE(i.value(QStringLiteral("avecConsigne")).toBool(), false);
-    QVERIFY(i.value(QStringLiteral("aide")).toString().startsWith(QStringLiteral("Carte d'intégration, sans agent")));
+    const QString aideIntegration = i.value(QStringLiteral("aide")).toString();
+    QVERIFY(aideIntegration.startsWith(QStringLiteral("Carte d'intégration, sans agent")));
+    QVERIFY(aideIntegration.contains(QStringLiteral("La résolution des conflits dans ACP n'est pas encore disponible")));
+    QVERIFY(!aideIntegration.contains(QStringLiteral("git bundle")));
 
     // Relançable mais identifiant illisible : aucun bouton, la raison le dit.
     QJsonObject illisible = fixture(QStringLiteral("arretee-relancable.json"));

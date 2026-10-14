@@ -501,6 +501,25 @@ def inventaire_linux(*, releve_le=None, depots=("jetable",), modifier=None, mesu
     return inventaire
 
 
+
+def inventaire_distant_admis(*, modifier=None, **options) -> dict:
+    """Serveur Linux SIMULÉ, régime A. Conserve les relevés historiques de P5 pour
+    tester le routage indépendamment des changements de versions fournisseur.
+    Ce témoin ne prouve ni isolement matériel ni authentification réelle."""
+    inventaire = inventaire_factice(**options)
+    linux = inventaire_linux(**options)
+    inventaire["poste"] = linux["poste"]
+    inventaire["bac_a_sable_codex"] = None
+    inventaire["isolement_linux"] = linux["isolement_linux"]
+    inventaire["isolement_linux"].update(
+        regime="A", bwrap="fonctionne", proc_neuf=True, reseau_coupe=True,
+        ecriture_admise={"codex": True, "claude": True}, raison=None)
+    inventaire["politique"]["conditions"] = linux["politique"]["conditions"]
+    if modifier is not None:
+        modifier(inventaire)
+    return inventaire
+
+
 def poste_confirme(noyau, conn, *, nom: str = "Poste Windows"):
     """Enrôle ET confirme un poste par les fonctions du noyau ; rend (machine_id, jeton)."""
     from acp_poste_contrat.machine import PROTOCOLE, empreinte_jeton
@@ -569,8 +588,9 @@ def pile_machine(noyau, monkeypatch):
     fournisseur = jeton_machine.FournisseurJetonMachine()
     register_global_provider(fournisseur)
     from acp_poste_contrat.machine import ROUTES
+    from acp_poste_contrat.comptes import ROUTE_MACHINE as ROUTE_COMPTES
 
-    for chemin in ROUTES:
+    for chemin in (*ROUTES, ROUTE_COMPTES):
         register_token_route(chemin)
     application = FastAPI()
 

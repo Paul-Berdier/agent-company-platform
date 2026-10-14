@@ -1,0 +1,7 @@
+# Fragment à intégrer à une copie révisée de executant/politique/executant.toml.
+# Ce fichier seul n'est PAS une politique valide ni un installateur.
+# À monter ensuite sur /etc/acp/executant.toml en lecture seule, root:root, 0444.
+# Déclaration d'un serveur distant par l'opérateur ; ne prouve pas la sandbox.
+[deploiement]
+cible = "vps"
+distant_confirme = true

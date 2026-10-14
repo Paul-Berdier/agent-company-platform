@@ -18,6 +18,9 @@
 #include "system/SystemAppearance.h"
 #include "services/CompatibiliteHermes.h"
 #include "support/FauxHermes.h"
+#include "support/FauxComptes.h"
+#include "viewmodels/ComptesViewModel.h"
+#include "viewmodels/JournalExecutionViewModel.h"
 #include "support/Fixtures.h"
 #include "viewmodels/AccueilViewModel.h"
 #include "viewmodels/DiscussionViewModel.h"
@@ -33,6 +36,8 @@
 
 #include <QDateTime>
 #include <QDir>
+#include <QFont>
+#include <QRawFont>
 #include <QSettings>
 #include <QUuid>
 #include <QJsonArray>
@@ -132,6 +137,18 @@ QQuickItem *parNom(QQuickItem *item, const QString &nom)
     return nullptr;
 }
 
+bool entierementDansLeViewport(QQuickItem *item)
+{
+    if (!item || !item->isVisible()) return false;
+    for (auto *parent = item->parentItem(); parent; parent = parent->parentItem()) {
+        if (parent->inherits("QQuickFlickable")) {
+            const QRectF rectangle = item->mapRectToItem(parent, item->boundingRect());
+            return QRectF(0, 0, parent->width(), parent->height()).contains(rectangle);
+        }
+    }
+    return false;
+}
+
 bool cliquer(QQuickWindow &fenetre, QQuickItem *racine, const QString &nom)
 {
     auto *item = parNom(racine, nom);
@@ -166,6 +183,9 @@ private slots:
 
 void TestPagesBureau::pagesAlimenteesPuisRacine()
 {
+    const auto fonte=QRawFont::fromFont(QFont(QStringLiteral("Segoe UI")));
+    QVERIFY2(fonte.isValid() && fonte.supportsCharacter(uint('A')) && fonte.supportsCharacter(uint(0x00e9)),
+             "Polices du rendu indisponibles : les captures produiraient des carrés au lieu du texte français.");
     FauxHermes serveur;
     FauxCoffre coffreFactice;
     coffreFactice.installer(serveur);
@@ -192,7 +212,25 @@ void TestPagesBureau::pagesAlimenteesPuisRacine()
                            {QStringLiteral("running"), false}};
     });
     serveur.jetonsAccesValides.insert(QByteArrayLiteral("jeton-a"));
+    bool compteClaude=false;
+    serveur.route("GET", kP + QStringLiteral("/comptes"), [&compteClaude](const RequeteRecue &) {
+        return ReponseFaux::json(200,compteClaude?comptesTest({},connexionClaudeTest()):comptesTest(connexionTest()));
+    });
+    serveur.route("GET", kP + QStringLiteral("/comptes/connexions/") + connexionTestId(), [&compteClaude](const RequeteRecue &) {
+        return ReponseFaux::json(200,compteClaude?connexionClaudeTest():connexionTest());
+    });
     QJsonObject projets = fixture(QStringLiteral("projets.json"));
+    serveur.route("GET", kP + QStringLiteral("/projets/") + kId + QStringLiteral("/evenements"), [](const RequeteRecue &r) {
+        const bool premier=r.requete.queryItemValue(QStringLiteral("apres"))==QLatin1String("0");
+        const QJsonObject evenement{{QStringLiteral("id"),QStringLiteral("journal-test-1")},{QStringLiteral("curseur"),1},
+            {QStringLiteral("projet_id"),kId},{QStringLiteral("quand"),QStringLiteral("2026-10-14T10:00:00Z")},
+            {QStringLiteral("agent"),QStringLiteral("Développeur simulé")},{QStringLiteral("moteur"),QStringLiteral("codex")},
+            {QStringLiteral("genre"),QStringLiteral("outil")},{QStringLiteral("outil"),QStringLiteral("lecture_fichier")},
+            {QStringLiteral("carte"),QStringLiteral("Implémentation simulée")},{QStringLiteral("texte"),QStringLiteral("Données simulées pour vérifier le journal natif. Aucun agent personnel n’a été exécuté.")},
+            {QStringLiteral("session_native"),QStringLiteral("session-simulee")},{QStringLiteral("run_id"),42}};
+        return ReponseFaux::json(200,QJsonObject{{QStringLiteral("projet_id"),kId},{QStringLiteral("evenements"),premier?QJsonArray{evenement}:QJsonArray{}},
+            {QStringLiteral("prochain_curseur"),1},{QStringLiteral("encore"),false}});
+    });
     serveur.route("GET", kP + QStringLiteral("/projets"), [&projets](const RequeteRecue &) { return ReponseFaux::json(200, projets); });
     serveur.route("GET", kP + QStringLiteral("/projets/") + kId,
                   [](const RequeteRecue &) { return ReponseFaux::json(200, fixture(QStringLiteral("projet-detail.json"))); });
@@ -277,6 +315,10 @@ void TestPagesBureau::pagesAlimenteesPuisRacine()
     auto *pageSauvegarde = application.findChild<SauvegardeViewModel *>();
     auto *discussion = application.findChild<DiscussionViewModel *>();
     auto *catalogue = application.findChild<CatalogueViewModel *>();
+    auto *comptes = application.findChild<ComptesViewModel *>();
+    QVERIFY(comptes);
+    auto *journalExecution = application.findChild<JournalExecutionViewModel *>();
+    QVERIFY(journalExecution);
     auto *coffre = application.findChild<ObsidianViewModel *>();
     QVERIFY(coffre);
     QVERIFY(catalogue);
@@ -304,6 +346,16 @@ void TestPagesBureau::pagesAlimenteesPuisRacine()
     QQuickWindow window;
     window.resize(1280, 850);
     window.show();
+    // Marquage uniquement dans le harnais de capture, jamais dans le produit.
+    std::unique_ptr<QObject> marquage;
+    if (!repertoireCaptures.isEmpty()) {
+        QQmlComponent etiquette(&engine);
+        etiquette.setData(QByteArrayLiteral("import QtQuick; Rectangle { z: 100000; anchors.top: parent.top; anchors.right: parent.right; anchors.margins: 4; width: 220; height: 22; color: '#25313d'; radius: 3; Text { anchors.centerIn: parent; text: 'TEST · DONNÉES SIMULÉES'; color: '#ffffff'; font.pixelSize: 11 } }"),QUrl());
+        QVERIFY2(etiquette.isReady(),qPrintable(etiquette.errorString()));
+        marquage.reset(etiquette.createWithInitialProperties({{QStringLiteral("parent"),QVariant::fromValue(window.contentItem())}}));
+        auto *etiquetteItem=qobject_cast<QQuickItem *>(marquage.get()); QVERIFY(etiquetteItem);
+        etiquetteItem->setParentItem(window.contentItem());
+    }
 
     const auto charger = [&](const QString &module, const QString &nom) -> std::unique_ptr<QObject> {
         warnings.clear();
@@ -480,8 +532,8 @@ void TestPagesBureau::pagesAlimenteesPuisRacine()
         QTRY_COMPARE_WITH_TIMEOUT(pagePoste->depots().size(), 2, 5000);
         QTest::qWait(50);
         VERIFIER(page.get(), QStringLiteral("Poste, dépôts mesurés"));
-        QVERIFY(contientTexte(item, QStringLiteral("Poste (Codex) : Fermée — dépôt « demo » non prouvé privé (visibilité mesurée : public)")));
-        QVERIFY(contientTexte(item, QStringLiteral("Poste (Codex) : Ouverte")));
+        QVERIFY(contientTexte(item, QStringLiteral("Codex : Fermée — dépôt « demo » non prouvé privé (visibilité mesurée : public)")));
+        QVERIFY(contientTexte(item, QStringLiteral("Codex : Ouverte")));
         QVERIFY(contientTexte(item, QStringLiteral("Privé")));
         QVERIFY(contientTexte(item, QStringLiteral("Public")));
         QVERIFY(contientTexte(item, QStringLiteral("Codex ne travaille que sur un dépôt prouvé privé (D83)")));
@@ -602,6 +654,12 @@ void TestPagesBureau::pagesAlimenteesPuisRacine()
         QVERIFY(catalogue->entrees()->count() >= 9);
     }
 
+    {
+        auto page = charger(QStringLiteral("Acp.Pages"), QStringLiteral("ComptesPage"));
+        QVERIFY(page); QTRY_VERIFY(comptes->lue()); QTRY_VERIFY(comptes->attente());
+        VERIFIER(page.get(), QStringLiteral("Comptes données simulées"));
+    }
+
     // --- Pages sans données de Hermes -------------------------------------------------------------
     for (const QString &nom : {QStringLiteral("FirstRunPage"), QStringLiteral("DiagnosticsPage"), QStringLiteral("SettingsPage")}) {
         auto page = charger(QStringLiteral("Acp.Pages"), nom);
@@ -641,7 +699,7 @@ void TestPagesBureau::pagesAlimenteesPuisRacine()
                 apparence->setThemeFamily(famille);
                 for (const QString &theme : {QStringLiteral("dark"), QStringLiteral("light")}) {
                     apparence->setThemePreference(theme);
-                    for (const QSize taille : {QSize(1280, 720), QSize(1920, 1080)}) {
+                    for (const QSize taille : {QSize(1366, 768), QSize(1920, 1080)}) {
                         window.resize(taille);
                         item->setSize(taille);
                         const QString nom = QStringLiteral("Test-fixture-Workspace-%1-%2-%3x%4")
@@ -657,13 +715,34 @@ void TestPagesBureau::pagesAlimenteesPuisRacine()
                         QVERIFY(cliquer(window, item, QStringLiteral("projets-ouvrir-") + kId));
                         QTRY_VERIFY_WITH_TIMEOUT(pageProjets->detailLu(), 5000);
                         VERIFIER(coquille.get(), nom + QStringLiteral("-Travail"));
+                        QVERIFY(cliquer(window, item, QStringLiteral("projets-onglet-journal")));
+                        QTRY_VERIFY(journalExecution->lue()); QTRY_COMPARE(journalExecution->evenements()->count(),1);
+                        VERIFIER(coquille.get(), nom + QStringLiteral("-Journal-simule"));
+                        QVERIFY(cliquer(window, item, QStringLiteral("projets-onglet-travail")));
+                        QVERIFY(cliquer(window, item, QStringLiteral("navigation-home")));
+                        QTRY_VERIFY(accueil->actif());
                         QVERIFY(cliquer(window, item, QStringLiteral("navigation-chat")));
                         QTRY_VERIFY(discussion->actif());
                         VERIFIER(coquille.get(), nom + QStringLiteral("-Discussion"));
+                        QVERIFY(cliquer(window, item, QStringLiteral("navigation-accounts")));
+                        QTRY_VERIFY(comptes->actif()); QTRY_VERIFY(comptes->lue());
+                        VERIFIER(coquille.get(), nom + QStringLiteral("-Comptes-simules"));
+                        compteClaude=true; comptes->oublier(); comptes->actualiser();
+                        QTRY_VERIFY(comptes->peutSaisirCode());
+                        // Avant tout clic (qui saurait défiler) : le produit cadre seul le formulaire complet.
+                        for (const QString &controle : {QStringLiteral("comptes-code-claude"),
+                                 QStringLiteral("comptes-ouvrir-autorisation-claude_code"),
+                                 QStringLiteral("comptes-envoyer-code-claude"), QStringLiteral("comptes-annuler-claude_code")}) {
+                            QTRY_VERIFY2(entierementDansLeViewport(parNom(item, controle)), qPrintable(nom + QStringLiteral(" : ") + controle));
+                        }
+                        VERIFIER(coquille.get(), nom + QStringLiteral("-Claude-code-temporaire-simule"));
+                        compteClaude=false; comptes->oublier();
+                        QVERIFY(cliquer(window, item, QStringLiteral("navigation-settings")));
                         QVERIFY(cliquer(window, item, QStringLiteral("navigation-tools")));
                         QTRY_VERIFY(catalogue->actif());
                         QTRY_VERIFY(catalogue->lue());
                         VERIFIER(coquille.get(), nom + QStringLiteral("-Outils"));
+                        QVERIFY(cliquer(window, item, QStringLiteral("navigation-settings")));
                         QVERIFY(cliquer(window, item, QStringLiteral("navigation-vault")));
                         QTRY_VERIFY(coffre->actif());
                         QTRY_VERIFY(!coffre->occupe());

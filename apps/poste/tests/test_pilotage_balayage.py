@@ -106,3 +106,31 @@ def test_secret_valeur_exacte_puis_motifs_sans_jamais_la_valeur():
     assert secret_dans(["token: ghp_" + "a" * 36], {}) == "jeton GitHub"
     assert secret_dans(["print('bonjour')", None, ""], valeurs) is None
     assert "rien n'a été envoyé" in RAISON_SECRET and len(RAISON_SECRET) <= 500
+
+
+def test_magasin_claude_secrets_seuls_et_lecture_bornee(tmp_path):
+    from acp_poste.balayage import AUTH_MAX, jetons_claude
+    chemin = tmp_path / ".credentials.json"
+    access, refresh = "acces-opaque-officiel-1234", "refresh-opaque-officiel-4567"
+    chemin.write_text(json.dumps({"claudeAiOauth": {"accessToken": access, "refreshToken": refresh,
+                                                 "email": "titulaire@example.com"}}), encoding="utf-8")
+    attendu = {"claude:accessToken": access, "claude:refreshToken": refresh}
+    assert jetons_claude(chemin) == attendu
+    assert valeurs_exactes(_Coffre({}), None, tmp_path) == attendu
+    chemin.write_bytes(b"x" * (AUTH_MAX + 1))
+    assert jetons_claude(chemin) == {}
+    chemin.write_text("[]", encoding="utf-8")
+    assert jetons_claude(chemin) == {}
+
+
+def test_magasin_claude_lien_refuse(tmp_path):
+    import os
+    import pytest
+    from acp_poste.balayage import jetons_claude
+    if os.name != "posix":
+        pytest.skip("lien POSIX")
+    source = tmp_path / "source.json"
+    source.write_text(json.dumps({"claudeAiOauth": {"accessToken": "acces-opaque-officiel-1234"}}), encoding="utf-8")
+    lien = tmp_path / ".credentials.json"
+    lien.symlink_to(source)
+    assert jetons_claude(lien) == {}

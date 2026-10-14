@@ -236,7 +236,7 @@ QString EventStreamService::libelleResume() const
     if (m_pauseGenerale == 1) {
         pause = QStringLiteral(" · Pause générale engagée");
     }
-    return QStringLiteral("Poste : %1 · %2%3").arg(m_libellePoste, libelleATraiter(), pause);
+    return QStringLiteral("Exécution : %1 · %2%3").arg(m_libellePoste, libelleATraiter(), pause);
 }
 
 QString EventStreamService::etatPasserelle() const

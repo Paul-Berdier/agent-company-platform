@@ -11,7 +11,7 @@ import uuid
 
 import pytest
 
-from conftest import carte, cartes_du_tableau, en_worker, lancer_sur_depot, outil
+from conftest import carte, cartes_du_tableau, en_worker, inventaire_distant_admis, lancer_sur_depot, outil
 
 from acp_poste_contrat import machine as contrat  # noqa: E402
 
@@ -27,6 +27,8 @@ def _poste_actif(pile):
     reponse = pile.post(f"{M}/enrolement", corps, jeton=code).json()
     with pile.noyau.base.connexion() as conn:
         pile.noyau.machines.confirmer(conn, reponse["machine_id"], reponse["empreinte"], "proprietaire:test")
+    inventaire = pile.post(f"{M}/inventaire", inventaire_distant_admis(), jeton=reponse["jeton"])
+    assert inventaire.status_code == 200, inventaire.text
     return reponse["machine_id"], reponse["jeton"]
 
 
@@ -185,7 +187,7 @@ def test_battement_prolonge(pile_machine, executant, projet):
     reponse = executant.envoyer("battement", servie, note="Tests : 41 réussis ; correction en cours.")
     assert reponse.status_code == 200
     assert contrat.ReponseBattement.model_validate(reponse.json()).model_dump() == {
-        "valide": True, "pause": False, "annuler": False}
+        "valide": True, "pause": False, "annuler": False, "evenements_recus": []}
     tache = _tache(pile_machine, projet["tableau"], servie["carte"])
     assert tache.claim_expires >= int(time.time()) + 2690 and tache.last_heartbeat_at
     notes = [p for k, p in _evenements(pile_machine, projet["tableau"], servie["carte"]) if k == "heartbeat"]
@@ -309,7 +311,10 @@ def test_terminer_pilotage_en_revue(pile_machine, executant, projet):
     assert _tache(pile_machine, projet["tableau"], servie["carte"]).status == "review"
     revues = pile_machine.get("/api/plugins/acp-poste/v1/questions").json()["revues"]
     assert [(r["carte"], r["chemins"]) for r in revues] == [(servie["carte"], [".github/workflows/ci.yml", "CLAUDE.md"])]
-    assert revues[0]["diff"].startswith("Le diff reste sur l'exécutant")
+    message_diff = revues[0]["diff"]
+    assert "L'aperçu du diff et sa livraison dans ACP ne sont pas encore disponibles" in message_diff
+    assert "références de la branche restent consultables" in message_diff
+    assert not any(conseil in message_diff for conseil in ("récupérez", "git bundle", "railway ssh"))
     with pile_machine.noyau.base.connexion() as conn:
         pile_machine.noyau.emetteur.passe(conn)
         genres = [l[0] for l in conn.execute("SELECT genre FROM notifications")]
@@ -492,6 +497,21 @@ def test_reprendre_avant_ttl_compteur_zero(pile_machine, executant, projet):
     resservie = executant.carte(en_cours=en_main)
     assert resservie["carte"] == servie["carte"] and resservie["reprise"] is True
     assert resservie["run_id"] != servie["run_id"]
+    assert _demande(pile_machine, servie["tableau"], servie["carte"])["session_locale"] == 1
+
+
+@pytest.mark.parametrize("session_precedente", [None, 0, 1])
+def test_reprendre_compte_occupe_preserve_la_session(pile_machine, executant, projet, session_precedente):
+    servie = executant.carte()
+    with pile_machine.noyau.base.connexion() as conn:
+        conn.execute("UPDATE demandes SET session_locale = ? WHERE tableau = ? AND carte = ?",
+                     (session_precedente, servie["tableau"], servie["carte"]))
+    reponse = executant.envoyer("reprendre", servie, motif="compte_occupe")
+    assert reponse.status_code == 200 and reponse.json()["etat"] == "rendue"
+    demande = _demande(pile_machine, servie["tableau"], servie["carte"])
+    assert demande["issue"] == "rendue" and demande["session_locale"] == session_precedente
+    tache = _tache(pile_machine, servie["tableau"], servie["carte"])
+    assert tache.status == "ready" and tache.claim_lock is None
 
 
 def test_reprendre_apres_ttl_deja_libre(pile_machine, executant, projet):
@@ -642,8 +662,11 @@ def test_integration_servie_sur_poste_integration(pile_machine, executant, proje
     assert f"branche {servie['branche']} prête sur l'exécutant" in texte
     poste = pile_machine.get("/api/plugins/acp-poste/v1/poste").json()["executant"]
     assert [(b["branche"], b["tete"]) for b in poste["branches_pretes"]] == [(servie["branche"], "2" * 40)]
-    assert poste["branches_pretes"][0]["commande"] == (
-        f"railway ssh -i <clé dédiée> --service executant -- acp-poste bundle jetable {servie['branche']}")
+    resultat = poste["branches_pretes"][0]
+    assert "commande" not in resultat
+    assert resultat["livraison"]["etat"] == "non_disponible"
+    assert "pas encore disponible" in resultat["livraison"]["message"]
+    assert resultat["depot"] == "jetable" and resultat["projet"] == projet["id"]
 
 
 def test_projet_simule_sans_branche_rapportee_termine_sans_integration(pile_machine, projet, monkeypatch):
@@ -689,5 +712,48 @@ def test_meta_resume_l_executant(pile_machine, executant, projet):
     executant.reclamer(attente=5)
     bloc, _alertes = meta.bloc_machine()
     assert bloc["executant"]["peut_executer"] is True and bloc["executant"]["voies_disponibles"] == ["poste-claude"]
-    assert bloc["executant"]["plateforme"] == "windows"  # aucun inventaire encore : la valeur par défaut de P5
-    assert all(bloc["chemins_a_jeton"].values()) and len(bloc["chemins_a_jeton"]) == 9
+    assert bloc["executant"]["plateforme"] == "linux"  # inventaire distant simulé de la fixture executant
+    assert all(bloc["chemins_a_jeton"].values()) and len(bloc["chemins_a_jeton"]) == 10
+
+
+# Journal distant : vrai transport HTTP et vrai SQLite ; CLI remplacée par ces événements factices.
+def test_journal_public_http_reprise_apres_fin_et_acquittement(pile_machine, executant, projet):
+    import httpx
+    servie = executant.carte()
+    tentative = str(uuid.uuid4())
+    evenements = [dict(id=str(uuid.uuid4()), tentative_id=tentative, ordre=i + 1,
+        quand="2026-10-14T12:00:00Z", moteur="claude", genre=genre,
+        session_native="session-native-factice", modele_servi="modele-rapporte-factice", texte=texte)
+        for i, (genre, texte) in enumerate((("session", "Session de test."), ("message", "Message public.")))]
+    route = f"/api/plugins/acp-poste/v1/projets/{projet['id']}/evenements"
+    for _ in range(2):  # Réponse perdue simulée : requête identique, seul id_envoi diffère.
+        reponse = executant.envoyer("battement", servie, note="Événements publics de test.", evenements=evenements)
+        assert reponse.status_code == 200, reponse.text
+        assert reponse.json()["evenements_recus"] == [e["id"] for e in evenements]
+    premier = pile_machine.get(route + "?limite=1").json()
+    assert premier["projet_id"] == projet["id"] and premier["encore"] is True
+    assert premier["evenements"][0]["session_native"] == "session-native-factice"
+    assert executant.terminer(servie).status_code == 200
+    # Fermer le bureau ne termine pas le run : sa reconnexion récupère encore les faits après l'issue.
+    suite = pile_machine.get(route + f"?apres={premier['prochain_curseur']}").json()
+    assert suite["encore"] is False and [e["id"] for e in suite["evenements"]] == [evenements[1]["id"]]
+    assert pile_machine.get(route + f"?apres={suite['prochain_curseur']}").json()["evenements"] == []
+    assert pile_machine.get(route + "?limite=201").status_code == 400
+    sans_session = httpx.get(pile_machine.url + route, headers={"x-test-sans-session": "1"}, timeout=10)
+    assert sans_session.status_code == 401
+
+
+def test_journal_public_refuse_mauvais_run_et_conflit(pile_machine, executant, projet):
+    servie = executant.carte()
+    evenement = dict(id=str(uuid.uuid4()), tentative_id=str(uuid.uuid4()), ordre=1,
+        quand="2026-10-14T12:00:00Z", moteur="claude", genre="message", texte="Message public.")
+    route = f"/api/plugins/acp-poste/v1/projets/{projet['id']}/evenements"
+    mauvais = executant.envoyer("battement", servie, run_id=servie["run_id"] + 1,
+                                note="Test.", evenements=[evenement])
+    assert mauvais.json()["valide"] is False
+    assert pile_machine.get(route).json()["evenements"] == []
+    bon = executant.envoyer("battement", servie, note="Test.", evenements=[evenement])
+    assert bon.status_code == 200, bon.text
+    conflit = executant.envoyer("battement", servie, note="Test.", evenements=[dict(evenement, texte="Autre")])
+    assert conflit.status_code == 422, conflit.text
+    assert len(pile_machine.get(route).json()["evenements"]) == 1

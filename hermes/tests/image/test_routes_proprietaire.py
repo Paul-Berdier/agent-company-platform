@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import pytest
 
-from conftest import fixture_machine, inventaire_factice
+from conftest import fixture_machine, inventaire_distant_admis, inventaire_factice
 
 P = "/api/plugins/acp-poste"
 M = f"{P}/machine/v1"
@@ -104,7 +104,7 @@ def test_revocation(pile_machine):
 
 def test_routage_vue_validation_et_refus(pile_machine):
     _machine, jeton = _poste_actif(pile_machine)
-    assert pile_machine.post(f"{M}/inventaire", inventaire_factice(), jeton=jeton).status_code == 200
+    assert pile_machine.post(f"{M}/inventaire", inventaire_distant_admis(), jeton=jeton).status_code == 200
     vue = pile_machine.get(f"{P}/v1/routage").json()
     assert vue["voies"]["poste-codex"]["badge"] == "releve_du_compte"
     assert vue["voies"]["poste-claude"]["badge"] == "alias_documentes"
@@ -124,7 +124,7 @@ def test_routage_vue_validation_et_refus(pile_machine):
 
 def test_politique_surcharges_releve_accepte(pile_machine):
     _machine, jeton = _poste_actif(pile_machine)
-    assert pile_machine.post(f"{M}/inventaire", inventaire_factice(), jeton=jeton).status_code == 200
+    assert pile_machine.post(f"{M}/inventaire", inventaire_distant_admis(), jeton=jeton).status_code == 200
     sans = pile_machine.post(f"{P}/v1/routage/politique", {"efforts_interdits": [], "paliers_admis": ["default"],
                                                            "motif": "essai"})
     assert sans.status_code == 422 and sans.json()["detail"]["code"] == "confirmation_requise"

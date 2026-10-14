@@ -327,6 +327,7 @@ void TestTempsReel::serviceResumeSansFluxSse()
     flux.demarrer();
     QTRY_COMPARE(flux.aTraiter(), 1); // a_traiter.total de la fixture partagée
     QCOMPARE(flux.libellePoste(), QStringLiteral("En ligne"));
+    QVERIFY(flux.libelleResume().startsWith(QStringLiteral("Exécution : En ligne")));
     QCOMPARE(flux.clePoste(), QStringLiteral("succeeded"));
     QCOMPARE(flux.pauseGenerale(), 0);
     // Jamais « rien à traiter » : les discussions en attente ne sont pas comptées, et le libellé le dit.

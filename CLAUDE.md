@@ -6,6 +6,16 @@ de ce dépôt d'un poste à l'autre. **Pour l'état exact du chantier en cours, 
 propriétaire comprises, est dans `docs/refonte/plan.md` ; ses phases P4 à P8 sont
 remplacées par `docs/refonte/autonomie.md`.
 
+## Mission courante — exécution exclusivement distante (14 octobre 2026)
+
+La nouvelle mission du propriétaire remplace les choix historiques incompatibles :
+le PC n'héberge aucun agent, CLI de travail ni dépôt d'exécution. Le client reste
+Qt natif ; Hermes conserve l'orchestration. Lire
+`docs/refonte/remote-only.md` pour la matrice d'audit et les décisions R1 à R9.
+Les anciennes décisions Windows et récupération manuelle ci-dessous restent des
+références historiques, pas des contraintes à réintroduire. Les gardes de sécurité,
+la conservation des données et les autorisations de production restent en vigueur.
+
 ## Règles de commit
 
 - **Jamais de trailer `Co-Authored-By`** ni de signature ou de pied de page d'agent
@@ -81,8 +91,8 @@ notifications, flux d'invalidation, protocole `acp-machine/1`) et les greffons d
 `acp-catalogue`, `acp-projets`, `acp-poste-vues` et `acp-discussion`, tous livrés dans l'image ; sur Railway,
 l'agent n'a **aucun outil d'exécution** (ni terminal, ni fichiers, ni code) : tout ce qui s'exécute passe par
 l'**exécutant** (service Railway `executant`, image `executant/`, client `apps/poste` en mode Linux, un UID par
-agent ; le **poste Windows** est facultatif), qui réclame son travail en HTTPS sortant sans écouter aucun port, y
-lance Codex et Claude Code et ne pousse jamais ; le **client desktop natif** C++23 / Qt 6 / QML (`apps/desktop`)
+agent ; **aucune exécution sur le PC**), qui réclame son travail en HTTPS sortant sans écouter aucun port, y
+lance les moteurs officiels ; la publication distante reste à implémenter sous autorisation explicite ; le **client desktop natif** C++23 / Qt 6 / QML (`apps/desktop`)
 **ne parle qu'au Hermes authentifié du propriétaire** (tableau de bord, JSON-RPC, façade versionnée du greffon),
 **jamais directement au PC** ni aux fichiers, à la base ou aux secrets du serveur.
 
@@ -92,8 +102,9 @@ lance Codex et Claude Code et ne pousse jamais ; le **client desktop natif** C++
   client desktop (le desktop officiel de Hermes, en Electron, n'est pas repris).
 - Aucun secret dans `QSettings`, un JSON, QML, une base non chiffrée, un journal ou
   Git. Les jetons vont dans le Gestionnaire d'identification Windows ou sous DPAPI ; sur
-  l'exécutant Railway, en fichiers 0600 de root sur son volume, déposés par `railway ssh`
-  (D92), jamais en variable Railway.
+  l'exécutant Railway, dans les magasins officiels protégés sous l’UID du moteur (R3),
+  et le jeton machine dans le coffre du superviseur, jamais en variable Railway.
+  Le dépôt manuel historique de D92 ne constitue plus le parcours utilisateur cible.
 - **Hermes épinglé** : image par condensat, montée de version uniquement par une PR
   qui change ce condensat (`scripts/monter_hermes.py`, procédure de `docs/exploitation.md` § 6). Jamais de
   `git pull` de Hermes, jamais de `hermes update`, jamais de `:latest`, jamais d'`AUTO_UPDATE`. Même règle

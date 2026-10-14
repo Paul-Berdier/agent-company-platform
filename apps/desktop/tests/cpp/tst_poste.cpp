@@ -132,10 +132,11 @@ private slots:
     void executantSeulementSiPublie();
     void depotsMesuresParLExecutant();
     void assistantsSeparentLaMachineEtLesComptes();
+    void compteClaudeObserveSansPromesseExecution();
     void guidesCopientSeulementDesCommandesConnues();
     void resultatsRefusentDesIdentifiantsEtCommandesArbitraires();
-    void recuperationGuideLeResultatReelEtSeFermeSurChangement();
-    void recuperationDistingueInconnuVideEtIncomplet();
+    void resultatsGardentMetadonneesSansGuideLocal();
+    void resultatsDistinguentInconnuVideEtIncomplet();
     void verificationAttendUnNouvelInventaireDeLaMemeMachine();
     void verificationDistingueRetardEtReponseIllisible();
     void verificationInterrompueSurChangementDeMachine();
@@ -617,14 +618,14 @@ void TestPoste::executantSeulementSiPublie()
     QCOMPARE(executant.value(QStringLiteral("present")).toBool(), true);
     QCOMPARE(executant.value(QStringLiteral("plateforme")).toString(), QStringLiteral("linux"));
     QCOMPARE(executant.value(QStringLiteral("peutExecuter")).toString(), QStringLiteral("Oui"));
-    QCOMPARE(executant.value(QStringLiteral("voiesDisponibles")).toString(), QStringLiteral("Poste (Codex), Poste (Claude)"));
+    QCOMPARE(executant.value(QStringLiteral("voiesDisponibles")).toString(), QStringLiteral("Codex, Claude Code"));
     QCOMPARE(executant.value(QStringLiteral("voiesFermees")).toString(), QStringLiteral("Aucune"));
     const QVariantMap regimeB = PosteViewModel::construireExecutant(QStringLiteral("annonce"), QJsonObject{
         {QStringLiteral("voies_fermees"), QJsonObject{
             {QStringLiteral("poste-codex"), QStringLiteral("isolement de l'exécutant (régime B) : Bac à sable Linux "
                                                            "refusé par la plateforme (régime B)")}}}});
     QCOMPARE(regimeB.value(QStringLiteral("voiesFermees")).toString(),
-             QStringLiteral("Poste (Codex) : isolement de l'exécutant (régime B) : Bac à sable Linux refusé par la "
+             QStringLiteral("Codex : isolement de l'exécutant (régime B) : Bac à sable Linux refusé par la "
                             "plateforme (régime B)"));
     // Forme jamais servie (tableau) ou raison illisible : « Inconnu », jamais une liste devinée.
     QCOMPARE(PosteViewModel::construireExecutant(QStringLiteral("annonce"), QJsonObject{
@@ -672,12 +673,12 @@ void TestPoste::depotsMesuresParLExecutant()
                                .value(QStringLiteral("poste-codex")).toString();
     QVERIFY(raison.contains(QStringLiteral("non prouvé privé")));
     QCOMPARE(demo.value(QStringLiteral("voies")).toString(),
-             QStringLiteral("Poste (Codex) : Fermée — %1\nPoste (Claude) : Ouverte").arg(raison));
+             QStringLiteral("Codex : Fermée — %1\nClaude Code : Ouverte").arg(raison));
     const QVariantMap jetable = depots.at(1).toMap();
     QCOMPARE(jetable.value(QStringLiteral("alias")).toString(), QStringLiteral("jetable"));
     QCOMPARE(jetable.value(QStringLiteral("visibilite")).toString(), QStringLiteral("Privé"));
     QCOMPARE(jetable.value(QStringLiteral("visibiliteCle")).toString(), QStringLiteral("succeeded"));
-    QCOMPARE(jetable.value(QStringLiteral("voies")).toString(), QStringLiteral("Poste (Codex) : Ouverte\nPoste (Claude) : Ouverte"));
+    QCOMPARE(jetable.value(QStringLiteral("voies")).toString(), QStringLiteral("Codex : Ouverte\nClaude Code : Ouverte"));
 
     // Jamais mesurée (null partout) : dit tel quel, jamais « Privé » deviné ; codes inconnus montrés bruts.
     const QVariantList autres = PosteViewModel::construireDepots(QJsonObject{{QStringLiteral("executant"), QJsonObject{
@@ -697,13 +698,13 @@ void TestPoste::depotsMesuresParLExecutant()
     QCOMPARE(neuf.value(QStringLiteral("visibiliteCle")).toString(), QStringLiteral("degraded"));
     QCOMPARE(neuf.value(QStringLiteral("lecture")).toString(), QStringLiteral("Inconnu"));
     QCOMPARE(neuf.value(QStringLiteral("verifieLe")).toString(), QStringLiteral("Inconnu"));
-    QCOMPARE(neuf.value(QStringLiteral("voies")).toString(), QStringLiteral("Poste (Codex) : Fermée — non mesuré\nPoste (Claude) : Ouverte"));
+    QCOMPARE(neuf.value(QStringLiteral("voies")).toString(), QStringLiteral("Codex : Fermée — non mesuré\nClaude Code : Ouverte"));
     const QVariantMap bizarre = autres.at(1).toMap();
     QCOMPARE(bizarre.value(QStringLiteral("visibilite")).toString(), QStringLiteral("pigeon"));
     QCOMPARE(bizarre.value(QStringLiteral("visibiliteCle")).toString(), QStringLiteral("unknown"));
     QCOMPARE(bizarre.value(QStringLiteral("lecture")).toString(), QStringLiteral("Refusée"));
     // Raison illisible : la voie reste dite fermée, la raison « Inconnu ».
-    QCOMPARE(bizarre.value(QStringLiteral("voies")).toString(), QStringLiteral("Poste (Codex) : Fermée — Inconnu\nPoste (Claude) : Ouverte"));
+    QCOMPARE(bizarre.value(QStringLiteral("voies")).toString(), QStringLiteral("Codex : Fermée — Inconnu\nClaude Code : Ouverte"));
     const QVariantMap inconnu = autres.at(2).toMap();
     QCOMPARE(inconnu.value(QStringLiteral("visibilite")).toString(), QStringLiteral("Inconnue (Codex fermé)"));
     QCOMPARE(inconnu.value(QStringLiteral("lecture")).toString(), QStringLiteral("Inconnue"));
@@ -727,6 +728,43 @@ void TestPoste::depotsMesuresParLExecutant()
     banc.relire();
     QCOMPARE(banc.poste.depots().size(), 2);
     QCOMPARE(banc.poste.property("depots").toList().at(0).toMap().value(QStringLiteral("alias")).toString(), QStringLiteral("demo"));
+}
+
+void TestPoste::compteClaudeObserveSansPromesseExecution()
+{
+    Banc banc;
+    banc.ouvrirLaPage(QStringLiteral("poste-en-ligne.json"));
+    QJsonObject inventaire = banc.vue.value(QStringLiteral("inventaire")).toObject();
+    QJsonObject contenu = inventaire.value(QStringLiteral("contenu")).toObject();
+    QJsonObject catalogue = banc.vue.value(QStringLiteral("catalogue")).toObject();
+    catalogue.insert(QStringLiteral("routage"), QJsonObject{{QStringLiteral("valide"), true}});
+    banc.vue.insert(QStringLiteral("catalogue"), catalogue);
+    const auto poser = [&](const QString &etat) {
+        contenu.insert(QStringLiteral("connexions"), QJsonObject{
+            {QStringLiteral("codex"), QStringLiteral("compte_chatgpt")}, {QStringLiteral("claude"), etat}});
+        inventaire.insert(QStringLiteral("contenu"), contenu);
+        banc.vue.insert(QStringLiteral("inventaire"), inventaire);
+        banc.relire();
+    };
+    poser(QStringLiteral("compte_claude"));
+    const QVariantMap claude = banc.poste.assistants().at(1).toMap();
+    QCOMPARE(claude.value(QStringLiteral("etat")).toString(), QStringLiteral("Compte Claude"));
+    QCOMPARE(claude.value(QStringLiteral("mode")).toString(), QStringLiteral("Compte d'abonnement Claude via Claude Code"));
+    QVERIFY(claude.value(QStringLiteral("detail")).toString().contains(QStringLiteral("pas une garantie")));
+    QCOMPARE(banc.poste.preparation().value(QStringLiteral("etat")).toString(), QStringLiteral("connexions_observees"));
+    QCOMPARE(banc.poste.preparation().value(QStringLiteral("connectes")).toStringList().size(), 2);
+    for (const QString &etat : {QStringLiteral("non_connecte"), QStringLiteral("cle_api")}) {
+        poser(etat);
+        QCOMPARE(banc.poste.preparation().value(QStringLiteral("manquants")).toStringList(), QStringList{QStringLiteral("claude")});
+        QCOMPARE(banc.poste.preparation().value(QStringLiteral("etat")).toString(), QStringLiteral("connexion_partielle"));
+    }
+    poser(QStringLiteral("autre"));
+    QCOMPARE(banc.poste.assistants().at(1).toMap().value(QStringLiteral("etat")).toString(), QStringLiteral("Autre"));
+    QCOMPARE(banc.poste.preparation().value(QStringLiteral("aVerifier")).toStringList(), QStringList{QStringLiteral("claude")});
+    poser(QStringLiteral("jeton_reconnu"));
+    QCOMPARE(banc.poste.assistants().at(1).toMap().value(QStringLiteral("etat")).toString(), QStringLiteral("Jeton reconnu"));
+    QCOMPARE(banc.poste.assistants().at(1).toMap().value(QStringLiteral("mode")).toString(), QStringLiteral("Jeton Claude Code du coffre de la machine"));
+    QCOMPARE(banc.poste.preparation().value(QStringLiteral("etat")).toString(), QStringLiteral("connexions_observees"));
 }
 
 void TestPoste::assistantsSeparentLaMachineEtLesComptes()
@@ -886,58 +924,28 @@ void TestPoste::resultatsRefusentDesIdentifiantsEtCommandesArbitraires()
     QCOMPARE(PosteViewModel::construireResultats(vue).size(), 20);
 }
 
-void TestPoste::recuperationGuideLeResultatReelEtSeFermeSurChangement()
+void TestPoste::resultatsGardentMetadonneesSansGuideLocal()
 {
     Banc banc;
     banc.ouvrirLaPage(QStringLiteral("poste-assistants-railway.json"));
     QJsonObject branche = branchePrete();
     poserBranches(banc.vue, QJsonArray{branche});
     banc.relire();
-    const auto ouvrir = [&] {
-        banc.poste.ouvrirGuideRecuperation(branche.value(QStringLiteral("projet")).toString(),
-            branche.value(QStringLiteral("branche")).toString(), branche.value(QStringLiteral("tete")).toString());
-    };
-    ouvrir();
-    const QVariantList etapes = banc.poste.guide().value(QStringLiteral("etapes")).toList();
-    QCOMPARE(etapes.size(), 6);
-    QCOMPARE(etapes.at(1).toMap().value(QStringLiteral("aCompleter")).toBool(), true);
-    const QString commande = QStringLiteral("railway ssh -i \"<chemin-cle-SSH>\" --service executant -- acp-poste bundle jetable hermes/projet-demo");
-    QCOMPARE(etapes.at(1).toMap().value(QStringLiteral("commande")).toString(), commande);
-    QVERIFY(etapes.at(4).toMap().value(QStringLiteral("texte")).toString().contains(QString(40, QLatin1Char('a'))));
-    const QString cloture = etapes.last().toMap().value(QStringLiteral("texte")).toString();
-    QVERIFY(cloture.contains(QStringLiteral("railway ssh keys remove --2fa-code <code>")));
-    QVERIFY(cloture.contains(QStringLiteral("railway ssh keys est vide")));
-    QVERIFY(cloture.contains(QStringLiteral("railway logout")));
-    QVERIFY(etapes.last().toMap().value(QStringLiteral("commande")).toString().isEmpty());
-    banc.poste.copierEtape(0); // Le fichier et l'instance sont inconnus : pas de commande fabriquée.
-    banc.poste.copierEtape(2);
-    banc.poste.copierEtape(5); // Le rappel de clôture n'ajoute aucune commande de compte copiable.
+    QCOMPARE(banc.poste.resultats().size(), 1);
+    const QVariantMap resultat = banc.poste.resultats().first().toMap();
+    QCOMPARE(resultat.value(QStringLiteral("branche")).toString(), QStringLiteral("hermes/projet-demo"));
+    QCOMPARE(resultat.value(QStringLiteral("tete")).toString(), QString(40, QLatin1Char('a')));
+    QVERIFY(!resultat.contains(QStringLiteral("commande")));
+    QVERIFY(banc.poste.metaObject()->indexOfMethod("ouvrirGuideRecuperation(QString,QString,QString)") < 0);
+    QVERIFY(banc.poste.guide().isEmpty());
+    banc.poste.copierEtape(0);
     QVERIFY(banc.copies.isEmpty());
-    banc.poste.copierEtape(1);
-    QCOMPARE(banc.copies, QStringList{commande});
-    QVERIFY(banc.poste.copieGuide().contains(QStringLiteral("complétez")));
     QCOMPARE(banc.serveur.compter("POST", kP + QStringLiteral("/poste/releve")), 0);
-    banc.relire();
-    QVERIFY(!banc.poste.guide().isEmpty()); // Un même relevé ne ferme pas les instructions en cours.
-    branche.insert(QStringLiteral("tete"), QString(40, QLatin1Char('b')));
-    poserBranches(banc.vue, QJsonArray{branche});
-    banc.relire();
-    QVERIFY(banc.poste.guide().isEmpty());
-    ouvrir();
-    QVERIFY(!banc.poste.guide().isEmpty());
-    banc.poste.setPageVisible(false);
-    QVERIFY(banc.poste.guide().isEmpty());
-    ouvrir();
-    QVERIFY(banc.poste.guide().isEmpty());
-    banc.poste.setPageVisible(true);
-    ouvrir();
-    banc.flux.arreter();
-    QVERIFY(banc.poste.guide().isEmpty());
-    banc.poste.oublier(); // Application efface les pages après avoir arrêté le flux à la déconnexion.
+    banc.poste.oublier();
     QVERIFY(banc.poste.resultats().isEmpty());
 }
 
-void TestPoste::recuperationDistingueInconnuVideEtIncomplet()
+void TestPoste::resultatsDistinguentInconnuVideEtIncomplet()
 {
     Banc banc;
     banc.ouvrirLaPage(QStringLiteral("poste-en-ligne.json"));
@@ -949,7 +957,6 @@ void TestPoste::recuperationDistingueInconnuVideEtIncomplet()
     banc.relire();
     QVERIFY(banc.poste.resultatsMessage().contains(QStringLiteral("incomplètes")));
     QVERIFY(banc.poste.resultats().isEmpty());
-    banc.poste.ouvrirGuideRecuperation(QStringLiteral("p_0123456789ab"), QStringLiteral("hermes/projet-demo"), QString(40, QLatin1Char('a')));
     QVERIFY(banc.poste.guide().isEmpty());
 }
 

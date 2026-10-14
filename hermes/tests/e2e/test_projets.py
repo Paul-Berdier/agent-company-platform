@@ -6,7 +6,7 @@ Authelia, passkey virtuelle : parcours.py), avec le MODÈLE FACTICE à scénario
 Parcours « lancer un projet → questions → avancement », à chaque format :
 
 A. sans inventaire du poste : l'onglet « Projets » existe (groupe des greffons de Hermes) ; formulaire
-   « Nouveau projet » : champ Dépôt DÉSACTIVÉ avec « Aucun dépôt connu… », « Qui répond » sans objet ;
+   « Nouveau projet » : champ Dépôt DÉSACTIVÉ avec « Dépôts inconnus… », « Qui répond » sans objet ;
    lancement d'un projet sans dépôt ; « retour » ramène au formulaire, « avancer » au détail ; détail :
    « Modèle servi : Non observé », « Poste : Non configuré » ; « Mettre en pause » puis « Reprendre » (état
    relu par l'API) ;
@@ -188,7 +188,8 @@ def _lancer_depuis_le_formulaire(page, titre: str, objectif: str, *, profil: str
     # « Qui répond aux questions » ne se choisit qu'avec un dépôt (relecture de P4, décision D42).
     if moi:
         page.check('input[name="acp-projet-reponses"][value="proprietaire"]')
-    page.click('button[type="submit"]:has-text("Lancer le projet")')
+    libelle = "Lancer le projet" if depot else "Lancer avec Hermes (sans dépôt)"
+    page.get_by_role("button", name=libelle, exact=True).click()
     page.wait_for_url(re.compile(r"[?&]projet=p_[0-9a-f]{12}"))
     page.wait_for_selector("#acp-projet-titre")
     attendre_page_acp(page, "projets")
@@ -268,7 +269,7 @@ def test_page_projets_telephone_et_bureau(playwright_sync, pile):
             page.wait_for_selector("#acp-projet-titre-champ")
             attendre_page_acp(page, "projets")
             assert page.is_disabled("#acp-projet-depot")
-            assert "Aucun dépôt connu : le poste n'a encore publié aucun inventaire (page Poste)." in \
+            assert "Dépôts inconnus : le serveur n’a pas encore publié d’inventaire." in \
                 page.inner_text('[data-acp-racine="projets"]').replace(" ", " ")
             assert page.locator("#acp-projet-voie").count() == 0
             # Sans dépôt, « Qui répond » est sans objet et le dit (relecture de P4).

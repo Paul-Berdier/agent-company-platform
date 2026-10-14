@@ -85,6 +85,10 @@ class FauxProtocole:
         documents = {"battement": {"valide": True, "pause": False, "annuler": False}, "terminer": {"etat": "done"},
                      "question": {"question": "q_0123456789ab", "etat": "ouverte"}, "bloquer": {"etat": "bloquee"},
                      "reprendre": {"etat": "rendue"}, "arret": {"etat": "rendue"}}
+        if route == "battement" and corps.get("evenements"):
+            # Le faux serveur applique aussi le contrat 2.0 : sans ce reçu, la
+            # vraie file conserve les événements et refuse d'envoyer l'issue.
+            documents[route]["evenements_recus"] = [e["id"] for e in corps["evenements"]]
         return getattr(contrat, reponse).model_validate(documents[route])
 
     def routes(self) -> list[str]:
@@ -495,12 +499,8 @@ async def test_purge_quotidienne_sans_toucher_la_carte_en_main(banc):
 
 
 
-async def test_echeance_du_jeton_claude_publiee_et_annoncee(banc, capfd):
-    """Relecture de P6 : rien ne prévenait de l'expiration du jeton Claude (setup-token : un an). L'exécutant publie
-    l'échéance ESTIMÉE (dépôt + 365 jours) dans son inventaire et l'annonce dans ses journaux à 30 jours."""
-    import time
-    from datetime import UTC, datetime, timedelta
-
+async def test_ancien_jeton_ne_definit_pas_echeance_du_compte_officiel(banc, capfd):
+    """Le dépôt d'un setup-token ancien n'invente pas l'expiration du compte officiel."""
     banc.coffre.ecrire("jeton-machine", JETON)
     depose = time.time() - 340 * 86400
     os.utime(banc.emplacements.secrets / "claude-oauth", (depose, depose))
@@ -508,6 +508,6 @@ async def test_echeance_du_jeton_claude_publiee_et_annoncee(banc, capfd):
     assert await _jusqu_a(lambda: banc.protocole.inventaires, 30)
     banc.arret.set()
     await asyncio.wait_for(tache, 10)
-    attendue = (datetime.fromtimestamp(depose, UTC) + timedelta(days=365)).date().isoformat()
-    assert banc.protocole.inventaires[0]["connexions"]["claude_echeance"] == attendue
-    assert f"[acp] Jeton Claude de l'exécutant : expiration estimée le {attendue}" in capfd.readouterr().err
+    assert banc.protocole.inventaires[0]["connexions"]["claude_echeance"] is None
+    assert "expiration estimée" not in capfd.readouterr().err
+    assert banc.coffre.lire("jeton-claude") is not None

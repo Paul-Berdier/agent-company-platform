@@ -264,6 +264,17 @@ async def lire_projet(identifiant: str) -> JSONResponse:
     return await _executer(_avec_base(travail))
 
 
+@router.get("/v1/projets/{identifiant}/evenements")
+async def lire_evenements_du_projet(request: Request, identifiant: str, apres: int = 0, limite: int = 100) -> JSONResponse:
+    """Journal public durable ; une reconnexion lit le curseur sans exécuter de commande."""
+    if _session(request) is None:
+        return _erreur(401, "session", "Session du tableau de bord requise.")
+    def travail(conn):
+        _n("projets").exiger_projet(conn, identifiant)
+        return _n("journal_execution").lire(conn, identifiant, apres=apres, limite=limite)
+    return await _executer(_avec_base(travail))
+
+
 @router.get("/v1/projets/{identifiant}/cartes/{carte}")
 async def lire_carte_du_projet(identifiant: str, carte: str) -> JSONResponse:
     """Résumé ENTIER d'une carte (le détail du projet n'en rend que 500 caractères, et le dit)."""
@@ -1293,3 +1304,6 @@ async def flux_d_invalidation(request: Request) -> Response:
 
 # Bridge de notes distinct : routes propriétaire et identité dédiée, aucun outil du chef.
 router.include_router(_charger("coffre_api").creer_router(_n, _session, _origine_publique))
+
+# Connexions officielles sur le serveur, réservées au propriétaire.
+router.include_router(_charger("comptes_api").creer_router(_n, _session, _origine_publique))

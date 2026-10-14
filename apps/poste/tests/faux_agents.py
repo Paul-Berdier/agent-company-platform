@@ -95,6 +95,13 @@ def main(argv: list[str]) -> int:
     with open(argv[1], encoding="utf-8") as flux:
         scenario = json.load(flux)
     outil, arguments = argv[2], argv[3:]
+    if outil == "claude" and arguments == ["auth", "status"]:
+        # Sonde séparée : aucun tour de travail, aucun incrément du scénario.
+        statut = {"loggedIn": True, "authMethod": "claude.ai", "apiProvider": "firstParty",
+                  "configDirectory": os.environ.get("CLAUDE_CONFIG_DIR")}
+        statut.update(scenario.get("statut_claude") or {})
+        _emettre(statut)
+        return 0 if statut["loggedIn"] else 1
     if outil == "codex" and arguments[:1] == ["sandbox"]:
         separateur = arguments.index("--")
         _journal(scenario, {"outil": "codex-sandbox", "argv": arguments, "cwd": os.getcwd()})

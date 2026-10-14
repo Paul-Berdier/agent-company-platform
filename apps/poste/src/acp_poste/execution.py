@@ -49,11 +49,13 @@ from acp_poste_contrat.machine import DemandeCarte
 
 from . import pilotage
 from .balayage import RAISON_SECRET, secret_dans, valeurs_exactes
+from .comptes_claude import lire_etat_claude
+from .app_server import ArretNonConfirme
 from .catalogue_claude import TABLE as TABLE_CLAUDE
 from .coffre import ecrire_atomiquement
 from .commandes_agents import ROLES_LECTURE, commande_claude, commande_codex, schema_json
 from .depots import Depots, ErreurDepot, Visibilite
-from .evenements import SortieInvalide, lire_flux_claude, lire_flux_codex, sortie_claude, valider_sortie
+from .evenements import ProjectionPublique, SortieInvalide, lire_flux_claude, lire_flux_codex, sortie_claude, valider_sortie
 from .garde_quota import Budget, QuotasClaude, codex_ouverte
 from .journal import masquer
 from .local_runner import FencedSpawnError, spawn_fenced_process, terminate_process_tree
@@ -240,6 +242,24 @@ class Execution:
     motif_arret: str = "sigterm"
     # Étape P7 : dernière visibilité mesurée par dépôt (inventaire et contrôle avant chaque carte Codex).
     mesures: dict[str, Visibilite] = field(default_factory=dict)
+    _secrets_connus: dict[str, str] = field(default_factory=dict, repr=False)
+
+    def _valeurs_secretes(self) -> dict[str, str]:
+        """Actualise les secrets avant publication, conserve en RAM ceux déjà vus.
+
+        Un rafraîchissement OAuth pendant la mission ne doit ni oublier l'ancien
+        jeton ni laisser passer le nouveau dans le journal ou le résultat final.
+        """
+        actuelles = valeurs_exactes(self.coffre, getattr(self.politique.codex, "home", None),
+                                   getattr(self.politique.claude, "config_dir", None))
+        presentes = set(self._secrets_connus.values())
+        for nom, valeur in actuelles.items():
+            if valeur not in presentes:
+                cle = f"{nom}:{len(self._secrets_connus)}"
+                self._secrets_connus[cle] = valeur
+                self.journal.masquer_valeur(cle, valeur)
+                presentes.add(valeur)
+        return self._secrets_connus
 
     # ================================================================== état persistant
     def _ecrire_json(self, chemin: Path, donnees: dict[str, Any]) -> None:
@@ -294,6 +314,12 @@ class Execution:
         rejoue avant toute réclamation)."""
         fichier = self.sortie.deposer(route, corps)
         try:
+            # Les événements précédents doivent être acquittés avant l'issue : après terminer,
+            # la réclamation ne permet plus d'ajouter un événement de ce run.
+            for precedent in self.sortie.en_attente():
+                if precedent == fichier:
+                    break
+                self.sortie.envoyer(precedent, self.envoyer)
             resultat = self.sortie.envoyer(fichier, self.envoyer)
         except (HermesIndisponible, TropFrequent, JetonRefuse, HorsContrat) as exc:
             self.journal.ecrire("avertissement", "issue_en_file", f"Issue « {route} » gardée dans la file de sortie : "
@@ -305,6 +331,11 @@ class Execution:
             return IssueCarte(route, corps)
         if resultat is None:
             return IssueCarte(route, corps)
+        if resultat.route != route:
+            self.journal.ecrire("erreur", "journal_incomplet", "Issue transformée en blocage : un événement public "
+                                "a été refusé ; résultat conservé dans sortie/refusees.", carte=corps.get("carte"))
+            return IssueCarte(resultat.route, resultat.corps, reponse=resultat.reponse,
+                              envoyee=resultat.retire or resultat.deplace)
         if isinstance(resultat.refus, RefusAvantEnvoi):
             # Refusée par le contrat AVANT l'envoi (rangée dans sortie/refusees) : Hermes est prévenu par un blocage
             # composé ici, sans rien du contenu refusé, plutôt que d'attendre l'échéance de la réclamation.
@@ -487,7 +518,7 @@ class Execution:
         :meth:`Depots.lignes_ajoutees_non_poussees`) et dans ``textes`` ; ``None`` sinon."""
         historique = self.depots.lignes_ajoutees_non_poussees(depot.alias, nom)
         return secret_dans([historique, *textes],
-                           valeurs_exactes(self.coffre, getattr(self.politique.codex, "home", None)))
+                           self._valeurs_secretes())
 
     def _mettre_en_quarantaine(self, demande: DemandeCarte, depot: Any, nom: str, trouve: str) -> None:
         """Branche de la carte renommée ``quarantaine/<carte>`` (jamais intégrée, jamais emballée, jamais reprise).
@@ -726,8 +757,8 @@ class Execution:
             # propriétaire peut réellement faire. Noms bornés : la raison est coupée à 500 caractères.
             noms = ", ".join(conflits[:5]) + (f" et {len(conflits) - 5} autre(s)" if len(conflits) > 5 else "")
             raise CarteRefusee("capacite", f"Conflit d'intégration : {noms[:200]} : aucune résolution automatique ; "
-                                           "« Relancer » rejoue la même fusion. Récupérez les branches (git bundle) "
-                                           "pour trancher, ou clôturez le projet.")
+                                           "« Relancer » rejoue la même fusion. La résolution de ces conflits dans ACP "
+                                           "n’est pas encore disponible ; les branches restent sur le serveur.")
         raison = self._verification_possible(depot)
         if raison is None:
             code, _fin, duree = await self._verifier(demande, depot, chemin, tmp)
@@ -794,13 +825,9 @@ class Execution:
                                       home=self.lanceur.home(identite), tmpdir=dossier, session=session)
             verrou_chemin = self.emplacements.verrou_codex
         else:
-            jeton = self.coffre.lire("jeton-claude")
-            if not jeton:
-                raise CarteRefusee("capacite", "Jeton Claude absent de l'exécutant : déposez-le par « acp-poste "
-                                               "connexion claude --stdin » (D92).")
             commande = commande_claude(prefixe=prefixe, executable=executable[-1], modele=demande.modele,
                                        effort=demande.effort, role=demande.role, lecture=lecture,
-                                       config_dir=self.politique.claude.config_dir, jeton=jeton,
+                                       config_dir=self.politique.claude.config_dir,
                                        home=self.lanceur.home(identite), tmpdir=dossier, session=session)
             verrou_chemin = self.emplacements.verrou_claude
         verrou_chemin.parent.mkdir(parents=True, exist_ok=True)
@@ -810,6 +837,17 @@ class Execution:
             raise CarteRefusee("capacite", f"Une sonde {outil} occupe l'outil depuis plus de 2 min : carte remise "
                                            "à plus tard.") from None
         try:
+            if outil == "claude":
+                try:
+                    compte = await lire_etat_claude([*prefixe, executable[-1]], commande.env, str(dossier))
+                except ArretNonConfirme:
+                    raise AgentSurvivant("agent_survivant") from None
+                except (OSError, ValueError, TimeoutError, FencedSpawnError):
+                    raise CarteRefusee("capacite", "Compte Claude impossible à vérifier sur le serveur ; "
+                                       "ouvrez Comptes et modèles.") from None
+                if not compte.reconnu:
+                    raise CarteRefusee("capacite", "Compte Claude non connecté sur le serveur ; "
+                                       "ouvrez Comptes et modèles.")
             return await self._processus(demande, outil, identite, commande, chemin, consigne, arret,
                                          reponse if outil == "codex" else None)
         finally:
@@ -819,6 +857,7 @@ class Execution:
                          consigne: str, arret: asyncio.Event, reponse: Path | None) -> ResultatAgent:
         debut = time.monotonic()
         duree_max = min(demande.duree_max_s, self.politique.politique.duree_max_carte_s)
+        self._valeurs_secretes()
         try:
             processus = await spawn_fenced_process(commande.argv, cwd=str(chemin), env=commande.env,
                                                    stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
@@ -827,6 +866,7 @@ class Execution:
             raise CarteRefusee("capacite", f"{outil} introuvable ou impossible à lancer sur l'exécutant.") from None
         lignes: list[bytes] = []
         verdict_init: list[str] = []
+        projection = ProjectionPublique(outil, lambda texte: masquer(texte, self._valeurs_secretes()), self.horloge)
 
         async def ecrire() -> None:
             try:
@@ -850,6 +890,13 @@ class Execution:
                     return
                 if len(lignes) < 50_000:
                     lignes.append(ligne)
+                try:
+                    # Écriture durable avant tout envoi ; aucun flux brut ne quitte ce lecteur.
+                    self._conserver_evenements(demande, projection.recevoir(ligne))
+                except (OSError, ValueError):
+                    verdict_init.append("Journal public impossible à conserver : exécution arrêtée, "
+                                        "vérifiez le stockage et la connexion de l’exécutant distant.")
+                    return
                 if outil == "claude" and b'"init"' in ligne and not verdict_init:
                     flux = lire_flux_claude([ligne])
                     probleme = self._controle_init(demande, flux)
@@ -871,6 +918,7 @@ class Execution:
         depasse = False
         # Premier battement aussitôt : il confirme la réclamation et acquitte les réponses livrées avec la carte.
         prochain = time.monotonic()
+        prochain_public = prochain + 2.0
         try:
             while not attente.done():
                 if verdict_init:
@@ -881,12 +929,18 @@ class Execution:
                 if time.monotonic() - debut > duree_max:
                     depasse = True
                     break
-                if time.monotonic() >= prochain:
-                    prochain = time.monotonic() + self.intervalle_battement_s
+                maintenant = time.monotonic()
+                sonder_public = maintenant >= prochain_public
+                if sonder_public:
+                    prochain_public = maintenant + 2.0
+                if maintenant >= prochain or (sonder_public and self.sortie.en_attente()):
+                    prochain = maintenant + self.intervalle_battement_s
                     minutes = int((time.monotonic() - debut) // 60)
                     note = (f"Agent {outil} en cours depuis {minutes} min." if minutes else
                             f"Agent {outil} démarré ({demande.role}).")
                     reponse_b = await self._battement(demande, note)
+                    if reponse_b is None:
+                        prochain_public = time.monotonic() + self.intervalle_battement_s
                     if reponse_b is not None and not reponse_b.valide:
                         interruption = Interruption("reprendre", "reclamation_perdue")
                         break
@@ -903,6 +957,12 @@ class Execution:
                     raise AgentSurvivant("agent_survivant")
             else:
                 await self.lanceur.arreter(processus.process, identite, 0)
+            # Une sortie de processus ne garantit pas que stdout soit déjà entièrement lu.
+            # Attendre le lecteur conserve le dernier message et l'événement terminal.
+            try:
+                await asyncio.wait_for(asyncio.shield(taches[1]), timeout=2.0)
+            except TimeoutError:
+                verdict_init.append("Flux public incomplet après l’arrêt du moteur : carte bloquée.")
             for tache in taches:
                 if not tache.done():
                     tache.cancel()
@@ -959,9 +1019,32 @@ class Execution:
                     f"{demande.modele} : exécution arrêtée.")
         return None
 
+    def _conserver_evenements(self, demande: DemandeCarte, evenements: list[dict[str, Any]]) -> None:
+        lot: list[dict[str, Any]] = []
+        for evenement in evenements:
+            candidat = [*lot, evenement]
+            if lot and (len(candidat) > 4 or len(json.dumps(candidat, ensure_ascii=False).encode()) > 6000):
+                self.sortie.deposer("battement", dict(self._base(demande), note="Événements publics du moteur.",
+                                                     evenements=lot))
+                lot = []
+            lot.append(evenement)
+        if lot:
+            self.sortie.deposer("battement", dict(self._base(demande), note="Événements publics du moteur.",
+                                                 evenements=lot))
+
     async def _battement(self, demande: DemandeCarte, note: str) -> Any:
         corps = dict(self._base(demande), note=note[:500])
         try:
+            # Travail borné par battement ; le service rejoue la même file à son redémarrage.
+            for fichier in self.sortie.en_attente()[:4]:
+                resultat = await asyncio.to_thread(self.sortie.envoyer, fichier, self.envoyer)
+                if resultat is not None:
+                    if resultat.refus is not None:
+                        raise CarteRefusee("capacite", "Événement public refusé par Hermes ; lot conservé "
+                                           "dans sortie/refusees, exécution arrêtée.")
+                    reponse = resultat.reponse
+                    if reponse is not None and (not reponse.valide or reponse.annuler):
+                        return reponse
             return await asyncio.to_thread(self.envoyer, "battement", corps)
         except Refus as exc:
             self.journal.ecrire_au_plus("battement", 600, "avertissement", "battement_refuse", exc.message,

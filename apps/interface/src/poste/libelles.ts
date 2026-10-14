@@ -100,6 +100,8 @@ export function libelleConnexionCodex(etat: unknown): Libelle | null {
 export function libelleConnexionClaude(etat: unknown): Libelle | null {
   const c = T.poste.connexionsClaude;
   switch (etat) {
+    case "compte_claude":
+      return L(c.compteClaude, "succes");
     case "jeton_reconnu":
       return L(c.jetonReconnu, "succes");
     case "jeton_present_non_verifie":

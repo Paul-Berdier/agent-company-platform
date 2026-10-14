@@ -235,3 +235,94 @@ def test_forme_commentee_du_depot_acceptee(tmp_path):
     depot = politique.depot("jetable")
     assert depot.verification[0] == "python3.12" and depot.preparation == ()
     assert not {"uv", "pytest", "npm", "node"} & set(depot.verification)
+
+
+# Déclaration VPS : configuration pure, aucun hébergeur ni moteur réel lancé.
+VPS = "\n" + (RACINE_DEPOT / "executant/deploiement/vps.fragment.toml").read_text(encoding="utf-8")
+
+
+def test_vps_explicitement_declare_dans_politique_protegee(tmp_path):
+    emplacements = _emplacements(tmp_path)
+    defaut = _analyser(_texte_valide(emplacements), emplacements)
+    explicite = _analyser(_texte_valide(emplacements) + VPS, emplacements)
+    assert defaut.deploiement is None
+    assert explicite.deploiement.cible == "vps" and explicite.deploiement.distant_confirme is True
+    assert defaut.empreinte != explicite.empreinte
+    assert explicite.codex.sans_bac_a_sable == "refuse"
+    assert defaut.conditions == explicite.conditions
+
+
+@pytest.mark.parametrize("fragment", [
+    '[deploiement]', '[deploiement]\ncible = "vps"',
+    '[deploiement]\ncible = "vps"\ndistant_confirme = false',
+    '[deploiement]\ncible = "vps"\ndistant_confirme = 1',
+    '[deploiement]\ncible = "vps"\ndistant_confirme = "true"',
+    '[deploiement]\ncible = "pc"\ndistant_confirme = true',
+    '[deploiement]\ncible = "railway"\ndistant_confirme = true',
+    '[deploiement]\ncible = "vps"\ndistant_confirme = true\ninconnu = true',
+    'deploiement = "vps"',
+])
+def test_declaration_vps_incomplete_ou_ambigue_refusee(tmp_path, fragment):
+    emplacements = _emplacements(tmp_path)
+    # Ajouter avant la première table permet aussi d'éprouver le type de la section.
+    texte = _texte_valide(emplacements).replace('[poste]', fragment + '\n[poste]', 1)
+    with pytest.raises(PolitiqueRefusee, match="deploiement"):
+        _analyser(texte, emplacements)
+
+
+@POSIX
+def test_vps_ne_relache_pas_les_droits_de_la_politique(tmp_path):
+    emplacements = _emplacements(tmp_path)
+    fichier = emplacements.politique
+    fichier.parent.mkdir(parents=True)
+    fichier.write_text(_texte_valide(emplacements, binaires=True) + VPS, encoding="utf-8")
+    for chemin in (fichier, fichier.parent, emplacements.codex_par_defaut,
+                   emplacements.claude_par_defaut, emplacements.codex_par_defaut.parent,
+                   emplacements.claude_par_defaut.parent):
+        os.chmod(chemin, 0o444 if chemin == fichier else 0o755)
+    politique = charger(emplacements)
+    verifier_droits(politique, proprietaire=os.geteuid())
+    os.chmod(fichier, 0o666)
+    with pytest.raises(PolitiqueRefusee, match="executant.toml modifiable"):
+        verifier_droits(politique, proprietaire=os.geteuid())
+
+
+@pytest.mark.parametrize("hote, declare, attendu", [
+    ("pc", False, "pc"), ("railway", False, "railway"),
+    ("pc", True, "vps"), ("railway", True, "vps"),
+])
+def test_inventaire_declare_vps_uniquement_par_politique(tmp_path, hote, declare, attendu):
+    import json
+    from types import SimpleNamespace
+    from acp_poste.inventaire import construire
+    from acp_poste.plateforme.linux import PlateformeLinux
+
+    emplacements = _emplacements(tmp_path)
+    politique = _analyser(_texte_valide(emplacements) + (VPS if declare else ""), emplacements)
+    fixture = json.loads((RACINE_DEPOT / "hermes/tests/outils/fixtures_machine/inventaire_requete_linux.json").read_text())
+    # Relevé public simulé uniquement ; construire() et le contrat sont réels.
+    codex = SimpleNamespace(releve=fixture["releves"][0], version=fixture["versions"]["codex"],
+                            connexion=fixture["connexions"]["codex"], plan=fixture["connexions"]["plan_codex"])
+    inventaire = construire(politique, codex, None, valeurs_exactes=[],
+                            infos={"plateforme": "linux", "hote": hote, "noyau": "6.1.0"},
+                            isolement=fixture["isolement_linux"])
+    assert inventaire["poste"]["hote"] == attendu
+    assert inventaire["poste"]["execution_distante_declaree"] is declare
+    assert inventaire["isolement_linux"]["ecriture_admise"]["codex"] is False
+    # Même avec une variable inventée, un Linux personnel reste PC par défaut.
+    assert PlateformeLinux(environnement={"ACP_HOTE": "vps"}).hote() == "pc"
+
+
+def test_hote_vps_fourni_sans_politique_retenu(tmp_path):
+    import json
+    from types import SimpleNamespace
+    from acp_poste.inventaire import InventaireRetenu, construire
+
+    emplacements = _emplacements(tmp_path)
+    politique = _analyser(_texte_valide(emplacements), emplacements)
+    fixture = json.loads((RACINE_DEPOT / "hermes/tests/outils/fixtures_machine/inventaire_requete_linux.json").read_text())
+    codex = SimpleNamespace(releve=fixture["releves"][0], version=fixture["versions"]["codex"],
+                            connexion=fixture["connexions"]["codex"], plan=fixture["connexions"]["plan_codex"])
+    with pytest.raises(InventaireRetenu, match="execution_distante_declaree"):
+        construire(politique, codex, None, valeurs_exactes=[], infos={"hote": "vps"},
+                   isolement=fixture["isolement_linux"])

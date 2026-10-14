@@ -432,6 +432,12 @@ def servir(machine_id: str, requete) -> Optional[Dict[str, Any]]:
         machine = conn.execute("SELECT etat FROM machines WHERE id = ?", (machine_id,)).fetchone()
         if machine is None or machine["etat"] != "actif" or base.reglage(conn, "pause_reclamations"):
             return None
+        from . import distant
+
+        # Une requête peut annoncer peut_executer=True depuis un ancien PC.
+        # Le dernier inventaire distant est contrôlé avant toute attribution.
+        if distant.raison_refus(conn, machine_id) is not None:
+            return None
         ttl = int(base.reglage(conn, "reclamation_ttl_s") or 2700)
         voies = list(requete.voies_disponibles)
         en_cours = requete.carte_en_cours
@@ -470,11 +476,14 @@ def battement(machine_id: str, requete) -> Dict[str, Any]:
             if not ka.heartbeat_claim(kc, requete.carte, ttl_seconds=ttl, claimer=claimer(machine_id)):
                 return {"valide": False, "pause": pause, "annuler": False}
             ka.heartbeat_worker(kc, requete.carte, note=ka.masquer(requete.note)[:500], expected_run_id=requete.run_id)
+            parents = list(ka.parent_ids(kc, requete.carte))[:PARENTS_MAX] if requete.evenements else []
         maintenant = base.maintenant()
         with base.transaction(conn):
             from . import presence
 
             presence.enregistrer_dans(conn, machine_id, "battement")
+            from . import journal_execution
+            recus = journal_execution.enregistrer(conn, machine_id, demande, requete, parents=parents)
             # Réponses servies avec la carte : livrées au premier battement de ce run.
             conn.execute("UPDATE questions SET livree_le = ? WHERE tableau = ? AND carte = ? AND etat = 'repondue' "
                          "AND livree_le IS NULL AND repondue_le <= ?",
@@ -482,7 +491,10 @@ def battement(machine_id: str, requete) -> Dict[str, Any]:
             conn.execute("UPDATE demandes SET refus_livre_le = ? WHERE cle = ? AND revue_refusee_le IS NOT NULL AND "
                          "refus_livre_le IS NULL AND revue_refusee_le <= ?",
                          (maintenant, demande["cle"], demande.get("reclamee_le") or maintenant))
-        return {"valide": True, "pause": pause, "annuler": fiche["etat"] != "actif"}
+        reponse = {"valide": True, "pause": pause, "annuler": fiche["etat"] != "actif"}
+        if getattr(requete, "evenements", ()):
+            reponse["evenements_recus"] = recus
+        return reponse
 
 
 # ------------------------------------------------------------------ terminer (§ 5.4)
@@ -644,7 +656,12 @@ def _rendre(machine_id: str, requete, *, issue: str, motif: str) -> Dict[str, An
             fait = ka.reclaim_task(kc, requete.carte, reason=f"acp-poste : {motif}")
         if not fait:
             return {"etat": "deja_libre", "deja_recu": False}
-        _noter_demande(conn, demande, issue=issue, session_locale=1)
+        # Aucune invocation pendant la connexion : préserver une éventuelle session
+        # antérieure sans en inventer une pour cette carte différée.
+        colonnes = {"issue": issue}
+        if motif != "compte_occupe":
+            colonnes["session_locale"] = 1
+        _noter_demande(conn, demande, **colonnes)
         _journal(conn, machine_id, fiche, requete.carte, "carte_rendue", {"motif": motif})
         return {"etat": "rendue", "deja_recu": False}
 
@@ -758,7 +775,10 @@ FONCTIONS: Dict[str, Callable[[str, Any], Dict[str, Any]]] = {
 
 # ------------------------------------------------------------------ page Poste et /v1/meta (cahier P6 § 4.4, § 9.3)
 
-COMMANDE_RECUPERATION = "railway ssh -i <clé dédiée> --service executant -- acp-poste bundle {alias} {branche}"
+LIVRAISON_INDISPONIBLE = (
+    "La livraison du résultat dans ACP n’est pas encore disponible. "
+    "Les références de la branche restent consultables."
+)
 
 
 def _charger(texte: Optional[str]) -> Any:
@@ -795,8 +815,11 @@ def _carte_en_main(conn, machine: Dict[str, Any]) -> Optional[Dict[str, Any]]:
 
 
 def branches_pretes(conn) -> List[Dict[str, Any]]:
-    """Branches intégrées (cartes d'intégration terminées), avec la commande de récupération à copier (cahier P6
-    § 12.2) ; aucun bouton « Pousser » (D82 : aucun identifiant d'écriture en P6)."""
+    """Références des branches intégrées ; leur livraison dans ACP n'est pas implémentée.
+
+    Aucun accès distant n'est déduit de la machine active : elle peut avoir changé
+    depuis l'intégration. Les références et dates restent consultables sans action SSH.
+    """
     resultat = []
     for d in [base.ligne_en_dict(l) for l in conn.execute(
             "SELECT d.*, p.titre AS projet_titre FROM demandes d JOIN projets p ON p.id = d.projet_id WHERE "
@@ -810,7 +833,7 @@ def branches_pretes(conn) -> List[Dict[str, Any]]:
             fini = None
         resultat.append({"projet": d["projet_id"], "projet_titre": d["projet_titre"], "depot": d["depot_alias"],
                          "branche": d["branche"], "tete": d["tete"], "termine_le": fini,
-                         "commande": COMMANDE_RECUPERATION.format(alias=d["depot_alias"], branche=d["branche"])})
+                         "livraison": {"etat": "non_disponible", "message": LIVRAISON_INDISPONIBLE}})
     return resultat
 
 
@@ -818,7 +841,7 @@ def vue_executant(conn) -> Dict[str, Any]:
     """Bloc ``executant`` de ``/v1/poste`` : plateforme, isolement MESURÉ (« inconnu » sans sonde), conditions
     d'usage, annonce de la dernière réclamation, voies fermées et cartes qui les attendent, carte en main, branches
     prêtes, revues en attente. Rien n'est inventé : sans inventaire, chaque bloc le dit."""
-    from . import machines
+    from . import distant, machines
 
     machine = machines.machine_courante(conn)
     if machine is None:
@@ -828,6 +851,8 @@ def vue_executant(conn) -> Dict[str, Any]:
     voies = _charger(machine.get("voies_disponibles"))
     return {
         "connu": True,
+        "execution_distante_exigee": True,
+        "refus_distant": distant.raison_refus(conn, machine["id"]),
         "plateforme": machine.get("plateforme") or "windows",
         "hote": machine.get("hote") or "pc",
         "noyau": (inventaire.get("poste") or {}).get("noyau"),

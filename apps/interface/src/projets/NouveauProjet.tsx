@@ -3,6 +3,7 @@
 // modèles de l'inventaire du poste (/v1/poste) :
 // - sans inventaire, le champ Dépôt est désactivé et le dit : seul « Sans dépôt » est possible (D25) ; si
 //   l'inventaire est illisible (erreur de /v1/poste), il dit « Dépôts inconnus », pas « aucun inventaire » ;
+// - un inventaire connu sans dépôt est distingué d’un inventaire absent ; le lancement sans dépôt nomme Hermes ;
 // - « Qui répond aux questions » ne se choisit qu'avec un dépôt : sans dépôt, aucune question ne naît (seules
 //   les cartes du poste en posent), et la page le dit (décision D42) ;
 // - l'exploration (exécutant, modèle, effort) ne se choisit que si un relevé existe, et seulement parmi
@@ -74,6 +75,9 @@ function Formulaire(props: {
 }): Noeud {
   const cataloguePoste = props.poste?.catalogue ?? null;
   const depots = depotsConnus(cataloguePoste);
+  const aideDepot = depots === null
+    ? (props.posteIllisible ? T.projets.depotsInconnus : T.projets.aucunDepotConnu)
+    : depots.length === 0 ? T.projets.aucunDepotDeclare : null;
   const voies = voiesRelevees(cataloguePoste);
   const interdits = listeDeChaines(cataloguePoste?.politique?.efforts_interdits);
   const profils = (() => {
@@ -182,7 +186,7 @@ function Formulaire(props: {
           id="acp-projet-depot"
           value={depot}
           disabled={depots === null}
-          aria-describedby={depots === null ? "acp-projet-depot-aide" : undefined}
+          aria-describedby={aideDepot ? "acp-projet-depot-aide" : undefined}
           onChange={(e: Evenement) => {
             fixerDepot(valeurDe(e));
             fixerVoie("");
@@ -197,9 +201,9 @@ function Formulaire(props: {
             </option>
           ))}
         </select>
-        {depots === null ? (
+        {aideDepot ? (
           <p className="acp-discret" id="acp-projet-depot-aide">
-            {props.posteIllisible ? T.projets.depotsInconnus : T.projets.aucunDepotConnu}
+            {aideDepot}
           </p>
         ) : null}
       </div>
@@ -331,7 +335,7 @@ function Formulaire(props: {
         <Bouton
           type="submit"
           principal
-          libelle={envoi.etat.etat === "envoi" ? T.projets.envoi : T.projets.lancer}
+          libelle={envoi.etat.etat === "envoi" ? T.projets.envoi : sansDepot ? T.projets.lancerSansDepot : T.projets.lancer}
           desactive={!complet || envoi.etat.etat === "envoi"}
         />
       </div>

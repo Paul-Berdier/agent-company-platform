@@ -4,7 +4,9 @@
 // (hermes/tests/outils/fixtures_machine/inventaire_requete_linux.json, régime B), sans carte, avec une carte en
 // main (battement puis réclamation), routage après la première carte terminée (résolution observée), carte en
 // revue pour des fichiers de pilotage (GET /v1/questions), revue acceptée, puis branche intégrée prête. Rien n'est
-// modifié à la main.
+// modifié à la main dans la capture historique. Adaptation explicite ACP 2.0 : seul le message de revue
+// « diff » suit la nouvelle projection (aperçu/livraison indisponibles). La commande de branche historique
+// reste volontairement présente pour prouver que le client l'ignore.
 export const FORMES_EXECUTANT = {
   "poste_executant_sans_carte": {
     "poste": {
@@ -1416,7 +1418,7 @@ export const FORMES_EXECUTANT = {
         "branche": "hermes/t_6f644e87",
         "tete": "2222222222222222222222222222222222222222",
         "resume": "Ajout d'un contrôle de CI.",
-        "diff": "Le diff reste sur l'exécutant (branche locale) : ACP n'en affiche aucun aperçu ; récupérez la branche pour le lire."
+        "diff": "L'aperçu du diff et sa livraison dans ACP ne sont pas encore disponibles. Les références de la branche restent consultables."
       }
     ]
   },

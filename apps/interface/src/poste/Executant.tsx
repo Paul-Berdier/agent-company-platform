@@ -1,11 +1,11 @@
 // Blocs de l'exécutant (étape P6, cahier P6 § 4.4, § 9.3), tous lus dans le bloc « executant » de GET /v1/poste :
 // isolement MESURÉ par la sonde de plateforme (« Inconnu » sans sonde), conditions d'usage décidées, dernière
-// réclamation, carte en cours, voies fermées et cartes qui les attendent, branches prêtes avec la commande de
-// récupération. Aucun bouton « Pousser » : aucun identifiant d'écriture en P6 (D82).
+// réclamation, carte en cours, voies fermées et cartes qui les attendent, références des branches intégrées.
+// La livraison des résultats dans ACP reste explicitement indisponible.
 import { T } from "../chaines";
 import { Carte, Donnee, Ligne } from "../commun";
-import { h, useState, type Noeud } from "../react";
-import { Bouton, Etiquette, Horodatage } from "../projets/briques";
+import { h, type Noeud } from "../react";
+import { Etiquette, Horodatage } from "../projets/briques";
 import type { BranchePrete, CarteEnMain, IsolementLinux, VueExecutant } from "./types";
 
 const X = T.poste.executant;
@@ -205,20 +205,6 @@ function VoiesFermees(props: { executant: VueExecutant }): Noeud {
 
 function Branche(props: { branche: BranchePrete }): Noeud {
   const b = props.branche;
-  const [copie, fixerCopie] = useState<"ok" | "impossible" | null>(null);
-  const copier = async () => {
-    const presse = globalThis.navigator?.clipboard;
-    if (!b.commande || !presse || typeof presse.writeText !== "function") {
-      fixerCopie("impossible");
-      return;
-    }
-    try {
-      await presse.writeText(b.commande);
-      fixerCopie("ok");
-    } catch {
-      fixerCopie("impossible");
-    }
-  };
   return (
     <li className="acp-entree">
       <dl className="acp-liste">
@@ -234,15 +220,11 @@ function Branche(props: { branche: BranchePrete }): Noeud {
         <Ligne libelle={X.termineLe}>
           <Horodatage valeur={b.termine_le} />
         </Ligne>
-        <Ligne libelle={X.commande}>
-          <Donnee valeur={b.commande} mono />
+        <Ligne libelle={X.livraison}>
+          <span>{b.livraison?.etat === "non_disponible" ? X.livraisonIndisponible : T.commun.inconnu}</span>
         </Ligne>
       </dl>
-      <div className="acp-actions">
-        <Bouton libelle={X.copier} surClic={copier} />
-      </div>
-      {copie === "ok" ? <p className="acp-succes" role="status">{X.copie}</p> : null}
-      {copie === "impossible" ? <p className="acp-alerte-texte" role="status">{X.copieImpossible}</p> : null}
+      <p className="acp-discret">{X.livraisonAide}</p>
     </li>
   );
 }

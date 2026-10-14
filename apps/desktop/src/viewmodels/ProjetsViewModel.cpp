@@ -942,9 +942,10 @@ void ProjetsViewModel::majFormulaire()
         {QStringLiteral("profilDefaut"), profils.contains(QStringLiteral("base")) ? QStringLiteral("base") : profils.value(0)},
         {QStringLiteral("depotsConnus"), depots.has_value()},
         {QStringLiteral("depots"), depots.value_or(QStringList())},
-        {QStringLiteral("aideDepot"), depots ? QString()
+        {QStringLiteral("aideDepot"), depots
+             ? (depots->isEmpty() ? QStringLiteral("Aucun dépôt déclaré sur le serveur. Connecter Claude ne configure pas l’accès aux dépôts. L’ajout depuis ACP n’est pas encore disponible.") : QString())
              : posteIllisible ? QStringLiteral("Dépôts inconnus : l'inventaire du poste est illisible (voir l'erreur ci-dessus).")
-                              : QStringLiteral("Aucun dépôt connu : le poste n'a encore publié aucun inventaire (page Poste).")},
+                              : QStringLiteral("Dépôts inconnus : le serveur n’a pas encore publié d’inventaire.")},
         {QStringLiteral("depot"), m_depot},
         {QStringLiteral("reponsesSansObjet"), m_depot.isEmpty()},
         {QStringLiteral("releveFactice"), cataloguePoste.value(QStringLiteral("releve_factice")) == QJsonValue(true)},

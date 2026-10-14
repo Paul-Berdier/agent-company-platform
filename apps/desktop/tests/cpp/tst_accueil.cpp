@@ -177,7 +177,7 @@ void TestAccueil::carteExecutant()
     QCOMPARE(carte.value(QStringLiteral("carteEnCours")).toString(),
              QStringLiteral("Exploration du dépôt « jetable » (projet « Outil jetable ») · Suspendue"));
     QCOMPARE(carte.value(QStringLiteral("cartesEnAttente")).toString(), QStringLiteral("0"));
-    QVERIFY(carte.value(QStringLiteral("voiesFermees")).toString().startsWith(QStringLiteral("Poste (Codex) : isolement de l'exécutant")));
+    QVERIFY(carte.value(QStringLiteral("voiesFermees")).toString().startsWith(QStringLiteral("Codex : isolement de l'exécutant")));
 
     // Objet vide : rien n'est affiché, comme la page web (CarteExecutant.tsx) — le greffon sert `{}` aussi quand AUCUN
     // exécutant n'est connu (noyau/accueil.py) : « Aucune » y inventerait une absence de fermeture (relecture de P8b,
@@ -212,14 +212,14 @@ void TestAccueil::carteQuotasParVoie()
     const QVariantList voies = carte.value(QStringLiteral("voies")).toList();
     QCOMPARE(voies.size(), 2);
     const QVariantMap codex = voies.at(0).toMap();
-    QCOMPARE(codex.value(QStringLiteral("nom")).toString(), QStringLiteral("Poste (Codex)"));
+    QCOMPARE(codex.value(QStringLiteral("nom")).toString(), QStringLiteral("Codex"));
     QCOMPARE(codex.value(QStringLiteral("etat")).toString(), QStringLiteral("Relevé"));
     QCOMPARE(codex.value(QStringLiteral("utilise")).toString(), QStringLiteral("41 %"));
     QCOMPARE(codex.value(QStringLiteral("source")).toString(),
              QStringLiteral("Compteurs de votre compte ChatGPT, lus par Codex (app-server) sur la machine qui exécute"));
     QVERIFY(codex.value(QStringLiteral("remise")).toString() != QStringLiteral("Inconnu"));
     const QVariantMap claude = voies.at(1).toMap();
-    QCOMPARE(claude.value(QStringLiteral("nom")).toString(), QStringLiteral("Poste (Claude)"));
+    QCOMPARE(claude.value(QStringLiteral("nom")).toString(), QStringLiteral("Claude Code"));
     QCOMPARE(claude.value(QStringLiteral("utilise")).toString(), QStringLiteral("Inconnu")); // aucun résumé : jamais estimé
     QCOMPARE(claude.value(QStringLiteral("remise")).toString(), QStringLiteral("Inconnu"));
     QCOMPARE(carte.value(QStringLiteral("hermes")).toString(), QStringLiteral("Même enveloppe que Codex (déclaré dans poste.toml)"));

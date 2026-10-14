@@ -2,8 +2,8 @@
 """FAUX Claude Code de la cible de test « factice » de l'image de l'exécutant (cahier P6 § 14.3). Jamais dans
 l'image de production (cible « finale ») ; il ne prouve que la PLOMBERIE, jamais la qualité d'un modèle.
 
-- ``--version`` : « 2.1.283 (Claude Code) » ; ``auth status`` : 0 si ``CLAUDE_CODE_OAUTH_TOKEN`` est présent, 1
-  sinon (la valeur n'est jamais lue au-delà de sa présence) ;
+- ``--version`` : « 2.1.283 (Claude Code) » ; ``auth status`` : état JSON factice,
+  reconnu seulement si le banc a provisionné le marqueur acpTestAccount dans son magasin jetable ;
 - ``-p … --output-format stream-json`` : consigne lue sur l'entrée standard ; le SCÉNARIO est le mot
   ``[scenario:<nom>]`` trouvé dans la consigne (objectif du projet), ou, sur une reprise (``--resume <session>``), le
   nom porté par la session (``factice-<nom>-…``) ; il écrit ou supprime des fichiers dans le dossier courant (le
@@ -64,8 +64,15 @@ def main(argv):
         print("2.1.283 (Claude Code)")
         return 0
     if argv[:2] == ["auth", "status"]:
-        present = bool(os.environ.get("CLAUDE_CODE_OAUTH_TOKEN"))
-        journal({"outil": "claude", "commande": "auth status", "uid": os.getuid(), "jeton": present})
+        config = os.environ.get("CLAUDE_CONFIG_DIR", "")
+        try:
+            with open(os.path.join(config, ".credentials.json"), encoding="utf-8") as flux:
+                present = json.load(flux).get("acpTestAccount") is True
+        except (OSError, ValueError, AttributeError):
+            present = False
+        journal({"outil": "claude", "commande": "auth status", "uid": os.getuid(), "compte_factice": present})
+        emettre({"loggedIn": present, "authMethod": "claude.ai" if present else "none",
+                 "apiProvider": "firstParty", "configDirectory": config})
         return 0 if present else 1
     if "-p" not in argv:
         print("faux Claude Code : commande non simulée.", file=sys.stderr)

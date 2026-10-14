@@ -248,7 +248,7 @@ void TestCommandRegistry::navigationHistoryBranchesAndRefusesUnavailable()
     QVERIFY(!navigation.canGoBack());
     QVERIFY(!navigation.canGoForward());
     navigation.goBack();
-    QCOMPARE(navigation.currentRoute(), QStringLiteral("home"));
+    QCOMPARE(navigation.currentRoute(), QStringLiteral("projects"));
     navigation.setCurrentRoute(QStringLiteral("diagnostics"));
     navigation.setCurrentRoute(QStringLiteral("settings"));
     navigation.goBack();
@@ -264,7 +264,7 @@ void TestCommandRegistry::navigationHistoryBranchesAndRefusesUnavailable()
     QVERIFY(navigation.detailFor(QStringLiteral("office")).startsWith(QStringLiteral("Hors périmètre")));
     // Toutes les pages de pilotage de l'étape P8 sont livrées : navigables, sans explication
     // d'indisponibilité, et aucune destination n'est plus « Indisponible pour l'instant ».
-    for (const char *route : {"home", "projects", "questions", "chat", "station", "quotas", "routing", "diagnostics",
+    for (const char *route : {"home", "projects", "questions", "chat", "accounts", "station", "quotas", "routing", "diagnostics",
                               "backup", "settings"}) {
         QVERIFY2(navigation.isNavigable(QString::fromLatin1(route)), route);
         QVERIFY2(navigation.detailFor(QString::fromLatin1(route)).isEmpty(), route);
@@ -292,11 +292,11 @@ void TestCommandRegistry::navigationHistoryIsBoundedAndResettable()
     QCOMPARE(backwards, 31);
     QVERIFY(navigation.canGoForward());
     navigation.resetHistory();
-    QCOMPARE(navigation.currentRoute(), QStringLiteral("home"));
+    QCOMPARE(navigation.currentRoute(), QStringLiteral("projects"));
     QVERIFY(!navigation.canGoBack());
     QVERIFY(!navigation.canGoForward());
     navigation.goForward();
-    QCOMPARE(navigation.currentRoute(), QStringLiteral("home"));
+    QCOMPARE(navigation.currentRoute(), QStringLiteral("projects"));
 }
 QTEST_APPLESS_MAIN(TestCommandRegistry)
 

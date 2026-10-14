@@ -432,8 +432,8 @@ for d in ('/tmp/c', '/tmp/l', '/tmp/w'):
 resultats = {}
 for role in ('implementation', 'relecture'):
     c = commande_claude(prefixe=[], executable='/opt/acp/outils/claude/claude', modele='opus', effort='low', role=role,
-                        lecture=Path('/tmp/l'), config_dir=Path('/tmp/c'), jeton='', home='/tmp/c', tmpdir=Path('/tmp'))
-    env = dict(c.env); env.pop('CLAUDE_CODE_OAUTH_TOKEN')
+                        lecture=Path('/tmp/l'), config_dir=Path('/tmp/c'), home='/tmp/c', tmpdir=Path('/tmp'))
+    env = dict(c.env); assert 'CLAUDE_CODE_OAUTH_TOKEN' not in env
     try:
         r = subprocess.run(c.argv, input=b'consigne', capture_output=True, env=env, cwd='/tmp/w', timeout=60)
         sortie = r.stdout.decode()
@@ -579,3 +579,64 @@ def test_sonde_sans_volume_ni_politique_ni_reseau(image):
     (politique au gabarit), ce qui permet de la lancer dans le projet jetable « acp-sonde »."""
     releve = _sonde(image, "--network", "none")
     assert releve["verdict"]["regime"] == "B" and releve["verdict"]["uid_separes"] is True
+
+
+def test_schema_connexion_codex_genere_par_binaire_linux_epingle(image):
+    """VRAI CLI 0.156.1, HOME neuf, réseau coupé : contrat seulement, aucun login.
+
+    Le double des tests du contrôleur n’est pas une preuve du protocole fournisseur.
+    Les schémas sont régénérés dans le conteneur jetable à chaque CI Linux.
+    """
+    resultat = _python(image, """
+import hashlib, json, os, subprocess, tempfile
+from pathlib import Path
+with tempfile.TemporaryDirectory(prefix='acp-schema-codex-') as tmp:
+    racine = Path(tmp)
+    env = {'PATH': '/usr/local/bin:/usr/bin:/bin', 'HOME': tmp, 'CODEX_HOME': str(racine/'home')}
+    exe = '/opt/acp/outils/codex/codex'
+    version = subprocess.run([exe, '--version'], env=env, capture_output=True, text=True, check=True).stdout.strip()
+    subprocess.run([exe, 'app-server', 'generate-json-schema', '--out', str(racine/'schema')],
+                   env=env, capture_output=True, text=True, timeout=60, check=True)
+    noms = ['ClientRequest.json', 'ServerNotification.json', 'v2/LoginAccountResponse.json',
+            'v2/CancelLoginAccountResponse.json', 'v2/AccountLoginCompletedNotification.json']
+    schemas = {nom: json.loads((racine/'schema'/nom).read_text()) for nom in noms}
+    empreintes = {nom: hashlib.sha256((racine/'schema'/nom).read_bytes()).hexdigest() for nom in noms}
+    assert not list(racine.rglob('auth.json'))
+    print(json.dumps({'version': version, 'schemas': schemas, 'sha256': empreintes}))
+""", "--network=none")
+    resultat = json.loads(resultat)
+    assert BINAIRES["codex"]["version"] == "0.156.1"
+    assert resultat["version"] == "codex-cli 0.156.1"
+    schemas = resultat["schemas"]
+    requetes = schemas["ClientRequest.json"]
+    methodes = {b["properties"]["method"]["enum"][0]: b for b in requetes["oneOf"]}
+    assert methodes["account/login/start"]["properties"]["params"]["$ref"] == "#/definitions/LoginAccountParams"
+    assert methodes["account/login/cancel"]["properties"]["params"]["$ref"] == "#/definitions/CancelLoginAccountParams"
+    definitions = requetes["definitions"]
+    modes = {b["properties"]["type"]["enum"][0]: b for b in definitions["LoginAccountParams"]["oneOf"]}
+    assert modes["chatgptDeviceCode"]["required"] == ["type"]
+    assert "UNSTABLE" not in modes["chatgptDeviceCode"].get("description", "")
+    assert definitions["CancelLoginAccountParams"]["required"] == ["loginId"]
+    assert definitions["CancelLoginAccountParams"]["properties"]["loginId"]["type"] == "string"
+    assert "boolean" in definitions["GetAccountParams"]["properties"]["refreshToken"]["type"]
+    login = schemas["v2/LoginAccountResponse.json"]
+    device = next(b for b in login["oneOf"] if b["properties"]["type"]["enum"] == ["chatgptDeviceCode"])
+    assert set(device["required"]) == {"type", "loginId", "verificationUrl", "userCode"}
+    for cle in ("loginId", "verificationUrl", "userCode"):
+        assert device["properties"][cle]["type"] == "string"
+    # Aucun champ d’expiration fournisseur inventé : ACP affiche sa propre limite d’attente.
+    assert "expiresAt" not in device["properties"]
+    fin = schemas["v2/AccountLoginCompletedNotification.json"]
+    # Schéma officiel 0.156.1 : la notification générique admet loginId absent/null.
+    # Le flux chatgptDeviceCode renseigne cet ID ; le contrôleur ACP exige sa corrélation.
+    assert set(fin["required"]) == {"success"}
+    assert set(fin["properties"]["loginId"]["type"]) == {"string", "null"}
+    assert fin["properties"]["success"]["type"] == "boolean"
+    notifications = schemas["ServerNotification.json"]
+    assert any(b["properties"]["method"].get("enum") == ["account/login/completed"] for b in notifications["oneOf"])
+    annulation = schemas["v2/CancelLoginAccountResponse.json"]
+    statut = annulation["properties"]["status"]
+    if "$ref" in statut:
+        statut = annulation["definitions"][statut["$ref"].split("/")[-1]]
+    assert set(statut["enum"]) == {"canceled", "notFound"}
+    print("Contrat Codex Linux régénéré sans réseau ni compte : " + json.dumps(resultat["sha256"], sort_keys=True))

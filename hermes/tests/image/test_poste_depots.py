@@ -14,7 +14,7 @@ import json
 import os
 from pathlib import Path
 
-from conftest import inventaire_factice, poste_confirme
+from conftest import inventaire_distant_admis, poste_confirme
 from test_routes_projets import P, client  # noqa: F401 — fixture des routes (session factice)
 
 FIXTURE = Path("/opt/acp-tests/outils/fixtures_poste/depots.json")
@@ -36,7 +36,7 @@ def test_page_poste_depots_mesures_et_voies(client, noyau):  # noqa: F811
     with noyau.base.connexion() as conn:
         machine, _jeton = poste_confirme(noyau, conn)
         with noyau.base.transaction(conn):
-            noyau.inventaire.recevoir_dans(conn, machine, inventaire_factice(depots=("demo", "jetable"),
+            noyau.inventaire.recevoir_dans(conn, machine, inventaire_distant_admis(depots=("demo", "jetable"),
                                                                              modifier=_demo_public))
     reponse = client.get(f"{P}/v1/poste")
     assert reponse.status_code == 200, reponse.text
