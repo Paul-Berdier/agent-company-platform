@@ -85,6 +85,10 @@ class FauxProtocole:
         documents = {"battement": {"valide": True, "pause": False, "annuler": False}, "terminer": {"etat": "done"},
                      "question": {"question": "q_0123456789ab", "etat": "ouverte"}, "bloquer": {"etat": "bloquee"},
                      "reprendre": {"etat": "rendue"}, "arret": {"etat": "rendue"}}
+        if route == "battement" and corps.get("evenements"):
+            # Le faux serveur applique aussi le contrat 2.0 : sans ce reçu, la
+            # vraie file conserve les événements et refuse d'envoyer l'issue.
+            documents[route]["evenements_recus"] = [e["id"] for e in corps["evenements"]]
         return getattr(contrat, reponse).model_validate(documents[route])
 
     def routes(self) -> list[str]:

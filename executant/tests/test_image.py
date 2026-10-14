@@ -627,7 +627,10 @@ with tempfile.TemporaryDirectory(prefix='acp-schema-codex-') as tmp:
     # Aucun champ d’expiration fournisseur inventé : ACP affiche sa propre limite d’attente.
     assert "expiresAt" not in device["properties"]
     fin = schemas["v2/AccountLoginCompletedNotification.json"]
-    assert {"loginId", "success"} <= set(fin["required"])
+    # Schéma officiel 0.156.1 : la notification générique admet loginId absent/null.
+    # Le flux chatgptDeviceCode renseigne cet ID ; le contrôleur ACP exige sa corrélation.
+    assert set(fin["required"]) == {"success"}
+    assert set(fin["properties"]["loginId"]["type"]) == {"string", "null"}
     assert fin["properties"]["success"]["type"] == "boolean"
     notifications = schemas["ServerNotification.json"]
     assert any(b["properties"]["method"].get("enum") == ["account/login/completed"] for b in notifications["oneOf"])
