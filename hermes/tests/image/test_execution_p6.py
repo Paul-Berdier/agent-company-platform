@@ -311,7 +311,10 @@ def test_terminer_pilotage_en_revue(pile_machine, executant, projet):
     assert _tache(pile_machine, projet["tableau"], servie["carte"]).status == "review"
     revues = pile_machine.get("/api/plugins/acp-poste/v1/questions").json()["revues"]
     assert [(r["carte"], r["chemins"]) for r in revues] == [(servie["carte"], [".github/workflows/ci.yml", "CLAUDE.md"])]
-    assert revues[0]["diff"].startswith("Le diff reste sur l'exécutant")
+    message_diff = revues[0]["diff"]
+    assert "L'aperçu du diff et sa livraison dans ACP ne sont pas encore disponibles" in message_diff
+    assert "références de la branche restent consultables" in message_diff
+    assert not any(conseil in message_diff for conseil in ("récupérez", "git bundle", "railway ssh"))
     with pile_machine.noyau.base.connexion() as conn:
         pile_machine.noyau.emetteur.passe(conn)
         genres = [l[0] for l in conn.execute("SELECT genre FROM notifications")]

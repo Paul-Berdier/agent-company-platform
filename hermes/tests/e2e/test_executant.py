@@ -182,7 +182,9 @@ def test_executant_et_revues_bureau_et_telephone(playwright_sync, pile):
             p.wait_for_selector(f'{zone("acp-questions-revues")} li')
             revues = texte_de(p, zone("acp-questions-revues"))
             assert ".github/workflows/ci.yml" in revues and "CLAUDE.md" in revues
-            assert "Le diff reste sur l'exécutant" in revues
+            assert "L'aperçu du diff et sa livraison dans ACP ne sont pas encore disponibles" in revues
+            assert "références de la branche restent consultables" in revues
+            assert not any(conseil in revues for conseil in ("récupérez", "git bundle", "railway ssh"))
             verifier(format_, "projets", "revue_pilotage", "revue")
         champ = f"#acp-motif-revue-{servie['carte']}"
         page.fill(champ, "Ne touche pas au workflow de CI.")

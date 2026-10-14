@@ -184,7 +184,8 @@ describe("page Questions : revues des fichiers de pilotage (P6)", () => {
     const texte = texteDe(zone(r.racine, "acp-questions-revues"));
     expect(texte).toContain(".github/workflows/ci.yml");
     expect(texte).toContain("CLAUDE.md");
-    expect(texte).toContain("Le diff reste sur l'exécutant");
+    expect(texte).toContain("L'aperçu du diff et sa livraison dans ACP ne sont pas encore disponibles");
+    expect(texte).not.toMatch(/récupérez|git bundle|railway ssh/);
     expect(valeur(r.racine, "acp-questions-revues", "Modification")).toBe("1 fichier(s)12 ajout(s)0 retrait(s)");
     // « Refuser » exige un motif.
     expect(bouton(r.racine, "Refuser").disabled).toBe(true);
