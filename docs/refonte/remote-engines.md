@@ -1,0 +1,56 @@
+# Moteurs distants : comparaison et décision
+
+Audit du 14 octobre 2026, effectué par lecture des sources officielles, des releases, des licences et de problèmes ouverts. Aucun candidat n'a été installé ni exécuté et aucun compte fournisseur n'a été utilisé. Les fonctions ci-dessous sont observées dans le code ; ce ne sont pas des preuves de fonctionnement en production.
+
+## Décision pour le premier parcours
+
+**Option C : compléter les adaptateurs ACP vers les CLI officielles sur un exécutant Linux distant.** Hermes conserve les projets, missions, budgets et événements. Le client Qt utilise ses API authentifiées ; il n'héberge aucun moteur.
+
+**Option A, composant distant existant : T3 Code est le candidat le plus pertinent**, avec un vrai serveur headless et des contrats de pilotage. Il n'est pas retenu comme dépendance du premier parcours : le MCP externe documenté sur `main` manque dans la dernière release stable, et son contrat de création ne propose pas de clef d'idempotence. Le RPC stable reste techniquement utilisable ; l'intégrer exige de maintenir cet autre protocole et de réconcilier les états T3 et Hermes.
+
+**Option B, adaptateurs réutilisés :** retenir des principes de contrats et, si utile plus tard, des éléments MIT/Apache examinés individuellement avec leurs attributions. Les adaptateurs T3 dépendent de ses services TypeScript/Effect ; ils ne constituent pas une bibliothèque autonome directement utilisable par le serveur Python ACP. Ne pas empiler plusieurs hubs ni remplacer Qt par leur interface React.
+
+## Révisions et licences vérifiées
+
+Les fichiers `LICENSE` ont été lus au tag publié et au HEAD indiqué ; leur contenu est identique pour chacun de ces dépôts. Cette vérification ne couvre pas automatiquement toutes leurs dépendances.
+
+| Projet | Licence | Release consultée et commit | HEAD consulté, écart depuis release |
+|---|---|---|---|
+| [T3 Code](https://github.com/pingdotgg/t3code) | MIT | [v0.0.45](https://github.com/pingdotgg/t3code/releases/tag/v0.0.45), `6c8fed35dded9ff71c5b46807125457acbb76be6` | `11fd54fcbbfb39f824bb4c908d428c20d801267c`, +913 commits |
+| [CodexMonitor](https://github.com/Dimillian/CodexMonitor) | MIT | [v0.7.67](https://github.com/Dimillian/CodexMonitor/releases/tag/v0.7.67), `b913e22a6931c536df69d1f725d9cafaa47acf30` | `dd61b9abd37de5ded86e82b9fe8a83fd49d46fa5`, +4 |
+| [HAPI](https://github.com/tiann/hapi) | AGPL-3.0 | [v0.30.7](https://github.com/tiann/hapi/releases/tag/v0.30.7), `0239edf38e2da653d662f31039e24ccea04c7837` | `5847b034e5cb84f2617766945c994b7905c5c03e`, divergence +29/-1 |
+| [Happy](https://github.com/slopus/happy) | MIT | [cli-1.2.5](https://github.com/slopus/happy/releases/tag/cli-1.2.5), `4beb3543cfdeb507be838016996f7a0f65cf7b49` | `2d6222e425200b22d8d338f000ffd3afa86233d1`, +350 |
+| [Vibe Kanban](https://github.com/BloopAI/vibe-kanban) | Apache-2.0 | [v0.1.44-20260424091429](https://github.com/BloopAI/vibe-kanban/releases/tag/v0.1.44-20260424091429), `4deb7eca8f381f7cbc1f9d15515a9ab8f8009053` | `d5cbb5380fa0b32e98ef9b8d987f63decce4be3a`, +10 |
+| [CloudCLI](https://github.com/siteboon/claudecodeui) | AGPL-3.0 | [v1.37.4](https://github.com/siteboon/claudecodeui/releases/tag/v1.37.4), `7c3049fe8e157f12b7add3e496d8d2fe6fa5c014` | identique |
+| [AionUi](https://github.com/iOfficeAI/AionUi) | Apache-2.0 | [v2.2.2](https://github.com/iOfficeAI/AionUi/releases/tag/v2.2.2), `6744099b279b991c17e31c243f0920477bd31cb6` | identique ; backend AionCore distinct |
+
+## Capacités et coût d'intégration
+
+| Projet | Pilotage distant observé | Reprise, comptes et limites déterminantes |
+|---|---|---|
+| T3 Code | Serveur Linux, service systemd utilisateur et linger ; Codex, Claude, Cursor, Grok, OpenCode et Antigravity selon capacités ; RPC authentifié. Main ajoute MCP externe OAuth. | Historique serveur, sessions natives, reconnexion ; comptes sur l'hôte. Accès privé direct possible sans T3 Connect. Projets non cloisonnés par OS : un compte MCP peut agir dans tous les projets autorisés par son mode. Détails ci-dessous. |
+| CodexMonitor | Daemon Rust indépendant de l'UI ; [RPC TCP](https://github.com/Dimillian/CodexMonitor/blob/dd61b9abd37de5ded86e82b9fe8a83fd49d46fa5/src-tauri/src/bin/codex_monitor_daemon/transport.rs) et commandes Codex app-server. | Broadcast d'événements et historique Codex ; token optionnel dans le transport, réseau privé/TLS nécessaire. Pas de preuve ici d'un journal propre rejouant tous les événements. [#598](https://github.com/Dimillian/CodexMonitor/issues/598) signale un sélecteur de dossiers encore local en mode distant. |
+| HAPI | Hub/runner Linux, nombreux moteurs dont Codex/Claude, REST et [SSE `/events`](https://github.com/tiann/hapi/blob/5847b034e5cb84f2617766945c994b7905c5c03e/hub/src/web/routes/events.ts). | JWT/namespaces, messages persistés, `Last-Event-ID` et verdict replay/resync ; comptes CLI sur runner, relais facultatif. Ajoute une identité et un hub ; AGPL à prendre en compte avant réutilisation. [#1935](https://github.com/tiann/hapi/issues/1935) signale une reprise avec mauvais `CLAUDE_CONFIG_DIR`. |
+| Happy | Daemon + relais chiffré ; [`happy-agent`](https://github.com/slopus/happy/blob/2d6222e425200b22d8d338f000ffd3afa86233d1/packages/happy-agent/README.md) pilote spawn/send/history/wait/stop. | Compte Happy mobile/QR et clefs client ; relais auto-hébergeable, tiers par défaut. Sessions durables, mais [#1894](https://github.com/slopus/happy/issues/1894) rapporte un mode distant sans sandbox malgré `bypassPermissions`. Ne pas l'adopter sans vérifier/corriger ce point. |
+| Vibe Kanban | Serveur Rust, API REST/MCP, nombreux exécuteurs et worktrees. | Sessions/processus/logs stockés, comptes CLI sur serveur ; worktree seul sans isolation forte. [Fin du produit annoncée](https://github.com/BloopAI/vibe-kanban/blob/d5cbb5380fa0b32e98ef9b8d987f63decce4be3a/README.md), mauvais nouveau socle. [#3293](https://github.com/BloopAI/vibe-kanban/issues/3293) propose une API de sessions externes : elle ne doit pas être présentée comme acquise. |
+| CloudCLI | Serveur Node, JWT, REST/WebSocket/SSE, Claude/Codex/Cursor/OpenCode. | Sessions CLI et watchers ; [`codex-auth.provider.ts`](https://github.com/siteboon/claudecodeui/blob/7c3049fe8e157f12b7add3e496d8d2fe6fa5c014/server/modules/providers/list/codex/codex-auth.provider.ts) lit `auth.json`, ce qui ne prouve pas l'utilisabilité du compte. Sandbox microVM `sbx` expérimentale et facultative ; AGPL. [#1544](https://github.com/siteboon/claudecodeui/issues/1544) rapporte un plafond de 30 minutes des tâches silencieuses. |
+| AionUi | [`web-host`](https://github.com/iOfficeAI/AionUi/blob/6744099b279b991c17e31c243f0920477bd31cb6/packages/web-host/src/backend-launcher.ts) sans Electron, proxy `/api` et `/ws` vers AionCore. | Backend distinct téléchargé et épinglé `v0.2.2`, à auditer séparément avant intégration ; pas de preuve ici d'isolation forte ni du contrat complet des moteurs. [#4308](https://github.com/iOfficeAI/AionUi/issues/4308) signale un catalogue de modèles obsolète sur une version antérieure. |
+
+Les issues sont des signalements ouverts lus, **pas des défauts reproduits dans ACP**. Pour tous les candidats, un test réel autorisé reste nécessaire pour confirmer comptes, événements, interruptions et résultats. Aucun ne dispense de l'isolation OS des projets et de la protection des magasins officiels d'authentification.
+
+## Vérification prioritaire T3
+
+La [release stable](https://github.com/pingdotgg/t3code/blob/6c8fed35dded9ff71c5b46807125457acbb76be6/apps/server/src/mcp/McpHttpServer.ts) expose `/mcp` avec un bearer limité aux sessions de fournisseurs créées par T3. L'arbre de ce tag ne contient ni `docs/user/outside-agents.md`, ni `OrchestratorMcpService`, ni les toolkits externes project/thread/environment. Elle expose néanmoins un [RPC authentifié](https://github.com/pingdotgg/t3code/blob/6c8fed35dded9ff71c5b46807125457acbb76be6/packages/contracts/src/rpc.ts), dont les commandes d'authentification fournisseur et d'orchestration : cette alternative reste possible avec un adaptateur spécifique à la version.
+
+Sur le [main épinglé](https://github.com/pingdotgg/t3code/blob/11fd54fcbbfb39f824bb4c908d428c20d801267c/docs/user/outside-agents.md), `/mcp` admet un client extérieur après OAuth et consentement. Les [schémas](https://github.com/pingdotgg/t3code/blob/11fd54fcbbfb39f824bb4c908d428c20d801267c/packages/contracts/src/orchestratorMcp.ts) donnent un parcours précis :
+
+1. `orchestrator_capabilities` lit les providers/modèles annoncés ; `t3_project_list` retrouve le projet serveur.
+2. [`t3_thread_launch`](https://github.com/pingdotgg/t3code/blob/11fd54fcbbfb39f824bb4c908d428c20d801267c/apps/server/src/mcp/toolkits/project/tools.ts) prend `projectId`, `title`, options de modèle/mode/workspace et `message` facultatif ; retourne `threadId`, `projectId`, `modelSelection`, `runId`, `status`. **Il n'a pas de clef d'idempotence.** Après réponse perdue, réconcilier la liste avant toute nouvelle création.
+3. `t3_thread_send` prend `threadId`, `message`, `mode` et `clientRequestId` ; send et interrupt peuvent dédupliquer les retries. `t3_thread_wait` attend sans annuler au timeout.
+4. `t3_thread_read` avec `view: "activity"` et `afterPosition` retourne état durable, runs, timeline résumée, `nextPosition` et `hasMore`. Les textes tronqués se lisent avec `itemId`/`textOffset`. Les identifiants `providerInstanceId` et `model` ne prouvent pas seuls le modèle effectivement exécuté, et ne remplacent pas l'identité native complète attendue par ACP.
+
+Les [tools de questions](https://github.com/pingdotgg/t3code/blob/11fd54fcbbfb39f824bb4c908d428c20d801267c/apps/server/src/mcp/toolkits/thread/tools.ts) excluent explicitement les approbations de permissions ; un RPC supplémentaire est nécessaire. La [reconnexion RPC](https://github.com/pingdotgg/t3code/blob/11fd54fcbbfb39f824bb4c908d428c20d801267c/apps/server/src/orchestration-v2/ThreadStream.ts) utilise une séquence d'événements et un snapshot de secours ; elle diffère de la pagination MCP. La [frontière d'authentification](https://github.com/pingdotgg/t3code/blob/6c8fed35dded9ff71c5b46807125457acbb76be6/docs/internals/environment-auth.md) permet au scope `orchestration:read` de lire des chemins hors projet accessibles au compte serveur : instance isolée indispensable. [#14701](https://github.com/pingdotgg/t3code/issues/14701) rapporte aussi des blocages sur de gros journaux v2 ; ce point reste à mesurer.
+
+Un futur essai T3 doit tourner sur Linux jetable : instance épinglée/revue, compte de test officiel, projet temporaire, thread créé puis identifiant enregistré, send avec clef durable, déconnexion du client, reconnexion en lecture et résultat retrouvé. La perte de réponse du premier launch se teste séparément sans relance aveugle. Aucune réussite de ce parcours n'est annoncée ici.
+
+Les preuves brutes de cette étude et une sonde MCP de lecture seule sont conservées localement sous `apps/desktop/build/verification/remote-engines-20261014/` (ignoré par Git). La sonde offline a vérifié les différences de source ; son mode réseau est non exécuté. Cette étude justifie le choix C pour livrer rapidement une verticale réelle sans engager une seconde orchestration.

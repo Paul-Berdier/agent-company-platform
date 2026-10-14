@@ -1,6 +1,32 @@
 # Reprise du travail sur un autre poste
 
-## Priorité de reprise — 14 octobre 2026, ACP 1.2.0
+## Priorité courante — 14 octobre 2026, correction distante 2.0
+
+La nouvelle mission du propriétaire remplace l'architecture hybride 1.x.
+Lire [remote-only.md](refonte/remote-only.md) et
+[la comparaison des moteurs](refonte/remote-engines.md) avant de reprendre.
+Branche dédiée : `codex/remote-workspace`, ouverte depuis
+`e99b4968758458c73591f9f1cd7c8c6535795486`.
+Le commit `aee2dad` ouvre la version de travail **2.0.0**, sans publication.
+
+Le PC doit rester un client Qt. Les dépôts, moteurs, sessions, fichiers et tâches
+appartiennent au serveur. Les décisions R1–R9 précisent les anciennes décisions
+remplacées, sans retirer les gardes de sécurité ni effacer les données.
+La première verticale traite le compte Codex distant, le refus d'attribution aux
+anciens postes Windows, le journal durable et une interface native utilisable.
+Les autres lots de la mission ne sont pas déclarés terminés.
+
+Le projet Railway personnel indiqué par Paul ne contient actuellement que
+`production` ; aucun environnement de test séparé n'a été identifié. Aucun
+déploiement, changement de variable, création de ressource payante ou essai sur
+les données de production n'a eu lieu pour ce chantier.
+
+Le coffre `C:/Users/Paul/Documents/ACP-notes`, les assets privés LimeZu et le
+checkout personnel restent préservés. Ne pas réinstaller ni publier 1.2.0 comme
+si cette version réalisait la nouvelle mission. Le bilan 1.2.0 qui suit est
+historique, et ses commandes de livraison ne sont pas une autorisation nouvelle.
+
+## Historique — 14 octobre 2026, ACP 1.2.0
 
 Les sources de **1.2.0** sont fusionnées dans `main` par la
 [PR 32](https://github.com/Paul-Berdier/agent-company-platform/pull/32), le 14 octobre
