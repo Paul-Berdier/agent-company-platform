@@ -59,8 +59,8 @@ QString redactSecrets(const QString &text)
     result.replace(authelia, placeholder());
 
     // Jeton de machine et code d'enrôlement du greffon acp-poste (préfixe puis base64url ;
-    // acp_poste_contrat/machine.py).
-    static const QRegularExpression machine(QStringLiteral("\\bacp[em]_[A-Za-z0-9_-]{8,}"));
+    // acp_poste_contrat/machine.py). Le bridge coffre possède les préfixes distincts acpct_/acpce_.
+    static const QRegularExpression machine(QStringLiteral("\\bacp(?:[em]|c[et])_[A-Za-z0-9_-]{8,}"));
     result.replace(machine, placeholder());
 
     // Champs JSON sensibles.

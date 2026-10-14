@@ -70,6 +70,7 @@ param(
     [ValidateSet('Debug', 'Release')]
     [string] $Configuration = 'Release',
     [string] $QtDir,
+    [string] $Python = "python",
     [string] $Version,
     [string] $OutputDir,
     [switch] $DryRun,
@@ -225,6 +226,11 @@ try {
     Write-AcpEtape 'Déploiement du CRT MSVC redistribuable (DLL app-local x64)'
     $runtime = Copy-AcpMsvcRuntime -BuildDirectory $repertoireCompilation -Destination $scene
     Write-Host "CRT $($runtime.Version), $($runtime.FileCount) DLL ; toolset minimum $($runtime.RequiredVersion), Qt linker $($runtime.QtLinkerVersion)."
+
+    # Pont propriétaire séparé : aucun interpréteur ni paquet à installer chez le destinataire.
+    Write-AcpEtape "Empaquetage du coffre ACP (runtime Python autonome)"
+    & (Join-Path $PSScriptRoot "package-coffre.ps1") -Python $Python -OutputDir (Join-Path $scene "coffre")
+    if ($LASTEXITCODE -ne 0) { throw "L'empaquetage du coffre ACP a échoué." }
 
     # --- 4. Certificat ------------------------------------------------------------
     $signatureDemandee = (-not $DryRun) -and (-not [string]::IsNullOrWhiteSpace($PfxPath))

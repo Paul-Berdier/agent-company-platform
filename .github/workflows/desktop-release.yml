@@ -8,9 +8,9 @@ name: Desktop Release
 # défaut de GitHub Actions, et aucune étape de ce workflow ne le contourne par
 # `continue-on-error`.
 #
-# Ce workflow n'a jamais été exercé : aucun run au 9 octobre 2026 ; premier
-# déclenchement attendu à l'étiquette v1.0.0 (brouillon non signé, D131 de
-# docs/refonte/plan.md).
+# Lors de sa préparation, le 9 octobre 2026, le premier déclenchement était
+# prévu à l'étiquette v1.0.0 (brouillon non signé, D131 de docs/refonte/plan.md).
+# Les résultats des publications suivantes sont consignés dans docs/refonte/.
 
 "on":
   push:
@@ -149,11 +149,30 @@ jobs:
           cache: true
           cache-key-prefix: desktop-qt-${{ env.ACP_QT_VERSION }}-${{ env.ACP_QT_ARCH }}
 
+      - name: Installer Python 3.12 pour le coffre autonome
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Installer les dépendances verrouillées du coffre
+        run: python -m pip install --no-deps --require-hashes -r requirements/poste-3.12.lock.txt
+
       - name: Compiler en Release
         run: ./scripts/build-desktop.ps1 -Configuration Release
 
       - name: Exécuter les tests Qt Test et Qt Quick Test
         run: ./scripts/test-desktop.ps1 -Configuration Release
+
+      # Conserver aussi les sorties des suites réussies et les assertions en
+      # échec, même si l'empaquetage n'est jamais atteint.
+      - name: Conserver les diagnostics CTest
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-release-ctest-${{ github.run_id }}
+          path: apps/desktop/build/windows-msvc-release/Testing/Temporary/*.log
+          if-no-files-found: ignore
+          retention-days: 30
 
       # La signature est conditionnée à la présence du secret de certificat.
       # Sans lui, la fabrication continue et produit des binaires NON SIGNÉS :

@@ -60,7 +60,8 @@ import subprocess
 import sys
 import urllib.error
 import urllib.request
-from pathlib import Path
+from pathlib import Path, PurePosixPath
+from urllib.parse import unquote, urlsplit
 from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 
 RACINE = Path(__file__).resolve().parents[1]
@@ -93,6 +94,21 @@ _NOM_SKILL = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _SHA1 = re.compile(r"^[0-9a-f]{40}$")
 _SHELL_EN_LIGNE = re.compile(r"!`[^`\n]+`")
+
+
+def chemin_texte_sur(nom: str) -> bool:
+    """Chemin relatif Markdown canonique, sans traversée ni notation Windows."""
+    return (isinstance(nom, str) and len(nom) <= 240 and "\\" not in nom and ":" not in nom
+            and not nom.startswith("/") and str(PurePosixPath(nom)) == nom
+            and all(part not in ("", ".", "..") and not part.startswith(".") for part in nom.split("/"))
+            and nom.endswith(".md"))
+
+
+def chemin_amont(skill: Dict[str, Any], fichier: str, entree: Dict[str, Any]) -> Optional[str]:
+    """Les adaptations ACP ne sont jamais comparées à une fausse source amont."""
+    if skill.get("enveloppe_acp"):
+        return entree.get("chemin_amont")
+    return f"{skill.get('chemin_amont')}/{fichier}"
 
 
 class Chemins:
@@ -247,7 +263,12 @@ class Verification:
         for skill in self.skills_cible("hermes"):
             source = self.sources.get(skill.get("source")) or {}
             for nom, entree in (skill.get("fichiers") or {}).items():
-                attendus[f"{skill.get('chemin')}/{nom}"] = (entree, bool(source.get("vendorisee")))
+                if not chemin_texte_sur(nom):
+                    self.erreur(f"skill {skill.get('nom')} : chemin de fichier non sûr « {nom} ».")
+                    continue
+                adaptation = bool(skill.get("enveloppe_acp") and isinstance(entree, dict)
+                                  and entree.get("origine") == "adaptation-acp")
+                attendus[f"{skill.get('chemin')}/{nom}"] = (entree, bool(source.get("vendorisee")) and not adaptation)
         return attendus
 
     def regle_empreintes(self) -> None:
@@ -258,7 +279,7 @@ class Verification:
             return
         for chemin in sorted(racine.rglob("*")):
             relatif = chemin.relative_to(racine).as_posix()
-            if chemin.is_symlink():
+            if chemin.is_symlink() or (hasattr(chemin, "is_junction") and chemin.is_junction()):
                 self.erreur(f"hermes/skills/{relatif} est un lien symbolique : refusé.")
             elif chemin.is_file():
                 presents[relatif] = chemin.read_bytes()
@@ -328,8 +349,10 @@ class Verification:
             for skill in self.skills_cible("hermes"):
                 if skill.get("source") != id_source:
                     continue
-                for fichier in skill.get("fichiers") or {}:
-                    for attendu in (f"`{skill.get('nom')}/{fichier}`", f"`{skill.get('chemin_amont')}/{fichier}`"):
+                for fichier, entree in (skill.get("fichiers") or {}).items():
+                    amont = chemin_amont(skill, fichier, entree)
+                    attendus = [f"`{skill.get('nom')}/{fichier}`"] + ([f"`{amont}`"] if amont else [])
+                    for attendu in attendus:
                         if attendu not in provenance:
                             self.erreur(f"source {id_source} : PROVENANCE.md ne cite pas {attendu}.")
             section = re.search(rf"^## {re.escape(id_source)}\n(.*?)(?=^## |\Z)", tiers, re.S | re.M)
@@ -384,16 +407,24 @@ class Verification:
             if "SKILL.md" not in fichiers:
                 self.erreur(f"skill {nom} : SKILL.md absent du verrou.")
             dossier = self.chemins.skills / chemin
+            enveloppe = skill.get("enveloppe_acp")
+            if enveloppe:
+                self.regle_enveloppe(skill, dossier)
             for fichier in fichiers:
-                if not fichier.endswith(".md") or "/" in fichier.replace("\\", "/"):
+                if not chemin_texte_sur(fichier) or (not enveloppe and "/" in fichier):
                     self.erreur(f"skill {nom} : « {fichier} » n'est pas un texte Markdown de premier niveau "
-                                "(cible hermes : texte seul).")
+                                "ou une référence bornée d'une enveloppe ACP (cible hermes : texte seul).")
             if dossier.is_dir():
                 for element in sorted(dossier.rglob("*")):
                     relatif = element.relative_to(self.chemins.skills).as_posix()
+                    if element.is_symlink() or (hasattr(element, "is_junction") and element.is_junction()):
+                        self.erreur(f"hermes/skills/{relatif} : lien symbolique ou jonction refusé.")
+                        continue
                     if element.is_dir():
-                        self.erreur(f"hermes/skills/{relatif} : sous-dossier refusé (scripts/ ou autre) "
-                                    "pour une skill exécutée par Hermes.")
+                        prefixe = element.relative_to(dossier).as_posix() + "/"
+                        if not enveloppe or not any(f.startswith(prefixe) for f in fichiers):
+                            self.erreur(f"hermes/skills/{relatif} : sous-dossier refusé (scripts/ ou autre) "
+                                        "hors références déclarées de l'enveloppe ACP.")
                         continue
                     if not element.name.endswith(".md"):
                         self.erreur(f"hermes/skills/{relatif} : seul le Markdown est admis (texte seul).")
@@ -460,6 +491,69 @@ class Verification:
         for dossier in (self.chemins.skills.glob("*/*") if self.chemins.skills.is_dir() else []):
             if dossier.is_dir() and dossier.name in exclus:
                 self.erreur(f"hermes/skills/{dossier.relative_to(self.chemins.skills).as_posix()} : skill exclue livrée.")
+
+    def regle_enveloppe(self, skill: Dict[str, Any], dossier: Path) -> None:
+        """Exception étroite : deux adaptations locales et des sources Markdown à chemins fixes."""
+        nom = skill["nom"]
+        enveloppe, fichiers = skill.get("enveloppe_acp"), skill.get("fichiers") or {}
+        amont = skill.get("chemin_amont", "")
+        if not isinstance(amont, str) or not re.fullmatch(r"skills/[a-z0-9-]+", amont):
+            self.erreur(f"skill {nom} : chemin amont principal non canonique.")
+            amont = "skills/invalide"
+        source_attendue = f"references/amont/{amont}/SOURCE.md"
+        if enveloppe != {"schema": "acp-competence-texte/1", "source": source_attendue}:
+            self.erreur(f"skill {nom} : enveloppe ACP inconnue ou source non canonique.")
+        if not 3 <= len(fichiers) <= 12 or source_attendue not in fichiers:
+            self.erreur(f"skill {nom} : enveloppe ACP incomplète ou plus de 12 fichiers.")
+        total = 0
+        for fichier, entree in fichiers.items():
+            if fichier in ("SKILL.md", "POSTE.md"):
+                if entree.get("origine") != "adaptation-acp" or entree.get("chemin_amont"):
+                    self.erreur(f"skill {nom} : {fichier} doit déclarer son adaptation ACP locale.")
+            elif fichier == source_attendue:
+                if entree.get("chemin_amont") != f"{amont}/SKILL.md" or entree.get("origine"):
+                    self.erreur(f"skill {nom} : source amont principale incohérente.")
+            elif re.fullmatch(r"references/amont/references/[a-z0-9-]+\.md", fichier):
+                if entree.get("chemin_amont") != fichier.removeprefix("references/amont/") or entree.get("origine"):
+                    self.erreur(f"skill {nom} : référence amont incohérente pour {fichier}.")
+            else:
+                self.erreur(f"skill {nom} : référence hors arborescence autorisée : {fichier}.")
+            if not chemin_texte_sur(fichier):
+                continue
+            chemin = dossier / fichier
+            if not chemin.is_file() or chemin.is_symlink() or not chemin.resolve().is_relative_to(dossier.resolve()):
+                continue
+            taille = chemin.stat().st_size
+            total += taille
+            if taille > 65536:
+                self.erreur(f"skill {nom} : {fichier} dépasse 64 Kio.")
+            texte = chemin.read_text(encoding="utf-8", errors="replace")
+            liens = re.findall(r"\[[^\]\n]*\]\(([^)\s]+)(?:\s+[^)]*)?\)", texte)
+            # Certains textes amont citent leurs références relatives comme du code Markdown.
+            liens += re.findall(r"`((?:\.\.?/)[^`\n]+\.md)`", texte)
+            for lien in liens:
+                cible = urlsplit(lien)
+                if cible.scheme or cible.netloc or not cible.path or not cible.path.endswith(".md"):
+                    continue
+                destination = (chemin.parent / unquote(cible.path)).resolve()
+                if not destination.is_relative_to(dossier.resolve()):
+                    self.erreur(f"skill {nom} : lien Markdown hors enveloppe : {lien}.")
+                elif destination.relative_to(dossier.resolve()).as_posix() not in fichiers:
+                    self.erreur(f"skill {nom} : référence Markdown non livrée : {lien}.")
+        if total > 256 * 1024:
+            self.erreur(f"skill {nom} : enveloppe supérieure à 256 Kio.")
+        application = skill.get("application_poste") or {}
+        if application.get("fichier") != "POSTE.md" or "POSTE.md" not in fichiers:
+            self.erreur(f"skill {nom} : application POSTE.md absente.")
+        classes = application.get("classes")
+        roles = application.get("roles")
+        if not isinstance(classes, list) or not classes or any(c not in {
+                "architecture", "implementation", "debogage_tests", "documentation", "petite_tache", "relecture"
+                } for c in classes):
+            self.erreur(f"skill {nom} : classes d'application poste invalides.")
+        if not isinstance(roles, list) or not roles or any(r not in {"implementation", "correction", "relecture"}
+                                                        for r in roles):
+            self.erreur(f"skill {nom} : rôles d'application poste invalides.")
 
     # -- règle 7 : garde et managed scope --------------------------------------------------------
 
@@ -586,6 +680,18 @@ class Verification:
                         self.erreur(f"profil {id_profil} : {nom} n'est pas une skill côté Hermes.")
                 elif nom not in gardees:
                     self.erreur(f"profil {id_profil} : {nom} n'est ni au catalogue ni une skill livrée gardée.")
+            applications = profil.get("skills_poste") or []
+            if id_profil == "base" and applications:
+                self.erreur("profil base : aucune application tierce implicite n'est autorisée.")
+            if not isinstance(applications, list) or not all(isinstance(n, str) for n in applications):
+                self.erreur(f"profil {id_profil} : skills_poste doit être une liste de noms.")
+                applications = []
+            if len(applications) != len(set(applications)):
+                self.erreur(f"profil {id_profil} : applications poste en double.")
+            for nom in applications:
+                cites.setdefault(nom, set()).add(id_profil)
+                if not (catalogue.get(nom) or {}).get("application_poste"):
+                    self.erreur(f"profil {id_profil} : {nom} n'a pas d'application poste déclarée.")
             for nom in profil.get("mcp_hermes") or []:
                 if (mcp.get(nom) or {}).get("cible") != "hermes":
                     self.erreur(f"profil {id_profil} : le MCP {nom} n'est pas actif côté Hermes.")
@@ -617,7 +723,7 @@ class Verification:
             for profil in profils.values():
                 if not isinstance(profil, dict):
                     continue
-                for nom in (profil.get("skills_hermes") or []) + (profil.get("mcp_hermes") or []) + [
+                for nom in (profil.get("skills_hermes") or []) + (profil.get("skills_poste") or []) + (profil.get("mcp_hermes") or []) + [
                         n for n in profil.get("poste") or [] if n in catalogue]:
                     if f"`{nom}`" not in texte:
                         self.erreur(f"la skill acp-profils ne cite pas `{nom}` (profils du verrou).")
@@ -635,7 +741,8 @@ class Verification:
             fichiers: List[Tuple[str, str]] = [("LICENSE", f"{categorie}/LICENSE")]
             for skill in self.skills_cible("hermes"):
                 if skill.get("source") == id_source:
-                    fichiers += [(f"{skill['chemin_amont']}/{f}", f"{skill['chemin']}/{f}") for f in skill.get("fichiers") or {}]
+                    fichiers += [(chemin_amont(skill, f, e), f"{skill['chemin']}/{f}")
+                                 for f, e in (skill.get("fichiers") or {}).items() if chemin_amont(skill, f, e)]
             for amont, local in fichiers:
                 url = f"https://raw.githubusercontent.com/{id_source}/{commit}/{amont}"
                 try:

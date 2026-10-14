@@ -353,6 +353,46 @@ Item {
                     }
                 }
             }
+            Rectangle {
+                id: panneauChef
+                objectName: "projets-boucle-chef"
+                Layout.fillWidth: true
+                implicitHeight: boucleChef.implicitHeight + Space.space3 * 2
+                color: Colors.surfaceSunken
+                radius: Radius.radiusSm
+                property bool developpe: false
+                ColumnLayout {
+                    id: boucleChef
+                    anchors.fill: parent
+                    anchors.margins: Space.space3
+                    spacing: Space.space2
+                    RowLayout {
+                        Layout.fillWidth: true
+                        Text {
+                            Layout.fillWidth: true
+                            text: qsTr("Boucle du chef · tour %1 · %2 cartes faites").arg(Projets.detail.tour || qsTr("Inconnu")).arg(Projets.detail.cartesFaites || qsTr("Inconnu"))
+                            textFormat: Text.PlainText
+                            wrapMode: Text.WordWrap
+                            color: Colors.textPrimary
+                            font.family: Type.metadata.family
+                            font.pixelSize: Type.metadata.pixelSize
+                        }
+                        AcpButton {
+                            objectName: "projets-boucle-details"
+                            label: panneauChef.developpe ? qsTr("Réduire") : qsTr("Fonctionnement")
+                            onTriggered: panneauChef.developpe = !panneauChef.developpe
+                        }
+                    }
+                    Discret {
+                        visible: panneauChef.developpe
+                        text: qsTr("Hermes planifie → délègue aux assistants → fait relire → rassemble les preuves. Les corrections repartent en revue ; la synthèse attend les étapes terminées.")
+                    }
+                    Discret {
+                        visible: panneauChef.developpe
+                        text: qsTr("Limites de ce projet : %1 corrections par étape ; reste %2. À la limite, une décision vous est demandée dans Questions.").arg(Projets.detail.corrections || qsTr("Inconnu")).arg(Projets.detail.restants || qsTr("Inconnu"))
+                    }
+                }
+            }
             Discret {
                 visible: !Projets.detailLu && Projets.erreurDetail.length === 0
                 text: qsTr("Chargement du projet…")
@@ -970,7 +1010,7 @@ Item {
 
                 Text {
                     Layout.fillWidth: true
-                    text: qsTr("Que voulez-vous réaliser ? Décrivez un résultat concret ; Hermes préparera les étapes et vous pourrez suivre leur avancement ici.")
+                    text: qsTr("Que voulez-vous réaliser ? Décrivez le résultat attendu. Le chef Hermes planifie, délègue, fait vérifier et reprend les corrections dans les limites du projet.")
                     textFormat: Text.PlainText
                     wrapMode: Text.WordWrap
                     color: Colors.textSecondary

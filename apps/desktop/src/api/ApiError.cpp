@@ -1,4 +1,5 @@
 #include "api/ApiError.h"
+#include "diagnostics/Redaction.h"
 
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -53,7 +54,7 @@ bool estFournisseurInjoignable(const QString &detailBrut)
 ApiError::ApiError(ApiFailure::Kind kind, QString detail, int httpStatus)
     : m_kind(kind)
     , m_httpStatus(httpStatus)
-    , m_detail(clamp(std::move(detail)))
+    , m_detail(clamp(redactSecrets(detail)))
 {
 }
 

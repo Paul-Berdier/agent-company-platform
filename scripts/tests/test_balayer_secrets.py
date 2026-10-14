@@ -31,6 +31,8 @@ FAUX = {
     "jeton JWT": "ey" + "JhbGciOiJIUzI1NiJ9." + "ey" + "JzdWIiOiJhY3AifQ." + "c2lnbmF0dXJlc2ln",
     "jeton machine ACP": "Bearer " + "ac" + "pm_" + "Q7x-" * 10 + "abc",
     "code d'enrôlement ACP": "ac" + "pe_" + "k2_Z" * 10 + "xyz",
+    "jeton coffre ACP": "ac" + "pct_" + "Q7x-" * 10 + "abc",
+    "code d'enrôlement coffre ACP": "ac" + "pce_" + "k2_Z" * 10 + "xyz",
 }
 
 

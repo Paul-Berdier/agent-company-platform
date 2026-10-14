@@ -5,6 +5,86 @@ Le projet suit le versionnage sémantique. Tant que la version majeure restait �
 les interfaces pouvaient encore évoluer entre deux versions mineures ; depuis 1.0.0, l'engagement porte sur les
 interfaces que nomme la section 1.0.0 (D130), et une rupture de l'une d'elles appelle une nouvelle version majeure.
 
+## [1.2.0] - 2026-10-14 — workspace Hermes et coffre Obsidian
+
+### Ajouté
+
+- Discussion native : recherche, chargement jusqu’à 500 sessions, renommage, copie avec historique,
+  choix du modèle de session et contexte renvoyé par Hermes. Markdown contrôlé, copie du code et brouillons par discussion.
+- Page Outils : dix fiches sourcées, provenance et état réel, préparation d’une consigne sans envoi automatique.
+- Six méthodes Addy et trois méthodes Ponytail sous licence MIT, épinglées et vérifiées ; adaptations par rôle,
+  profil et tâche, avec méthode ACP de planification et relecture du chef.
+- Coffre ACP Markdown : association par empreinte, notes, recherche, édition avec contrôle de version,
+  création, renommage, archives récupérables, liens entrants et graphe dans le client natif.
+- Pont Windows autonome distinct de l’exécutant, runtime embarqué, menu « Coffre ACP - Obsidian » dans le Setup
+  et le portable, sans demander Python ni extension Obsidian au destinataire.
+
+### Modifié
+
+- Détail compact de la boucle du chef et compteurs réels ; graphe déterministe, budgets et corrections conservés.
+- Modèle choisi pour la seule session Hermes ; détails des outils repliables et brouillons par discussion en mémoire.
+- Catalogue distinguant méthodes livrées, coffre associable et services encore à installer.
+
+### Corrigé
+
+- Géométrie des messages Markdown : défilement stable pendant la lecture de l’historique.
+- Brouillons du coffre conservés pendant la sauvegarde et les conflits avec une modification dans Obsidian.
+- Textes refusés à l’envoi dans Discussion conservés lors d’un changement de session, y compris après un refus tardif ;
+  une coupure sans accusé est signalée comme un envoi non confirmé, sans répétition automatique.
+- Refus définitif distingué d’un résultat incertain, sans répétition automatique d’une mutation.
+- Liens relatifs du graphe et notes homonymes résolus selon leur contexte.
+- Reprise du pont après purge d’une ancienne opération sur Hermes : son résultat non acquitté reste archivé
+  localement et les nouvelles demandes peuvent reprendre, sans répétition de la mutation.
+
+### Sécurité
+
+- Identité du coffre séparée de la machine, jeton DPAPI et transport HTTPS sortant sans port local ouvert.
+- Actions typées et bornées, chemins contrôlés, refus des jonctions et liens physiques ; publication d’un nouvel inode
+  et archivage de la version précédente sans écrasement d’une cible substituée pendant l’écriture.
+- Comparaison SHA-256 avant modification, journal durable anti-répétition, rotation du jeton revérifiée pendant
+  l’attente serveur, révocation et expiration, masquage des secrets et rétention documentée.
+- Markdown sans HTML actif ni chargement de ressources locales ou d’images ; liens HTTP(S) contrôlés.
+
+### Vérifié localement
+
+- Compilation Qt 6.8.3 / MSVC Release ; 41/41 suites natives réussies en 140,76 s. Captures des quatre thèmes
+  en 1280×720 et 1920×1080 contre un faux Hermes ; coffre et graphe relus.
+- Banc Qt : attente de la mise en page avant les clics du coffre, fixture de compatibilité cohérente entre les pages,
+  sorties Qt capturées et journaux CTest conservés en CI. Discussion passe ses 30 cas, dont les refus et coupures tardifs.
+- Suite Python Windows : 1 419 tests et 464 sous-tests réussis, 107 ignorés selon la plateforme ou les prérequis,
+  aucun échec en 909,31 s après correction de la reprise du pont. Les trois tests HTTP tournent
+  obligatoirement dans l’image Hermes ; le ciblé réel coffre, machine et catalogue y passe : 30 tests en 47,07 s.
+- Double initialisation SQLite : 20 anciennes tables, leurs lignes et compteurs préservés ; seules les trois tables
+  du coffre et leurs index sont ajoutés. Base 1.0.1 et 1.2.0 identique avant cette extension.
+- 204 tests web et 74 tests du moteur gelé ; versions, thèmes, verrou, catalogue de 31 compétences et secrets vérifiés.
+- Banc navigateur : attentes strictes de 31 compétences Hermes et 41 entrées du catalogue ; plafond des captures
+  porté à 20 000 px CSS, avec refus des pages tronquées conservé. Les trois tests PNG passent ; ils ne
+  remplacent pas la validation complète du parcours dans le navigateur.
+- Reprise après purge réelle en SQLite : résultat non acquitté archivé, modification locale et journal préservés,
+  nouvelle lecture réussie ; 38 tests ciblés du pont et de son serveur, sans réexécution de l’écriture.
+- Runtime autonome : imports et parcours sur coffre jetable ; menu PowerShell 5.1 et lanceur CMD vérifiés.
+  Aucun test de mutation sur le coffre personnel.
+
+### Limites connues
+
+CRM, REA, Douyin/TikTok, ML Intern, Hackingtool, Graphify et OmniRoute restent documentés mais non déployés
+ni connectés. ML Intern est archivé. Les textes Addy/Ponytail ne sont pas leurs exécutables ou hooks.
+Aucun compte personnel n’a été connecté par les tests.
+
+Les neuf actions du coffre sont déclenchées par le propriétaire dans le desktop ; aucun outil de lecture
+ou d’écriture du coffre n’est exposé aux agents Hermes ni à Discussion dans ce lot.
+
+Le coffre exige le serveur ACP 1.2.0 et son association volontaire. Les notes demandées transitent par Hermes ;
+ses sauvegardes SQLite peuvent conserver des copies après purge applicative. Le pont ne reprend pas les extensions,
+Bases, Canvas ou toute la CLI Obsidian. Renommer une note ne réécrit pas les autres liens. Les brouillons restent
+volatils ; une mutation interrompue peut nécessiter une vérification manuelle des archives.
+
+La fenêtre personnelle ACP et sa session web Railway n’ont pas pu être observées, l’outil ayant échoué avant accès.
+Le terminal web, les pièces jointes et la parité complète avec Hermes web restent hors de ce lot. Les paquets locaux
+sont non signés ; l’installation personnelle et le déploiement Railway n’ont pas été exécutés.
+
+Parcours : [workspace, intégrations et mise à jour](docs/refonte/workspace-1.2.0.md).
+
 ## [1.1.1] - 2026-10-12 — reprise de session et connexions visibles
 
 ### Ajouté

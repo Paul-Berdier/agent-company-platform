@@ -1,13 +1,13 @@
 ---
 name: acp-profils
-description: "Réglages prêts d'ACP par type de projet (base, site web, recherche, données) : quelles skills et quels serveurs MCP utiliser sur Railway, et ce qui relève du poste Windows (pas encore branché). À charger avant de choisir des skills pour un projet."
+description: "Réglages prêts d'ACP par type de projet (base, site web, recherche, données) : quelles skills et quels serveurs MCP utiliser sur Railway, et ce qui relève du poste Windows ou exécutant Linux. À charger avant de choisir des skills pour un projet."
 ---
 
 # Profils de projet ACP
 
 Le catalogue d'ACP est épinglé dans l'image (fichier `catalogue.lock.json`) et change seulement par une modification relue du dépôt. Cette skill dit quelles skills charger selon le type de projet. Elle ne donne accès à aucun outil.
 
-Sur Railway, tu n'as **aucun outil d'exécution** (ni terminal, ni fichiers, ni code, ni navigateur) : les skills ci-dessous servent à concevoir, relire, cadrer et rédiger. Tout ce qui exige d'exécuter, de lire un dépôt ou de piloter un navigateur relève du **poste** Windows du propriétaire, qui n'est pas encore branché : dis-le, ne le simule pas. Un projet de plusieurs étapes se lance par `projet_lancer` : un projet sans dépôt (recherche, conception, rédaction) avance sur Railway avec les seules cartes de Hermes ; un projet sur dépôt attend que le poste soit connecté (étape P5).
+Sur Railway, tu n'as **aucun outil d'exécution** (ni terminal, ni fichiers, ni code, ni navigateur) : les skills ci-dessous servent à concevoir, relire, cadrer et rédiger. Tout ce qui exige d'exécuter, de lire un dépôt ou de piloter un navigateur relève du **poste** Windows ou de l’exécutant Linux autorisé : dis-le, ne le simule pas. Un projet de plusieurs étapes se lance par `projet_lancer` : un projet sans dépôt (recherche, conception, rédaction) avance sur Railway avec les seules cartes de Hermes ; un projet sur dépôt attend que le poste soit connecté.
 
 Une skill citée ici n'est utilisable que si elle figure dans ta liste de skills ; sinon, dis qu'elle est absente. Les skills vendorisées sont en anglais : tu réponds quand même en français.
 
@@ -28,7 +28,7 @@ Base, plus :
 
 Une maquette HTML se donne en entier dans la réponse : aucun fichier ne s'écrit sur Railway.
 
-Relèvent du poste, pas encore branché : `find-animation-opportunities`, `improve-animations`, `review-animations`, `prototype`, `redesign-existing-projects`, `production-audit`, `browser-qa`, `e2e-testing`, `canary-watch`, `benchmark` sont des **candidates**, qu'aucune étape du plan ne prévoit encore ; le serveur MCP Playwright est prévu au poste à l'étape P8 ; Figma est hors v1. Ces skills lisent le code d'un dépôt, pilotent un navigateur ou mesurent un site déployé : ne promets aucune date.
+Restent des candidates du poste, non chargées par cette livraison : `find-animation-opportunities`, `improve-animations`, `review-animations`, `prototype`, `redesign-existing-projects`, `production-audit`, `browser-qa`, `e2e-testing`, `canary-watch`, `benchmark` sont des **candidates**, qu'aucune étape du plan ne prévoit encore ; le serveur MCP Playwright est prévu au poste à l'étape P8 ; Figma est hors v1. Ces skills lisent le code d'un dépôt, pilotent un navigateur ou mesurent un site déployé : ne promets aucune date.
 
 ## Recherche
 
@@ -40,10 +40,18 @@ Cite chaque source par son adresse et distingue ce qui est établi de ce qui est
 
 Base, plus : `mle-workflow`, `python-patterns`.
 
-L'exécution d'un code d'analyse ou d'entraînement relève de l'environnement Python du poste (étape P6, pas encore branché) : sur Railway, tu cadres la démarche, les contrôles et les critères d'évaluation.
+L'exécution d'un code d'analyse ou d'entraînement relève de l'environnement Python du poste autorisé : sur Railway, tu cadres la démarche, les contrôles et les critères d'évaluation.
 
 ## Choisir
 
 1. Identifie le type de projet ; s'il est mixte, cumule les profils.
 2. Charge seulement les skills utiles à la question posée, pas tout le profil.
 3. Si la demande exige une skill ou un outil du poste, dis-le clairement et propose ce qui est faisable ici.
+
+## Applications à la mission de l’exécutant
+
+Le profil base ne charge aucune application tierce automatiquement. Les profils web et données ajoutent selon la classe et le rôle : `planning-and-task-breakdown`, `incremental-implementation`, `addy-test-driven-development`, `code-review-and-quality`, `debugging-and-error-recovery`, `ponytail`, `ponytail-review`, `ponytail-audit`. Le profil web ajoute `frontend-ui-engineering`. Le profil recherche utilise seulement le cadrage, la relecture et l’audit.
+
+Les textes intégraux amont sont conservés avec leur licence. La consigne du poste reçoit une adaptation française courte, identifiée et vérifiée par empreinte ; elle ne reçoit ni plugin, ni hook, ni script. Hermes ne gagne aucun outil d’exécution. Les audits et relectures sont sans modification ; leur verdict n’autorise aucune livraison.
+
+La compétence `acp-boucle-chef` guide la délégation et la vérification dans les cartes de planification et de synthèse, dans les plafonds réellement imposés par le greffon.

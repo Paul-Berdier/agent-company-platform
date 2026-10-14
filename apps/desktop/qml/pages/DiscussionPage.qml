@@ -1,7 +1,7 @@
 // Discussion avec Hermes (cahier P8 § 7.4), par la passerelle JSON-RPC `/api/ws`.
 //
-// À gauche, les sessions de Hermes ; à droite, la session ouverte : transcription en texte
-// brut, réponse qui s'écrit au fil du flux, lignes d'outils sans arguments bruts, demandes
+// À gauche, les sessions de Hermes ; à droite, la session ouverte : Markdown contrôlé,
+// code copiable, réponse au fil du flux, lignes d’outils sans arguments bruts, demandes
 // d'autorisation ou de précision de l'agent, et la zone d'envoi. Rien n'est affiché qui ne
 // vienne de Hermes ; l'état de la passerelle est toujours dit.
 
@@ -16,9 +16,14 @@ import Acp.Controls
 Item {
     id: page
     property bool sessionsExpanded: false
+    readonly property var usageSession: Discussion.infosSession.usage || ({})
+    readonly property string modeleEffectif: Discussion.infosSession.model || qsTr("Modèle non relevé")
 
     Component.onCompleted: Discussion.pageVisible = visible
-    onVisibleChanged: Discussion.pageVisible = visible
+    onVisibleChanged: {
+        Discussion.pageVisible = visible;
+        if (!visible) { renommage.close(); modeles.close(); }
+    }
     Component.onDestruction: Discussion.pageVisible = false
 
     readonly property bool coupee: Compatibility.etat !== CompatibilityStatus.NonVerifiee
@@ -97,6 +102,17 @@ Item {
                 text: Discussion.attenteInconnue
                 color: Colors.textSecondary
             }
+            AcpTextField {
+                objectName: "discussion-recherche"
+                Layout.fillWidth: true
+                placeholder: qsTr("Rechercher une discussion…")
+                text: Discussion.rechercheSessions
+                onTextChanged: if (Discussion.rechercheSessions !== text) Discussion.rechercheSessions = text
+            }
+            Discret {
+                visible: Discussion.sessionsLues
+                text: qsTr("%1 discussions chargées").arg(Discussion.sessionsChargees)
+            }
             ListView {
                 id: listeSessions
                 objectName: "discussion-sessions"
@@ -158,6 +174,14 @@ Item {
                     Accessible.onPressAction: Discussion.ouvrir(ligneSession.item.id)
                 }
             }
+            AcpButton {
+                objectName: "discussion-charger-plus"
+                Layout.fillWidth: true
+                visible: Discussion.peutChargerPlus
+                label: Discussion.chargementSessions ? qsTr("Chargement…") : qsTr("Charger plus de discussions")
+                manualEnabled: !Discussion.chargementSessions && Discussion.passerellePrete
+                onTriggered: Discussion.chargerPlusSessions()
+            }
         }
 
         Rectangle {
@@ -208,6 +232,53 @@ Item {
                     visible: Discussion.sessionVivante.length > 0
                     label: qsTr("Quitter la discussion")
                     onTriggered: Discussion.quitter()
+                }
+            }
+
+            Flow {
+                Layout.fillWidth: true
+                spacing: Space.space2
+                visible: Discussion.sessionVivante.length > 0
+                AcpButton {
+                    objectName: "discussion-renommer"
+                    label: qsTr("Renommer")
+                    manualEnabled: Discussion.passerellePrete && !Discussion.gesteEnCours
+                    onTriggered: { nomDiscussion.text = Discussion.titreSession; renommage.open(); }
+                }
+                AcpButton {
+                    objectName: "discussion-dupliquer"
+                    label: qsTr("Dupliquer")
+                    manualEnabled: Discussion.passerellePrete && !Discussion.tourEnCours && !Discussion.ouverture && !Discussion.gesteEnCours
+                    onTriggered: Discussion.dupliquer()
+                }
+                AcpButton {
+                    objectName: "discussion-choisir-modele"
+                    label: qsTr("Changer de modèle")
+                    manualEnabled: Discussion.passerellePrete && !Discussion.tourEnCours && !Discussion.gesteEnCours
+                    onTriggered: { Discussion.actualiserModeles(); modeles.open(); }
+                }
+                AcpButton {
+                    objectName: "discussion-outils"
+                    label: qsTr("Outils et compétences")
+                    onTriggered: Navigation.setCurrentRoute("tools")
+                }
+            }
+            Discret {
+                visible: Discussion.sessionVivante.length > 0
+                text: page.modeleEffectif + (Discussion.infosSession.provider ? " · " + Discussion.infosSession.provider : "")
+                    + (Discussion.infosSession.reasoning_effort ? " · " + Discussion.infosSession.reasoning_effort : "")
+            }
+            RowLayout {
+                Layout.fillWidth: true
+                visible: typeof page.usageSession.context_percent === "number"
+                ProgressBar {
+                    Layout.preferredWidth: 100
+                    from: 0; to: 100
+                    value: typeof page.usageSession.context_percent === "number" ? page.usageSession.context_percent : 0
+                }
+                Discret {
+                    text: qsTr("Contexte utilisé : %1 %").arg(Math.round(page.usageSession.context_percent || 0))
+                        + (page.usageSession.context_estimated ? qsTr(" · estimation") : "")
                 }
             }
 
@@ -271,11 +342,18 @@ Item {
                 onCountChanged: if (following) Qt.callLater(transcription.suivreLaFin)
                 delegate: BulleMessage {
                     required property var item
-                    width: Math.min(transcription.width - Space.space4, 780)
+                    width: Math.min(transcription.width - Space.space4, 960)
                     x: Math.max(0, (transcription.width - width) / 2)
                     auteur: item.auteur
                     texte: item.texte
                     role: item.role
+                    blocsMessage: item.role === "assistant" ? TexteDiscussion.blocs(item.texte) : []
+                    onCopierDemande: function(contenu) {
+                        Shell.notify(TexteDiscussion.copier(contenu) ? qsTr("Texte copié.") : qsTr("Copie indisponible."));
+                    }
+                    onLienDemande: function(lien) {
+                        if (!TexteDiscussion.ouvrirLien(lien)) Shell.notify(qsTr("Ce lien ne peut pas être ouvert."));
+                    }
                     enCours: item.enCours
                     statut: item.statut
                     avertissement: item.avertissement
@@ -319,17 +397,106 @@ Item {
                     RowLayout {
                         Layout.fillWidth: true; spacing: Space.space3
                         AtelierMark { Layout.preferredWidth: 24; Layout.preferredHeight: 20 }
-                        Text { text: qsTr("Hermes · modèle du profil"); color: Colors.textSecondary; font.family: Type.metadata.family; font.pixelSize: Type.metadata.pixelSize }
+                        Text { text: page.modeleEffectif; elide: Text.ElideRight; Layout.maximumWidth: 260; color: Colors.textSecondary; font.family: Type.metadata.family; font.pixelSize: Type.metadata.pixelSize }
                         Item { Layout.fillWidth: true }
                         Text { visible: page.width > 900; text: "Ctrl+Entrée"; color: Colors.textMuted; font.family: Type.identifier.family; font.pixelSize: 11 }
                         AcpButton {
                             id: envoyer; objectName: "discussion-envoyer"
                             primary: true; label: qsTr("Envoyer"); iconName: "arrowUp"
                             manualEnabled: Discussion.passerellePrete && !Discussion.ouverture && saisie.text.trim().length > 0
-                            onTriggered: if (Discussion.envoyer(saisie.text)) Discussion.brouillon = ""
+                            onTriggered: Discussion.envoyer(saisie.text)
                         }
                     }
                 }
+            }
+        }
+    }
+
+    Popup {
+        id: renommage
+        objectName: "discussion-renommage"
+        modal: true; focus: true
+        width: Math.min(page.width - 32, 460)
+        x: (page.width - width) / 2; y: Math.max(16, (page.height - height) / 2)
+        padding: Space.space6
+        background: Rectangle { color: Colors.surfacePanel; radius: Radius.radiusMd; border.color: Colors.borderDefault; border.width: 1 }
+        contentItem: ColumnLayout {
+            spacing: Space.space4
+            Text { text: qsTr("Renommer la discussion"); color: Colors.textPrimary; font.family: Type.panelTitle.family; font.pixelSize: Type.panelTitle.pixelSize }
+            AcpTextField { id: nomDiscussion; objectName: "discussion-nouveau-titre"; Layout.fillWidth: true; placeholder: qsTr("Titre de la discussion") }
+            RowLayout {
+                Item { Layout.fillWidth: true }
+                AcpButton { label: qsTr("Annuler"); onTriggered: renommage.close() }
+                AcpButton {
+                    objectName: "discussion-confirmer-titre"; primary: true; label: qsTr("Renommer")
+                    manualEnabled: nomDiscussion.text.trim().length > 0 && Discussion.passerellePrete
+                    onTriggered: { Discussion.renommer(nomDiscussion.text); renommage.close(); }
+                }
+            }
+        }
+    }
+    Popup {
+        id: modeles
+        objectName: "discussion-modeles"
+        modal: true; focus: true
+        width: Math.min(page.width - 32, 640)
+        height: Math.min(page.height - 32, 500)
+        x: (page.width - width) / 2; y: (page.height - height) / 2
+        padding: Space.space6
+        background: Rectangle { color: Colors.surfacePanel; radius: Radius.radiusMd; border.color: Colors.borderDefault; border.width: 1 }
+        contentItem: ColumnLayout {
+            spacing: Space.space4
+            RowLayout {
+                Layout.fillWidth: true
+                Text { Layout.fillWidth: true; text: qsTr("Modèle de cette discussion"); color: Colors.textPrimary; font.family: Type.panelTitle.family; font.pixelSize: Type.panelTitle.pixelSize }
+                AcpButton { label: qsTr("Fermer"); onTriggered: modeles.close() }
+            }
+            Discret { text: qsTr("Le choix s’applique à cette session. Le modèle par défaut du serveur est conservé.") }
+            Discret { visible: Discussion.chargementModeles; text: qsTr("Lecture des modèles disponibles…") }
+            BandeauMessage { Layout.fillWidth: true; erreur: Discussion.erreurModeles }
+            AcpTextField { id: rechercheModele; objectName: "discussion-recherche-modele"; Layout.fillWidth: true; placeholder: qsTr("Filtrer les modèles…") }
+            ListView {
+                id: listeModeles
+                Layout.fillWidth: true; Layout.fillHeight: true; clip: true
+                model: Discussion.modelesSession
+                spacing: 0
+                ScrollBar.vertical: ScrollBar {}
+                delegate: AcpButton {
+                    required property var item
+                    objectName: "discussion-modele-" + item.fournisseur + "-" + item.modele
+                    width: listeModeles.width
+                    visible: (item.libelle + " " + item.fournisseur + " " + item.modele).toLowerCase().indexOf(rechercheModele.text.toLowerCase()) >= 0
+                    height: visible ? implicitHeight : 0
+                    readonly property int caracteresVisibles: Math.max(18, Math.floor(width / 9) - 6)
+                    label: item.libelle.length > caracteresVisibles ? item.libelle.slice(0, caracteresVisibles - 1) + "…" : item.libelle
+                    Accessible.name: item.libelle
+                    manualEnabled: Discussion.passerellePrete && !Discussion.gesteEnCours
+                    onTriggered: { Discussion.choisirModele(item.fournisseur, item.modele); modeles.close(); }
+                    HoverHandler { id: survolModele }
+                    ToolTip.visible: survolModele.hovered
+                    ToolTip.text: item.libelle + (item.avertissement ? "\n" + item.avertissement : "")
+                }
+            }
+            Discret { visible: Discussion.modelesCharges && Discussion.modelesSession.count === 0; text: qsTr("Aucun modèle disponible n’a été renvoyé par Hermes.") }
+        }
+    }
+    Popup {
+        id: confirmationModele
+        objectName: "discussion-confirmation-modele"
+        visible: page.visible && Discussion.confirmationModele.length > 0
+        modal: true; focus: true
+        width: Math.min(page.width - 32, 480)
+        x: (page.width - width) / 2; y: Math.max(16, (page.height - height) / 2)
+        padding: Space.space6
+        closePolicy: Popup.NoAutoClose
+        background: Rectangle { color: Colors.surfacePanel; radius: Radius.radiusMd; border.color: Colors.borderDefault; border.width: 1 }
+        contentItem: ColumnLayout {
+            spacing: Space.space4
+            Discret { text: Discussion.confirmationModele; color: Colors.textPrimary }
+            RowLayout {
+                Item { Layout.fillWidth: true }
+                AcpButton { objectName: "discussion-annuler-modele"; label: qsTr("Annuler"); onTriggered: Discussion.annulerChoixModele() }
+                AcpButton { objectName: "discussion-confirmer-modele"; primary: true; label: qsTr("Confirmer ce modèle"); onTriggered: Discussion.confirmerModele() }
             }
         }
     }

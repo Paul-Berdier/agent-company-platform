@@ -8,6 +8,9 @@
 #include "viewmodels/Libelles.h"
 
 #include <QLocale>
+#include <QRegularExpression>
+
+#include <algorithm>
 
 namespace acp {
 
@@ -31,9 +34,11 @@ DiscussionViewModel::DiscussionViewModel(GatewayClient *passerelle, EventStreamS
     , m_passerelle(passerelle)
     , m_sessions(new JsonListModel(this))
     , m_transcription(new JsonListModel(this))
+    , m_modelesSession(new JsonListModel(this))
 {
     // Liste des sessions relue par identifiant : elle garde son défilement et sa sélection.
     m_sessions->setCle({QStringLiteral("id")});
+    m_modelesSession->setCle({QStringLiteral("fournisseur"), QStringLiteral("modele")});
     connect(this, &DiscussionViewModel::sessionChange, this, &DiscussionViewModel::brouillonChange);
     connect(m_passerelle, &GatewayClient::evenement, this, &DiscussionViewModel::surEvenement);
     connect(m_passerelle, &GatewayClient::etatChange, this, &DiscussionViewModel::passerelleChange);
@@ -68,13 +73,20 @@ DiscussionViewModel::~DiscussionViewModel() = default;
 
 QString DiscussionViewModel::brouillon() const
 {
-    return m_brouillons.value(m_stockee.isEmpty() ? m_vivante : m_stockee);
+    const QString cle = m_stockee.isEmpty() ? m_vivante : m_stockee;
+    return cle.isEmpty() ? m_consigneEnAttente : m_brouillons.value(cle);
 }
 
 void DiscussionViewModel::setBrouillon(const QString &texte)
 {
     const QString cle = m_stockee.isEmpty() ? m_vivante : m_stockee;
-    if (cle.isEmpty() || m_brouillons.value(cle) == texte) return;
+    if (cle.isEmpty()) {
+        if (m_consigneEnAttente == texte) return;
+        m_consigneEnAttente = texte;
+        emit brouillonChange();
+        return;
+    }
+    if (m_brouillons.value(cle) == texte) return;
     if (texte.isEmpty()) m_brouillons.remove(cle);
     else m_brouillons.insert(cle, texte);
     emit brouillonChange();
@@ -101,6 +113,15 @@ void DiscussionViewModel::surActivite(bool actif)
 void DiscussionViewModel::surOubli()
 {
     m_brouillons.clear();
+    m_envoisEnAttente.clear();
+    m_consigneEnAttente.clear();
+    m_generationConsigne = 0;
+    ++m_generationListe;
+    m_chargementSessions = false;
+    m_peutChargerPlus = false;
+    m_limiteSessions = 50;
+    m_rechercheSessions.clear();
+    m_dejaPrete = false;
     quitter();
     m_sessions->clear();
     m_lignes = {};
@@ -123,30 +144,61 @@ void DiscussionViewModel::echecRpc(const QString &methode, const ErreurRpc &erre
 
 // --- Liste des sessions -----------------------------------------------------------------------
 
+void DiscussionViewModel::setRechercheSessions(const QString &texte)
+{
+    if (m_rechercheSessions == texte) return;
+    m_rechercheSessions = texte;
+    appliquerAttente();
+}
+
 void DiscussionViewModel::actualiserSessions()
 {
+    lireSessions(m_limiteSessions);
+}
+
+void DiscussionViewModel::chargerPlusSessions()
+{
+    if (!m_peutChargerPlus || m_chargementSessions) return;
+    lireSessions(std::min(m_limiteSessions + 50, 500));
+}
+
+void DiscussionViewModel::lireSessions(int limite)
+{
+    const quint64 generation = ++m_generationListe;
     if (!passerellePrete()) {
+        m_chargementSessions = false;
         m_erreurSessions = QStringLiteral("Passerelle de Hermes indisponible (%1) : la liste n'est pas lue.").arg(etatPasserelle());
         emit sessionsChange();
         return;
     }
-    AppelRpc *appel = m_passerelle->canal()->requete(QStringLiteral("session.list"), QJsonObject{{QStringLiteral("limit"), 50}});
-    connect(appel, &AppelRpc::reussi, this, [this](const QJsonValue &resultat) {
+    m_chargementSessions = true;
+    emit sessionsChange();
+    AppelRpc *appel = m_passerelle->canal()->requete(QStringLiteral("session.list"), QJsonObject{{QStringLiteral("limit"), limite}});
+    connect(appel, &AppelRpc::reussi, this, [this, generation, limite](const QJsonValue &resultat) {
+        if (generation != m_generationListe) return;
+        m_chargementSessions = false;
+        const QJsonValue sessions = resultat.toObject().value(QStringLiteral("sessions"));
+        if (!sessions.isArray()) {
+            m_erreurSessions = QStringLiteral("Réponse de Hermes illisible : aucune liste de discussions.");
+            emit sessionsChange();
+            return;
+        }
         QJsonArray lignes;
-        for (const QJsonValue &element : resultat.toObject().value(QStringLiteral("sessions")).toArray()) {
+        for (const QJsonValue &element : sessions.toArray()) {
             const QJsonObject ligne = construireSession(element.toObject());
-            if (!ligne.isEmpty()) {
-                lignes.append(ligne);
-            }
+            if (!ligne.isEmpty()) lignes.append(ligne);
         }
         m_lignes = lignes;
+        m_limiteSessions = limite;
+        m_peutChargerPlus = limite < 500 && sessions.toArray().size() >= limite;
         m_sessionsLues = true;
         m_erreurSessions.clear();
         appliquerAttente();
-        // Comme la liste du navigateur (Liste.tsx) : l'état d'attente se relit avec elle.
         flux()->discussions()->lire();
     });
-    connect(appel, &AppelRpc::echoue, this, [this](const ErreurRpc &erreur) {
+    connect(appel, &AppelRpc::echoue, this, [this, generation](const ErreurRpc &erreur) {
+        if (generation != m_generationListe) return;
+        m_chargementSessions = false;
         m_erreurSessions = erreur.locale ? erreur.message
                                          : QStringLiteral("Hermes a refusé la liste des sessions : %1 (code %2)").arg(erreur.message).arg(erreur.code);
         emit sessionsChange();
@@ -173,7 +225,15 @@ QJsonArray DiscussionViewModel::marquerEnAttente(const QJsonArray &lignes, const
 void DiscussionViewModel::appliquerAttente()
 {
     const DiscussionsEnAttente *attente = flux()->discussions();
-    m_sessions->setItems(marquerEnAttente(m_lignes, attente->sessions(), attente->connues()));
+    QJsonArray visibles;
+    const QString recherche = m_rechercheSessions.trimmed();
+    for (const QJsonValue &element : m_lignes) {
+        const QJsonObject ligne = element.toObject();
+        if (recherche.isEmpty() || ligne.value(QStringLiteral("titre")).toString().contains(recherche, Qt::CaseInsensitive)
+            || ligne.value(QStringLiteral("apercu")).toString().contains(recherche, Qt::CaseInsensitive)
+            || ligne.value(QStringLiteral("id")).toString().contains(recherche, Qt::CaseInsensitive)) visibles.append(ligne);
+    }
+    m_sessions->setItems(marquerEnAttente(visibles, attente->sessions(), attente->connues()));
     emit sessionsChange();
 }
 
@@ -204,6 +264,291 @@ QJsonObject DiscussionViewModel::construireSession(const QJsonObject &ligne)
         {QStringLiteral("date"), libelles::date(ligne.value(QStringLiteral("started_at")))},
         {QStringLiteral("messages"), libelles::nombre(ligne.value(QStringLiteral("message_count")))},
     };
+}
+
+// --- Gestes et informations de la session ------------------------------------------------------
+
+void DiscussionViewModel::reinitialiserOptionsSession()
+{
+    ++m_generationModeles;
+    m_infosSession = {};
+    m_modelesSession->clear();
+    m_modelesCharges = false;
+    m_chargementModeles = false;
+    m_erreurModeles.clear();
+    annulerChoixModele();
+    if (gesteEnCours()) terminerGeste(QString());
+    else effacerGeste();
+    emit infosSessionChange();
+}
+
+void DiscussionViewModel::mettreAJourInfos(const QJsonObject &info)
+{
+    QJsonObject rendues;
+    for (const char *champ : {"model", "provider", "profile_name", "reasoning_effort", "reasoning_effort_wire"}) {
+        const QString cle = QString::fromLatin1(champ);
+        if (info.value(cle).isString()) rendues.insert(cle, info.value(cle));
+    }
+    QJsonObject usage;
+    const QJsonObject source = info.value(QStringLiteral("usage")).toObject();
+    for (const char *champ : {"input", "output", "reasoning", "prompt", "completion", "total", "calls", "compressions",
+                             "context_used", "context_max", "context_percent", "cost_usd"}) {
+        const QString cle = QString::fromLatin1(champ);
+        if (source.value(cle).isDouble() && source.value(cle).toDouble() >= 0) usage.insert(cle, source.value(cle));
+    }
+    for (const char *champ : {"context_source", "cost_status"}) {
+        const QString cle = QString::fromLatin1(champ);
+        if (source.value(cle).isString()) usage.insert(cle, source.value(cle));
+    }
+    if (source.value(QStringLiteral("context_estimated")).isBool())
+        usage.insert(QStringLiteral("context_estimated"), source.value(QStringLiteral("context_estimated")));
+    if (!usage.isEmpty()) rendues.insert(QStringLiteral("usage"), usage);
+    if (rendues == m_infosSession) return;
+    m_infosSession = rendues;
+    emit infosSessionChange();
+}
+
+bool DiscussionViewModel::sessionModifiable()
+{
+    if (gesteEnCours()) return false;
+    if (m_ouverture || m_vivante.isEmpty()) {
+        echouerGeste(QStringLiteral("Ouvrez une discussion avant cette action."));
+        return false;
+    }
+    if (!passerellePrete()) {
+        echouerGeste(QStringLiteral("Passerelle de Hermes indisponible : cette action n'a pas été envoyée."));
+        return false;
+    }
+    return true;
+}
+
+void DiscussionViewModel::renommer(const QString &titre)
+{
+    if (!sessionModifiable()) return;
+    const QString choisi = titre.trimmed();
+    if (choisi.isEmpty()) {
+        echouerGeste(QStringLiteral("Le titre ne peut pas être vide."));
+        return;
+    }
+    debuterGeste();
+    const quint64 generation = m_generation;
+    AppelRpc *appel = m_passerelle->canal()->requete(QStringLiteral("session.title"),
+        QJsonObject{{QStringLiteral("session_id"), m_vivante}, {QStringLiteral("title"), choisi}});
+    connect(appel, &AppelRpc::reussi, this, [this, generation](const QJsonValue &valeur) {
+        if (generation != m_generation) return;
+        const QJsonObject resultat = valeur.toObject();
+        const QString titreRendu = chaine(resultat.value(QStringLiteral("title")));
+        if (titreRendu.trimmed().isEmpty()) {
+            echouerGeste(QStringLiteral("Réponse de Hermes illisible : le nouveau titre n'est pas confirmé."));
+            return;
+        }
+        m_titre = titreRendu;
+        for (qsizetype i = 0; i < m_lignes.size(); ++i) {
+            QJsonObject ligne = m_lignes.at(i).toObject();
+            if (ligne.value(QStringLiteral("id")).toString() == m_stockee) {
+                ligne.insert(QStringLiteral("titre"), titreRendu);
+                m_lignes.replace(i, ligne);
+            }
+        }
+        appliquerAttente();
+        emit sessionChange();
+        const bool enAttente = resultat.value(QStringLiteral("pending")).toBool();
+        terminerGeste(enAttente ? QStringLiteral("Titre accepté par Hermes, en attente de son enregistrement.")
+                               : QStringLiteral("Discussion renommée."), enAttente);
+    });
+    connect(appel, &AppelRpc::echoue, this, [this, generation](const ErreurRpc &erreur) {
+        if (generation == m_generation) echecRpc(QStringLiteral("session.title"), erreur);
+    });
+}
+
+void DiscussionViewModel::dupliquer()
+{
+    if (!sessionModifiable()) return;
+    if (m_stockee.isEmpty()) {
+        echouerGeste(QStringLiteral("Cette discussion n'a pas encore d'identifiant enregistré."));
+        return;
+    }
+    debuterGeste();
+    const quint64 generation = m_generation;
+    AppelRpc *appel = m_passerelle->canal()->requete(QStringLiteral("session.branch_stored"),
+        QJsonObject{{QStringLiteral("parent_session_id"), m_stockee}});
+    connect(appel, &AppelRpc::reussi, this, [this, generation](const QJsonValue &valeur) {
+        if (generation != m_generation) return;
+        const QJsonObject resultat = valeur.toObject();
+        const QString stockee = chaine(resultat.value(QStringLiteral("stored_session_id")));
+        if (stockee.isEmpty() || chaine(resultat.value(QStringLiteral("session_id"))).isEmpty()) {
+            echouerGeste(QStringLiteral("Réponse de Hermes illisible : la copie n'est pas identifiée."));
+            return;
+        }
+        // branch_stored omet le transcript : seule sa reprise peut rendre l'historique copié.
+        ouvrir(stockee);
+        actualiserSessions();
+        terminerGeste(QStringLiteral("Copie créée par Hermes ; ouverture de son historique."));
+    });
+    connect(appel, &AppelRpc::echoue, this, [this, generation](const ErreurRpc &erreur) {
+        if (generation == m_generation) echecRpc(QStringLiteral("session.branch_stored"), erreur);
+    });
+}
+
+void DiscussionViewModel::preparerConsigne(const QString &texte)
+{
+    if (texte.trimmed().isEmpty()) return;
+    const auto annoncer = [this](const QString &message, bool alerte = false) {
+        // Préparer un brouillon ne termine pas une mutation indépendante déjà en vol.
+        if (gesteEnCours()) {
+            m_avis = message;
+            emit tourChange();
+        } else terminerGeste(message, alerte);
+    };
+    if (!m_vivante.isEmpty() && !m_ouverture) {
+        const QString existant = brouillon();
+        setBrouillon(existant.isEmpty() ? texte : existant + QStringLiteral("\n\n") + texte);
+        annoncer(QStringLiteral("Consigne ajoutée au brouillon. Relisez-la avant de l'envoyer."));
+        return;
+    }
+    m_consigneEnAttente += (m_consigneEnAttente.isEmpty() ? QString() : QStringLiteral("\n\n")) + texte;
+    emit brouillonChange();
+    if (m_ouverture) {
+        m_generationConsigne = m_generation;
+        annoncer(QStringLiteral("Consigne conservée ; elle sera ajoutée après l'ouverture de la discussion."));
+    } else if (passerellePrete()) {
+        nouvelle();
+        annoncer(QStringLiteral("Consigne conservée pour la nouvelle discussion. Aucun message envoyé."));
+    } else {
+        annoncer(QStringLiteral("Consigne conservée en mémoire. Reconnectez Hermes puis ouvrez une nouvelle discussion pour la retrouver."), true);
+    }
+}
+
+void DiscussionViewModel::actualiserModeles()
+{
+    const quint64 lecture = ++m_generationModeles;
+    const quint64 generation = m_generation;
+    if (m_vivante.isEmpty() || m_ouverture || !passerellePrete()) {
+        m_chargementModeles = false;
+        m_erreurModeles = QStringLiteral("Ouvrez une discussion connectée pour lire ses modèles disponibles.");
+        emit modelesChange();
+        return;
+    }
+    m_chargementModeles = true;
+    m_erreurModeles.clear();
+    emit modelesChange();
+    AppelRpc *appel = m_passerelle->canal()->requete(QStringLiteral("model.options"),
+        QJsonObject{{QStringLiteral("session_id"), m_vivante}, {QStringLiteral("include_unconfigured"), false}});
+    connect(appel, &AppelRpc::reussi, this, [this, generation, lecture](const QJsonValue &valeur) {
+        if (generation != m_generation || lecture != m_generationModeles) return;
+        m_chargementModeles = false;
+        const QJsonValue fournisseurs = valeur.toObject().value(QStringLiteral("providers"));
+        if (!fournisseurs.isArray()) {
+            m_erreurModeles = QStringLiteral("Réponse de Hermes illisible : aucun inventaire de modèles.");
+            emit modelesChange();
+            return;
+        }
+        QJsonArray lignes;
+        for (const QJsonValue &element : fournisseurs.toArray()) {
+            const QJsonObject fournisseur = element.toObject();
+            const QString slug = chaine(fournisseur.value(QStringLiteral("slug")));
+            if (slug.isEmpty() || fournisseur.value(QStringLiteral("authenticated")) == QJsonValue(false)) continue;
+            const QJsonArray indisponibles = fournisseur.value(QStringLiteral("unavailable_models")).toArray();
+            for (const QJsonValue &modele : fournisseur.value(QStringLiteral("models")).toArray()) {
+                if (!modele.isString() || modele.toString().isEmpty() || indisponibles.contains(modele)) continue;
+                const QString nom = chaine(fournisseur.value(QStringLiteral("name")));
+                lignes.append(QJsonObject{{QStringLiteral("fournisseur"), slug}, {QStringLiteral("modele"), modele},
+                    {QStringLiteral("libelle"), QStringLiteral("%1 · %2").arg(nom.isEmpty() ? slug : nom, modele.toString())},
+                    {QStringLiteral("avertissement"), chaine(fournisseur.value(QStringLiteral("warning")))}});
+            }
+        }
+        m_modelesSession->setItems(lignes);
+        m_modelesCharges = true;
+        m_erreurModeles.clear();
+        emit modelesChange();
+    });
+    connect(appel, &AppelRpc::echoue, this, [this, generation, lecture](const ErreurRpc &erreur) {
+        if (generation != m_generation || lecture != m_generationModeles) return;
+        m_chargementModeles = false;
+        m_erreurModeles = erreur.locale ? erreur.message
+            : QStringLiteral("Hermes a refusé l'inventaire : %1 (code %2)").arg(erreur.message).arg(erreur.code);
+        emit modelesChange();
+    });
+}
+
+void DiscussionViewModel::annulerChoixModele()
+{
+    m_confirmationModele.clear();
+    m_fournisseurAConfirmer.clear();
+    m_modeleAConfirmer.clear();
+    emit modelesChange();
+}
+
+void DiscussionViewModel::choisirModele(const QString &fournisseur, const QString &modele)
+{
+    if (!sessionModifiable()) return;
+    bool offert = false;
+    for (int i = 0; i < m_modelesSession->count(); ++i) {
+        const QJsonObject ligne = m_modelesSession->itemAt(i);
+        if (ligne.value(QStringLiteral("fournisseur")).toString() == fournisseur
+            && ligne.value(QStringLiteral("modele")).toString() == modele) offert = true;
+    }
+    // Le parseur Hermes sépare sur les espaces et accepte des flags : aucun identifiant ne
+    // doit introduire --global/--once ni changer le fournisseur, même depuis un catalogue malformé.
+    static const QRegularExpression jeton(QStringLiteral("^[^\\s\\x00-\\x1f]+$"));
+    const auto sur = [](const QString &valeur) {
+        return jeton.match(valeur).hasMatch() && !valeur.startsWith(QLatin1Char('-'))
+            && !(valeur.front().unicode() >= 0x2012 && valeur.front().unicode() <= 0x2015);
+    };
+    if (!offert || !sur(fournisseur) || !sur(modele)) {
+        echouerGeste(QStringLiteral("Choisissez un modèle proposé par l'inventaire de cette discussion."));
+        return;
+    }
+    annulerChoixModele();
+    appliquerModele(fournisseur, modele, false);
+}
+
+void DiscussionViewModel::confirmerModele()
+{
+    if (m_confirmationModele.isEmpty() || !sessionModifiable()) return;
+    const QString fournisseur = m_fournisseurAConfirmer;
+    const QString modele = m_modeleAConfirmer;
+    annulerChoixModele();
+    appliquerModele(fournisseur, modele, true);
+}
+
+void DiscussionViewModel::appliquerModele(const QString &fournisseur, const QString &modele, bool confirme)
+{
+    debuterGeste();
+    const quint64 generation = m_generation;
+    AppelRpc *appel = m_passerelle->canal()->requete(QStringLiteral("config.set"), QJsonObject{
+        {QStringLiteral("session_id"), m_vivante}, {QStringLiteral("key"), QStringLiteral("model")},
+        {QStringLiteral("value"), QStringLiteral("%1 --provider %2 --session").arg(modele, fournisseur)},
+        {QStringLiteral("confirm_expensive_model"), confirme}});
+    connect(appel, &AppelRpc::reussi, this, [this, generation, fournisseur, modele](const QJsonValue &valeur) {
+        if (generation != m_generation) return;
+        const QJsonObject resultat = valeur.toObject();
+        if (resultat.value(QStringLiteral("key")) != QJsonValue(QStringLiteral("model"))
+            || !resultat.value(QStringLiteral("value")).isString()) {
+            echouerGeste(QStringLiteral("Réponse de Hermes illisible : le choix du modèle n'est pas confirmé."));
+            return;
+        }
+        if (resultat.value(QStringLiteral("confirm_required")).toBool()) {
+            m_confirmationModele = chaine(resultat.value(QStringLiteral("confirm_message")));
+            if (m_confirmationModele.isEmpty()) m_confirmationModele = chaine(resultat.value(QStringLiteral("warning")));
+            if (m_confirmationModele.isEmpty()) m_confirmationModele = QStringLiteral("Hermes demande de confirmer le coût de ce modèle.");
+            m_fournisseurAConfirmer = fournisseur;
+            m_modeleAConfirmer = modele;
+            terminerGeste(QStringLiteral("Choix en attente de votre confirmation ; le modèle n'a pas été changé."), true);
+            emit modelesChange();
+            return;
+        }
+        const bool differe = resultat.value(QStringLiteral("deferred")).toBool();
+        QString message = differe ? QStringLiteral("Choix accepté par Hermes pour le prochain tour de cette discussion.")
+                                  : QStringLiteral("Choix du modèle accepté par Hermes pour cette discussion.");
+        const QString avertissement = chaine(resultat.value(QStringLiteral("warning")));
+        if (!avertissement.isEmpty()) message += QStringLiteral(" ") + avertissement;
+        terminerGeste(message, differe || !avertissement.isEmpty());
+        // L'affichage du modèle actif vient uniquement de session.info, jamais du choix soumis.
+    });
+    connect(appel, &AppelRpc::echoue, this, [this, generation](const ErreurRpc &erreur) {
+        if (generation == m_generation) echecRpc(QStringLiteral("config.set"), erreur);
+    });
 }
 
 // --- Ouverture, création, sortie ----------------------------------------------------------------
@@ -239,6 +584,7 @@ void DiscussionViewModel::ouvrir(const QString &identifiantStocke)
         majTour(false);
     }
     const quint64 generation = ++m_generation;
+    reinitialiserOptionsSession();
     m_stockee = identifiantStocke;
     m_ouverture = true;
     m_erreurSession.clear();
@@ -273,6 +619,8 @@ void DiscussionViewModel::nouvelle()
     m_stockee.clear();
     majTour(false);
     const quint64 generation = ++m_generation;
+    reinitialiserOptionsSession();
+    m_generationConsigne = m_consigneEnAttente.isEmpty() ? 0 : generation;
     m_ouverture = true;
     emit sessionChange();
     AppelRpc *appel = m_passerelle->canal()->requete(QStringLiteral("session.create"), QJsonObject{});
@@ -309,6 +657,7 @@ void DiscussionViewModel::adopter(const QJsonObject &resultat, const QString &st
     m_vivante = vivante;
     m_stockee = stockee.isEmpty() ? chaine(resultat.value(QStringLiteral("stored_session_id"))) : stockee;
     const QJsonObject info = resultat.value(QStringLiteral("info")).toObject();
+    mettreAJourInfos(info);
     const QString titre = chaine(info.value(QStringLiteral("title")));
     if (!titre.isEmpty()) {
         m_titre = titre;
@@ -337,6 +686,13 @@ void DiscussionViewModel::adopter(const QJsonObject &resultat, const QString &st
                                   {QStringLiteral("heure"), QString()}});
     }
     m_transcription->setItems(lignes);
+    if (m_generationConsigne == m_generation && !m_consigneEnAttente.isEmpty()) {
+        const QString consigne = m_consigneEnAttente;
+        m_consigneEnAttente.clear();
+        m_generationConsigne = 0;
+        const QString existant = brouillon();
+        setBrouillon(existant.isEmpty() ? consigne : existant + QStringLiteral("\n\n") + consigne);
+    }
     majTour(enCours);
     emit sessionChange();
 }
@@ -344,6 +700,7 @@ void DiscussionViewModel::adopter(const QJsonObject &resultat, const QString &st
 void DiscussionViewModel::quitter()
 {
     ++m_generation;
+    reinitialiserOptionsSession();
     laisserSession();
     m_stockee.clear();
     m_titre.clear();
@@ -465,6 +822,22 @@ int DiscussionViewModel::ligneDeCle(const QString &cle) const
     return -1;
 }
 
+void DiscussionViewModel::restaurerEnvoiRefuse(const QString &cle)
+{
+    const auto trouve = m_envoisEnAttente.find(cle);
+    if (trouve == m_envoisEnAttente.end()) return; // déjà traité, ou identité oubliée
+    const EnvoiEnAttente envoi = trouve.value();
+    m_envoisEnAttente.erase(trouve);
+    const QString recent = m_brouillons.value(envoi.session);
+    // Ne pas écraser une saisie commencée après l’envoi. Les deux textes restent
+    // éditables ; aucun des deux n’est soumis de nouveau automatiquement.
+    const QString restaure = recent.isEmpty() || recent == envoi.texte
+        ? envoi.texte : envoi.texte + QStringLiteral("\n\n") + recent;
+    m_brouillons.insert(envoi.session, restaure);
+    const QString courante = m_stockee.isEmpty() ? m_vivante : m_stockee;
+    if (courante == envoi.session) emit brouillonChange();
+}
+
 bool DiscussionViewModel::envoyer(const QString &texte)
 {
     if (m_vivante.isEmpty()) {
@@ -481,6 +854,11 @@ bool DiscussionViewModel::envoyer(const QString &texte)
     }
     // Le message apparaît tout de suite, à sa place, avec son état réel d'envoi.
     const QString cle = QStringLiteral("envoi-%1").arg(++m_compteur);
+    const QString sessionBrouillon = m_stockee.isEmpty() ? m_vivante : m_stockee;
+    m_envoisEnAttente.insert(cle, EnvoiEnAttente{sessionBrouillon, texte});
+    // Le modèle porte la transition, afin qu’un refus rapide ne soit pas effacé
+    // ensuite par la vue. Une autre saisie que le texte soumis reste intacte.
+    if (brouillon() == texte) setBrouillon(QString());
     ajouter(QJsonObject{{QStringLiteral("cle"), cle},
                         {QStringLiteral("role"), QStringLiteral("utilisateur")},
                         {QStringLiteral("auteur"), QStringLiteral("Vous")},
@@ -488,10 +866,13 @@ bool DiscussionViewModel::envoyer(const QString &texte)
                         {QStringLiteral("statut"), QStringLiteral("Envoi…")}});
     debuterGeste();
     const QString vivante = m_vivante;
+    const quint64 generation = m_generation;
     AppelRpc *appel = m_passerelle->canal()->requete(QStringLiteral("prompt.submit"),
                                                      QJsonObject{{QStringLiteral("session_id"), vivante},
                                                                  {QStringLiteral("text"), texte}});
-    connect(appel, &AppelRpc::reussi, this, [this, cle](const QJsonValue &resultat) {
+    connect(appel, &AppelRpc::reussi, this, [this, cle, generation](const QJsonValue &resultat) {
+        m_envoisEnAttente.remove(cle);
+        if (generation != m_generation) return;
         const int index = ligneDeCle(cle);
         if (index >= 0) {
             QJsonObject ligne = m_transcription->itemAt(index);
@@ -500,11 +881,14 @@ bool DiscussionViewModel::envoyer(const QString &texte)
         }
         terminerGeste(messageEnvoi(resultat.toObject().value(QStringLiteral("status"))));
     });
-    connect(appel, &AppelRpc::echoue, this, [this, cle](const ErreurRpc &erreur) {
+    connect(appel, &AppelRpc::echoue, this, [this, cle, generation](const ErreurRpc &erreur) {
+        restaurerEnvoiRefuse(cle);
+        if (generation != m_generation) return;
         const int index = ligneDeCle(cle);
         if (index >= 0) {
             QJsonObject ligne = m_transcription->itemAt(index);
-            ligne.insert(QStringLiteral("statut"), QStringLiteral("Non envoyé"));
+            ligne.insert(QStringLiteral("statut"), erreur.locale
+                ? QStringLiteral("Envoi non confirmé") : QStringLiteral("Non envoyé"));
             m_transcription->setItem(index, ligne);
         }
         echecRpc(QStringLiteral("prompt.submit"), erreur);
@@ -517,12 +901,16 @@ void DiscussionViewModel::arreter()
     if (m_vivante.isEmpty() || !passerellePrete()) {
         return;
     }
+    const quint64 generation = m_generation;
     AppelRpc *appel = m_passerelle->canal()->requete(QStringLiteral("session.interrupt"),
                                                      QJsonObject{{QStringLiteral("session_id"), m_vivante}});
-    connect(appel, &AppelRpc::reussi, this, [this](const QJsonValue &) {
+    connect(appel, &AppelRpc::reussi, this, [this, generation](const QJsonValue &) {
+        if (generation != m_generation) return;
         terminerGeste(QStringLiteral("Arrêt demandé à Hermes."));
     });
-    connect(appel, &AppelRpc::echoue, this, [this](const ErreurRpc &erreur) { echecRpc(QStringLiteral("session.interrupt"), erreur); });
+    connect(appel, &AppelRpc::echoue, this, [this, generation](const ErreurRpc &erreur) {
+        if (generation == m_generation) echecRpc(QStringLiteral("session.interrupt"), erreur);
+    });
 }
 
 void DiscussionViewModel::surEvenement(const QString &type, const QString &sessionId, qint64, const QJsonValue &valeur)
@@ -612,8 +1000,14 @@ void DiscussionViewModel::surEvenement(const QString &type, const QString &sessi
     } else if (type == QLatin1String("notice")) {
         m_avis = chaine(payload.value(QStringLiteral("message")));
         emit tourChange();
-    } else if (type == QLatin1String("session.info") || type == QLatin1String("request.cancel")) {
-        // session.info : informations d'état non rendues ; request.cancel : DemandesAgent.
+    } else if (type == QLatin1String("session.info")) {
+        mettreAJourInfos(payload);
+        if (payload.value(QStringLiteral("title")).isString()) {
+            m_titre = payload.value(QStringLiteral("title")).toString();
+            emit sessionChange();
+        }
+    } else if (type == QLatin1String("request.cancel")) {
+        // DemandesAgent prend en charge le retrait.
     } else {
         ++m_ignores; // événement hors du sous-ensemble traité : compté, jamais deviné
         emit tourChange();

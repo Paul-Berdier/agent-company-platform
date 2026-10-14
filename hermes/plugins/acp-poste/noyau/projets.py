@@ -30,8 +30,8 @@ POLITIQUES_REPONSE = ("hermes_d_abord", "proprietaire")
 ORIGINES = ("tableau_de_bord", "discussion")
 # Compétences des cartes Hermes (cahier P4 § 6 et § 14). Les skills du profil viennent du verrou
 # du catalogue ; ACP y ajoute ses skills maison.
-COMPETENCES_PLANIFICATION = ["acp-orchestration", "acp-routage", "acp-exploration"]
-COMPETENCES_SYNTHESE = ["acp-synthese", "acp-routage"]
+COMPETENCES_PLANIFICATION = ["acp-orchestration", "acp-routage", "acp-exploration", "acp-boucle-chef"]
+COMPETENCES_SYNTHESE = ["acp-synthese", "acp-routage", "acp-boucle-chef"]
 COMPETENCES_REPONDRE = ["acp-questions"]
 COMPETENCES_HERMES = ["acp-redaction"]
 ETATS_OUVERTS = ("creation", "actif", "en_pause")

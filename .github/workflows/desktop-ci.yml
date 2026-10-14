@@ -31,6 +31,12 @@ name: Desktop CI
       - "scripts/build-desktop.ps1"
       - "scripts/test-desktop.ps1"
       - "scripts/package-desktop.ps1"
+      - "scripts/package-coffre.ps1"
+      - "scripts/package_coffre.py"
+      - "packaging/coffre/**"
+      - "apps/poste/src/**"
+      - "hermes/plugins/acp-poste/contrat/**"
+      - "requirements/poste-3.12.lock.txt"
       - ".github/workflows/desktop-ci.yml"
       - "VERSION"
   push:
@@ -48,6 +54,12 @@ name: Desktop CI
       - "scripts/build-desktop.ps1"
       - "scripts/test-desktop.ps1"
       - "scripts/package-desktop.ps1"
+      - "scripts/package-coffre.ps1"
+      - "scripts/package_coffre.py"
+      - "packaging/coffre/**"
+      - "apps/poste/src/**"
+      - "hermes/plugins/acp-poste/contrat/**"
+      - "requirements/poste-3.12.lock.txt"
       - ".github/workflows/desktop-ci.yml"
       - "VERSION"
 
@@ -147,6 +159,9 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Installer les dépendances verrouillées du coffre
+        run: python -m pip install --no-deps --require-hashes -r requirements/poste-3.12.lock.txt
+
       - name: Inventorier les prérequis
         run: ./scripts/setup-desktop.ps1
 
@@ -155,6 +170,17 @@ jobs:
 
       - name: Exécuter les tests Qt Test et Qt Quick Test
         run: ./scripts/test-desktop.ps1 -Configuration Release
+
+      # Conserver aussi les sorties des suites réussies et les assertions en
+      # échec, même si l'empaquetage n'est jamais atteint.
+      - name: Conserver les diagnostics CTest
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-ci-ctest-${{ github.run_id }}
+          path: apps/desktop/build/windows-msvc-release/Testing/Temporary/*.log
+          if-no-files-found: ignore
+          retention-days: 7
 
       # Empaquetage à blanc : produit réellement l'installeur, l'archive portable
       # et les sommes de contrôle, pour prouver que la chaîne de distribution

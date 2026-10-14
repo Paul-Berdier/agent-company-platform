@@ -19,7 +19,7 @@ def test_sans_depot_cree_tableau_et_planification_ready(noyau, conn):
     assert "n'en créez pas à la main" in tableaux[projet["tableau"]]["description"]
     planif = carte(noyau, projet["tableau"], projet["cartes"]["planification"])
     assert planif.status == "ready" and planif.assignee == "default" and planif.created_by == "acp-poste"
-    assert planif.skills == ["acp-orchestration", "acp-routage", "acp-exploration"]
+    assert planif.skills == ["acp-orchestration", "acp-routage", "acp-exploration", "acp-boucle-chef"]
     assert planif.priority == 10 and planif.max_runtime_seconds == 1800
     assert planif.model_override is None and planif.provider_override is None
     assert planif.idempotency_key == f"acp:{projet['id']}:t0:planification"

@@ -1,7 +1,10 @@
 # Agent Company Platform (ACP)
 
 Espace de travail personnel d'agents IA, bâti autour de **Hermes Agent** (Nous Research, licence MIT).
-**1.0.1 corrige le démarrage sous un init de plateforme** (issue #26), sans changer les interfaces de 1.0.0.
+**1.2.0 enrichit le workspace natif et ajoute un coffre Markdown compatible Obsidian**,
+avec un pont Windows autonome, des compétences Addy/Ponytail et un catalogue d’intégrations.
+Lire le [guide de mise à jour et du coffre ACP](docs/refonte/workspace-1.2.0.md).
+Les services tiers décrits dans le catalogue ne sont pas installés par leur seule présence.
 La fusion de 1.0.0 dans `main` et son étiquette ont eu lieu le 10 octobre 2026. L'ancienne plateforme reste entière
 sous `archive/acp-0.10.0-avant-hermes`.
 
@@ -33,7 +36,7 @@ fait relire, pose ses questions et notifie. ACP n'a plus de backend propre ; il 
    un compte dédié et un Job Object ; il s'enrôle et publie l'inventaire de ses CLI. Détail :
    [`docs/refonte/poste.md`](docs/refonte/poste.md).
 5. **La station de travail native** C++23 / Qt 6 / QML ([`apps/desktop`](apps/desktop/README.md)), sans WebView :
-   connexion OIDC native, pages Accueil, Projets, Questions, Discussion, Poste, Quotas, Routage, Diagnostics,
+   connexion OIDC native, pages Accueil, Projets, Questions, Discussion, Outils, Coffre ACP, Poste, Quotas, Routage, Diagnostics,
    Sauvegarde (export chiffré de Hermes) ; alignée sur P7 (flux d'invalidation, Accueil agrégé, gestes de la file
    Questions) ; elle ne parle qu'au Hermes authentifié. Détail : [`docs/refonte/desktop.md`](docs/refonte/desktop.md).
 6. **Le navigateur et le téléphone** : le tableau de bord de Hermes habillé en français, avec les pages d'ACP

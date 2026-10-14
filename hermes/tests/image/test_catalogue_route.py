@@ -61,7 +61,8 @@ def test_catalogue_conforme(chemins, valeurs):
     assert complet["external_dirs_conforme"] is True and complet["desactivations_conformes"] is True
     assert complet["collisions"] == [] and complet["hors_catalogue"] == [] and complet["desactivations_non_appliquees"] == []
     assert complet["verrou"]["sha256"] == ad.empreinte(Path("/opt/acp/catalogue/catalogue.lock.json").read_bytes())
-    assert set(complet["sources"]) == {"acp", "emilkowalski/skills", "leonxlnx/taste-skill", "affaan-m/ECC"}
+    assert set(complet["sources"]) == {"acp", "emilkowalski/skills", "leonxlnx/taste-skill", "affaan-m/ECC",
+                                       "addyosmani/agent-skills", "DietrichGebert/ponytail"}
     assert set(complet["profils"]) == {"base", "web", "recherche", "donnees"}
     [c7] = [m for m in complet["mcp"] if m["nom"] == "context7"]
     # Processus neuf, aucune découverte MCP : état « inconnu », jamais « connecté » inventé.

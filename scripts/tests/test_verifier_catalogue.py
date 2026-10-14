@@ -81,7 +81,7 @@ def test_le_depot_est_conforme():
     hermes = [s for s in verrou["skills"] if s["cible"] == "hermes"]
     # 16 en P3 ; l'étape P4 ajoute cinq skills maison des projets (acp-exploration, acp-orchestration, acp-routage,
     # acp-synthese, acp-questions), chargées par les cartes et rattachées à aucun profil.
-    assert len(hermes) == 21 and sum(1 for s in hermes if s["source"] == "acp") == 7
+    assert len(hermes) == 31 and sum(1 for s in hermes if s["source"] == "acp") == 8
     projets = {s["nom"]: s for s in hermes if s["nom"] in {"acp-exploration", "acp-orchestration", "acp-routage",
                                                             "acp-synthese", "acp-questions"}}
     assert len(projets) == 5 and all(s["profils"] == [] and s["execution"] == "aucune" for s in projets.values())
@@ -95,7 +95,7 @@ def test_la_copie_est_conforme(copie):
 
 def test_main_code_et_message(capsys):
     assert vc.main([]) == 0
-    assert "Catalogue conforme : 21 skills livrées dans l'image" in capsys.readouterr().out
+    assert "Catalogue conforme : 31 skills livrées dans l'image" in capsys.readouterr().out
 
 
 # ------------------------------------------------------------------------------------ règle 1
@@ -405,8 +405,14 @@ def _faux_amont(racine: Path, *, changer: Optional[str] = None, absent: Optional
         table[base + "LICENSE"] = (racine / "hermes/skills" / source["categorie"] / "LICENSE").read_bytes()
         for skill in verrou["skills"]:
             if skill.get("source") == id_source and skill["cible"] == "hermes":
-                for f in skill["fichiers"]:
-                    table[base + f"{skill['chemin_amont']}/{f}"] = (racine / "hermes/skills" / skill["chemin"] / f).read_bytes()
+                for f, entree in skill["fichiers"].items():
+                    if skill.get("enveloppe_acp"):
+                        if entree.get("origine") == "adaptation-acp":
+                            continue
+                        amont = entree["chemin_amont"]
+                    else:
+                        amont = f"{skill['chemin_amont']}/{f}"
+                    table[base + amont] = (racine / "hermes/skills" / skill["chemin"] / f).read_bytes()
     appels = []
 
     def telecharger(url: str):
@@ -427,8 +433,9 @@ def _faux_amont(racine: Path, *, changer: Optional[str] = None, absent: Optional
 def test_amont_conforme(copie):
     telecharger, appels = _faux_amont(copie)
     assert _verifier(copie, amont=True, telecharger=telecharger) == []
-    # 3 LICENSE + 17 fichiers de skills + 3×3 recherches de NOTICE.
-    assert len(appels) == 3 + 17 + 9
+    # 5 licences, 32 copies amont (références partagées comprises), 15 recherches de NOTICE.
+    assert len(appels) == 5 + 32 + 15
+    assert not any(url.endswith("POSTE.md") for url in appels)
 
 
 def test_amont_different(copie):
@@ -472,3 +479,63 @@ def test_frontmatter():
     assert nom == "exemple"
     assert {"name", "description", "metadata", "metadata.hermes", "metadata.hermes.tags", "metadata.origin"} == cles
     assert vc.frontmatter("# pas de frontmatter\n") == (None, set())
+
+
+# Enveloppes nouvelles : seuls les chemins explicitement déclarés peuvent avoir des sous-dossiers.
+@pytest.mark.parametrize("fichier", ["../sortie.md", "/absolu.md", "C:/sortie.md", "references/../../sortie.md",
+                                    "references/amont/SKILL.md", "scripts/outil.md"])
+def test_enveloppe_refuse_chemins_non_canoniques(copie, fichier):
+    _modifier_verrou(copie, lambda v: _skill(v, "ponytail")["fichiers"].update({fichier: {"sha256": "0" * 64}}))
+    _un_ecart(_verifier(copie), "hors arborescence autorisée")
+
+
+def test_enveloppe_refuse_source_amont_remplacee(copie):
+    _modifier_verrou(copie, lambda v: _skill(v, "ponytail")["fichiers"][
+        "references/amont/skills/ponytail/SOURCE.md"].update(chemin_amont="skills/autre/SKILL.md"))
+    _un_ecart(_verifier(copie), "source amont principale incohérente")
+
+
+def test_enveloppe_reference_liee_doit_rester_livree(copie):
+    reference = "references/amont/references/accessibility-checklist.md"
+    _modifier_verrou(copie, lambda v: _skill(v, "frontend-ui-engineering")["fichiers"].pop(reference))
+    (copie / "hermes/skills/addy-skills/frontend-ui-engineering" / reference).unlink()
+    _un_ecart(_verifier(copie), "référence Markdown non livrée")
+
+
+def test_enveloppe_locale_ne_peut_se_pretendre_source_amont(copie):
+    _modifier_verrou(copie, lambda v: _skill(v, "ponytail")["fichiers"]["POSTE.md"].update(
+        chemin_amont="skills/ponytail/SKILL.md"))
+    _un_ecart(_verifier(copie), "doit déclarer son adaptation ACP locale")
+
+
+def test_enveloppe_refuse_lien_vers_exterieur(copie):
+    p = copie / "hermes/skills/ponytail/ponytail/POSTE.md"
+    _reecrire_skill(copie, "ponytail", "POSTE.md", p.read_bytes() + b"\n[externe](../../secret.md)\n")
+    _un_ecart(_verifier(copie), "lien Markdown hors enveloppe")
+
+
+def test_enveloppe_refuse_script_meme_sous_reference(copie):
+    p = copie / "hermes/skills/ponytail/ponytail/references/amont/outil.py"
+    p.write_text("pass\n", encoding="utf-8")
+    _un_ecart(_verifier(copie), "seul le Markdown est admis")
+
+
+def test_profil_poste_inconnu_refuse(copie):
+    _modifier_verrou(copie, lambda v: v["profils"]["web"]["skills_poste"].append("inconnue"))
+    _un_ecart(_verifier(copie), "n'a pas d'application poste déclarée")
+
+
+def test_base_ne_declenche_aucune_application_tierce(copie):
+    _modifier_verrou(copie, lambda v: v["profils"]["base"].update(skills_poste=["ponytail"]))
+    _un_ecart(_verifier(copie), "aucune application tierce implicite")
+
+
+def test_neuf_sources_amont_et_adaptations_distinctes():
+    v = _verrou(RACINE)
+    nouvelles = [s for s in v["skills"] if s.get("enveloppe_acp")]
+    assert len(nouvelles) == 9
+    for skill in nouvelles:
+        assert skill["fichiers"]["POSTE.md"]["origine"] == "adaptation-acp"
+        assert "blob_git" in skill["fichiers"][skill["enveloppe_acp"]["source"]]
+        assert skill["nom"] in {n for p in v["profils"].values() for n in p["skills_poste"]}
+    assert _skill(v, "addy-test-driven-development")["chemin_amont"] == "skills/test-driven-development"

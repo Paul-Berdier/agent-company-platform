@@ -24,6 +24,9 @@ class CredentialVault;
 class DemandesAgent;
 class DiagnosticsViewModel;
 class DiscussionViewModel;
+class CatalogueViewModel;
+class ObsidianViewModel;
+class TexteDiscussion;
 class EventStreamService;
 class GatewayClient;
 class HealthService;
@@ -105,6 +108,9 @@ private:
     SauvegardeViewModel *m_sauvegarde = nullptr;
     DemandesAgent *m_demandes = nullptr;
     DiscussionViewModel *m_discussion = nullptr;
+    CatalogueViewModel *m_catalogue = nullptr;
+    ObsidianViewModel *m_coffreObsidian = nullptr;
+    TexteDiscussion *m_texteDiscussion = nullptr;
     UpdateService *m_updates = nullptr;
     bool m_greffonBloque = false; //!< Dernier état du blocage du greffon (verdict de compatibilité).
 };

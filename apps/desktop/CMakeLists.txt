@@ -203,6 +203,12 @@ set(ACP_CORE_SOURCES
     src/viewmodels/AccueilViewModel.cpp
     src/viewmodels/AccueilViewModel.h
     src/viewmodels/DiagnosticsViewModel.cpp
+    src/services/TexteDiscussion.cpp
+    src/services/TexteDiscussion.h
+    src/viewmodels/ObsidianViewModel.cpp
+    src/viewmodels/ObsidianViewModel.h
+    src/viewmodels/CatalogueViewModel.cpp
+    src/viewmodels/CatalogueViewModel.h
     src/viewmodels/DiscussionViewModel.cpp
     src/viewmodels/DiscussionViewModel.h
     src/viewmodels/DiagnosticsViewModel.h
@@ -317,3 +323,10 @@ if(ACP_DESKTOP_BUILD_TESTS)
     enable_testing()
     add_subdirectory(tests)
 endif()
+
+# Provenance et configuration des intégrations : données locales, aucun secret.
+qt_add_resources(acp_core acp_integrations
+    PREFIX "/integrations"
+    BASE "${CMAKE_CURRENT_SOURCE_DIR}/resources/integrations"
+    FILES "${CMAKE_CURRENT_SOURCE_DIR}/resources/integrations/sources.json"
+)

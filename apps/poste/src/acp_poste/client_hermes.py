@@ -85,10 +85,14 @@ def _message_tls(exc: ssl.SSLError) -> str:
 class ClientHermes:
     """Échanges HTTPS du poste avec l'origine de Hermes ; un échange à la fois par client."""
 
-    def __init__(self, origine: str, *, delai_connexion_s: float, options: OptionsClient | None = None) -> None:
+    def __init__(self, origine: str, *, delai_connexion_s: float, options: OptionsClient | None = None,
+                 limite_reponse: int = TAILLE_MAX_REPONSE) -> None:
         decoupe = urlsplit(origine)
         if decoupe.scheme != "https" or not decoupe.hostname:
             raise ErreurReseau("Origine de Hermes refusée : HTTPS exigé (poste.toml, [hermes] origine).")
+        if type(limite_reponse) is not int or not 1 <= limite_reponse <= 192 * 1024:
+            raise ErreurReseau("Borne de réponse HTTPS refusée.")
+        self.limite_reponse = limite_reponse
         self.origine = origine
         self.hote = decoupe.hostname
         self.port = decoupe.port or 443
@@ -125,7 +129,7 @@ class ClientHermes:
                 connexion.sock.settimeout(delai_lecture_s)
                 connexion.request(methode, chemin, body=corps, headers=dict(entetes or {}))
                 reponse = connexion.getresponse()
-                contenu = reponse.read(TAILLE_MAX_REPONSE + 1)
+                contenu = reponse.read(self.limite_reponse + 1)
             except ssl.SSLError as exc:
                 raise ErreurReseau(_message_tls(exc)) from None
             except (socket.timeout, TimeoutError):
@@ -139,8 +143,8 @@ class ClientHermes:
             except OSError as exc:
                 raise ErreurReseau(f"Connexion à Hermes impossible ({type(exc).__name__}) : nouvel essai plus "
                                    "tard.") from None
-            if len(contenu) > TAILLE_MAX_REPONSE:
-                raise ErreurReseau(f"Réponse de Hermes trop volumineuse (plus de {TAILLE_MAX_REPONSE // 1024} Kio) : "
+            if len(contenu) > self.limite_reponse:
+                raise ErreurReseau(f"Réponse de Hermes trop volumineuse (plus de {self.limite_reponse // 1024} Kio) : "
                                    "refusée.")
             gardes = {cle.lower(): valeur for cle, valeur in reponse.getheaders()
                       if cle.lower() in ("content-type", "retry-after", "location", "cache-control")}

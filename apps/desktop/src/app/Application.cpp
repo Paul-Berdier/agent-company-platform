@@ -24,6 +24,9 @@
 #include "viewmodels/AccueilViewModel.h"
 #include "viewmodels/DiagnosticsViewModel.h"
 #include "viewmodels/DiscussionViewModel.h"
+#include "viewmodels/CatalogueViewModel.h"
+#include "viewmodels/ObsidianViewModel.h"
+#include "services/TexteDiscussion.h"
 #include "viewmodels/PosteViewModel.h"
 #include "viewmodels/PreparationHermesViewModel.h"
 #include "viewmodels/ProjetsViewModel.h"
@@ -124,6 +127,9 @@ Application::Application(QObject *parent, const QString &nomCoffre)
     // Demandes de l'agent (approval, clarify) et discussion : sur la passerelle JSON-RPC.
     m_demandes = new DemandesAgent(m_passerelle, this);
     m_discussion = new DiscussionViewModel(m_passerelle, m_flux, this);
+    m_catalogue = new CatalogueViewModel(m_greffon.get(), m_flux, this);
+    m_coffreObsidian = new ObsidianViewModel(m_greffon.get(), m_flux, this);
+    m_texteDiscussion = new TexteDiscussion(this);
     // La compatibilité se lit en session (/v1/meta est derrière la porte de Hermes).
     connect(m_session, &SessionHermes::sessionEtablie, m_compatibilite, &CompatibiliteHermes::verifier);
     connect(m_session, &SessionHermes::sessionPerdue, m_compatibilite, &CompatibiliteHermes::oublier);
@@ -143,7 +149,7 @@ Application::Application(QObject *parent, const QString &nomCoffre)
     // lecture ne repart avant l'oubli.
     const auto oublierLesPages = [this] {
         for (PageViewModel *page : std::initializer_list<PageViewModel *>{
-                 m_accueil, m_projets, m_questions, m_poste, m_quotas, m_routage, m_sauvegarde, m_discussion}) {
+                 m_accueil, m_projets, m_questions, m_poste, m_quotas, m_routage, m_sauvegarde, m_discussion, m_catalogue, m_coffreObsidian}) {
             page->oublier();
         }
     };
@@ -169,7 +175,7 @@ Application::Application(QObject *parent, const QString &nomCoffre)
         }
         m_flux->oublierResume();
         for (PageViewModel *page : std::initializer_list<PageViewModel *>{
-                 m_accueil, m_projets, m_questions, m_poste, m_quotas, m_routage}) {
+                 m_accueil, m_projets, m_questions, m_poste, m_quotas, m_routage, m_catalogue, m_coffreObsidian}) {
             page->oublier();
         }
     });
@@ -264,6 +270,9 @@ void Application::registerQmlTypes()
     qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Sauvegarde", m_sauvegarde);
     qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Demandes", m_demandes);
     qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Discussion", m_discussion);
+    qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Catalogue", m_catalogue);
+    qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Coffre", m_coffreObsidian);
+    qmlRegisterSingletonInstance(kQmlUri, 1, 0, "TexteDiscussion", m_texteDiscussion);
     qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Navigation", m_navigation);
     qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Commands", m_commands);
     qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Appearance", m_appearance);
@@ -421,6 +430,24 @@ void Application::registerBuiltinCommands()
         QStringLiteral("Ctrl+5"), alwaysAvailable,
         [this](const CommandContext &) {
             m_navigation->setCurrentRoute(QStringLiteral("chat"));
+            return CommandResult::accept();
+        }});
+
+    m_commands->registerCommand(Command{
+        QStringLiteral("navigation.tools"), QStringLiteral("Ouvrir les outils et compétences"),
+        QStringLiteral("Navigation"), {QStringLiteral("outils"), QStringLiteral("skills"), QStringLiteral("intégrations"), QStringLiteral("catalogue")},
+        QString(), alwaysAvailable,
+        [this](const CommandContext &) {
+            m_navigation->setCurrentRoute(QStringLiteral("tools"));
+            return CommandResult::accept();
+        }});
+
+    m_commands->registerCommand(Command{
+        QStringLiteral("navigation.vault"), QStringLiteral("Ouvrir le coffre ACP"),
+        QStringLiteral("Navigation"), {QStringLiteral("notes"), QStringLiteral("obsidian"), QStringLiteral("coffre")},
+        QString(), alwaysAvailable,
+        [this](const CommandContext &) {
+            m_navigation->setCurrentRoute(QStringLiteral("vault"));
             return CommandResult::accept();
         }});
 

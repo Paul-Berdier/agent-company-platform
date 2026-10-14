@@ -121,7 +121,9 @@ JS_DEBORDEMENT = """() => {
   }
   return max;
 }"""
-HAUTEUR_MAXIMALE = 16_000
+# Catalogue 1.2.0 : ses 41 entrées atteignent 16 796 px CSS au format téléphone.
+# Garder une borne de capture ; une page ACP qui dépasse encore reste refusée.
+HAUTEUR_MAXIMALE = 20_000
 
 
 def png_uniforme(donnees: bytes) -> bool:

@@ -21,6 +21,9 @@
 #include "support/Fixtures.h"
 #include "viewmodels/AccueilViewModel.h"
 #include "viewmodels/DiscussionViewModel.h"
+#include "viewmodels/ObsidianViewModel.h"
+#include "support/FauxCoffre.h"
+#include "viewmodels/CatalogueViewModel.h"
 #include "viewmodels/PosteViewModel.h"
 #include "viewmodels/ProjetsViewModel.h"
 #include "viewmodels/QuestionsViewModel.h"
@@ -164,6 +167,8 @@ private slots:
 void TestPagesBureau::pagesAlimenteesPuisRacine()
 {
     FauxHermes serveur;
+    FauxCoffre coffreFactice;
+    coffreFactice.installer(serveur);
     serveur.installerAuthentification();
     serveur.activerKanban();
     serveur.activerPasserelle();
@@ -178,8 +183,12 @@ void TestPagesBureau::pagesAlimenteesPuisRacine()
                            {QStringLiteral("messages"), QJsonArray{
                                QJsonObject{{QStringLiteral("role"), QStringLiteral("user")}, {QStringLiteral("text"), QStringLiteral("Bonjour Hermes")}},
                                QJsonObject{{QStringLiteral("role"), QStringLiteral("assistant")},
-                                           {QStringLiteral("text"), QStringLiteral("Bonjour, que puis-je faire ?")}}}},
-                           {QStringLiteral("info"), QJsonObject{{QStringLiteral("title"), QStringLiteral("Plan du site")}}},
+                                           {QStringLiteral("text"), QStringLiteral("Bonjour, que puis-je faire ?\n\n## Proposition\n- Examiner le projet\n- Vérifier les changements\n\n```python\ndef saluer():\n    return \"Bonjour ACP\"\n```\n\nLe résultat restera accompagné de ses preuves.")}}}},
+                           {QStringLiteral("info"), QJsonObject{{QStringLiteral("title"), QStringLiteral("Plan du site")},
+                               {QStringLiteral("model"), QStringLiteral("modele-fixture")},
+                               {QStringLiteral("provider"), QStringLiteral("fournisseur-fixture")},
+                               {QStringLiteral("usage"), QJsonObject{{QStringLiteral("context_percent"), 24},
+                                   {QStringLiteral("context_estimated"), true}}}}},
                            {QStringLiteral("running"), false}};
     });
     serveur.jetonsAccesValides.insert(QByteArrayLiteral("jeton-a"));
@@ -193,7 +202,13 @@ void TestPagesBureau::pagesAlimenteesPuisRacine()
     serveur.route("GET", kP + QStringLiteral("/meta"),
                   [](const RequeteRecue &) { return ReponseFaux::json(200, fixture(QStringLiteral("meta.json"))); });
     serveur.route("GET", kP + QStringLiteral("/catalogue"),
-                  [](const RequeteRecue &) { return ReponseFaux::json(200, fixture(QStringLiteral("catalogue-profils.json"))); });
+                  [](const RequeteRecue &) {
+                      auto catalogue = fixture(QStringLiteral("catalogue-profils.json"));
+                      catalogue.insert(QStringLiteral("skills"), QJsonArray{});
+                      catalogue.insert(QStringLiteral("mcp"), QJsonArray{});
+                      catalogue.insert(QStringLiteral("sources"), QJsonObject{});
+                      return ReponseFaux::json(200, catalogue);
+                  });
     // Route NATIVE de Hermes : la tâche du bilan quotidien, active (carte « Bilan quotidien » de l'Accueil).
     serveur.route("GET", QStringLiteral("/api/cron/jobs"), [](const RequeteRecue &) {
         return ReponseFaux::json(200, QJsonArray{QJsonObject{
@@ -261,6 +276,10 @@ void TestPagesBureau::pagesAlimenteesPuisRacine()
     auto *pageRoutage = application.findChild<RoutageViewModel *>();
     auto *pageSauvegarde = application.findChild<SauvegardeViewModel *>();
     auto *discussion = application.findChild<DiscussionViewModel *>();
+    auto *catalogue = application.findChild<CatalogueViewModel *>();
+    auto *coffre = application.findChild<ObsidianViewModel *>();
+    QVERIFY(coffre);
+    QVERIFY(catalogue);
     auto *demandes = application.findChild<DemandesAgent *>();
     auto *passerelle = application.findChild<GatewayClient *>();
     QVERIFY(client && flux && accueil && pageProjets && pageQuestions && pagePoste && pageQuotas && pageRoutage && pageSauvegarde && discussion && demandes && passerelle);
@@ -574,6 +593,15 @@ void TestPagesBureau::pagesAlimenteesPuisRacine()
         QVERIFY(contientTexte(qobject_cast<QQuickItem *>(page.get()), QStringLiteral("Suppression")));
     }
 
+    // Catalogue réel du faux serveur + fiches locales : aucune intégration dite connectée.
+    {
+        auto page = charger(QStringLiteral("Acp.Pages"), QStringLiteral("OutilsPage"));
+        QVERIFY(page);
+        QTRY_VERIFY_WITH_TIMEOUT(catalogue->lue(), 5000);
+        VERIFIER(page.get(), QStringLiteral("Outils et compétences"));
+        QVERIFY(catalogue->entrees()->count() >= 9);
+    }
+
     // --- Pages sans données de Hermes -------------------------------------------------------------
     for (const QString &nom : {QStringLiteral("FirstRunPage"), QStringLiteral("DiagnosticsPage"), QStringLiteral("SettingsPage")}) {
         auto page = charger(QStringLiteral("Acp.Pages"), nom);
@@ -629,6 +657,31 @@ void TestPagesBureau::pagesAlimenteesPuisRacine()
                         QVERIFY(cliquer(window, item, QStringLiteral("projets-ouvrir-") + kId));
                         QTRY_VERIFY_WITH_TIMEOUT(pageProjets->detailLu(), 5000);
                         VERIFIER(coquille.get(), nom + QStringLiteral("-Travail"));
+                        QVERIFY(cliquer(window, item, QStringLiteral("navigation-chat")));
+                        QTRY_VERIFY(discussion->actif());
+                        VERIFIER(coquille.get(), nom + QStringLiteral("-Discussion"));
+                        QVERIFY(cliquer(window, item, QStringLiteral("navigation-tools")));
+                        QTRY_VERIFY(catalogue->actif());
+                        QTRY_VERIFY(catalogue->lue());
+                        VERIFIER(coquille.get(), nom + QStringLiteral("-Outils"));
+                        QVERIFY(cliquer(window, item, QStringLiteral("navigation-vault")));
+                        QTRY_VERIFY(coffre->actif());
+                        QTRY_VERIFY(!coffre->occupe());
+                        QVERIFY(cliquer(window, item, QStringLiteral("coffre-actualiser")));
+                        QTRY_COMPARE(coffre->etat(), QStringLiteral("pret"));
+                        QTRY_VERIFY(!coffre->occupe());
+                        coffre->lister();
+                        QTRY_COMPARE(coffre->notes()->count(), 2);
+                        QTRY_VERIFY(!coffre->occupe());
+                        coffre->ouvrirNote(QStringLiteral("Accueil.md"));
+                        QTRY_VERIFY(!coffre->occupe());
+                        QTRY_VERIFY(!coffre->brouillon().isEmpty());
+                        VERIFIER(coquille.get(), nom + QStringLiteral("-Coffre"));
+                        coffre->lireGraphe();
+                        QTRY_VERIFY(!coffre->occupe());
+                        QVERIFY(!coffre->graphe().isEmpty());
+                        QVERIFY(cliquer(window, item, QStringLiteral("coffre-graphe-visuel")));
+                        VERIFIER(coquille.get(), nom + QStringLiteral("-Coffre-graphe"));
                     }
                 }
             }

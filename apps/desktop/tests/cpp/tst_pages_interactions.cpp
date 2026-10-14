@@ -98,6 +98,8 @@ private slots:
     void questionsReluesAuSignalDuFlux();
     void listeDesProjetsGardeSonDefilement();
     void messageEnvoyeParLeBoutonDeLaDiscussion();
+    void discussionRechercheRenommageEtCopieMarkdown();
+    void discussionModeleFiltreEtConfirmeAuClavier();
     void preparationProposeConnexionPuisAnnuleParLesBoutons();
     void workspaceConserveBrouillonEtSuspendPagesMasquees();
     void nouvelleDiscussionSuitSaFinApresHistoriqueDefile();
@@ -147,6 +149,12 @@ void TestPagesInteractions::initTestCase()
     m_serveur->activerKanban();
     m_serveur->jetonsAccesValides.insert(QByteArrayLiteral("jeton-a"));
     m_serveur->activerPasserelle();
+    // Les pages relisent aussi /meta : le serveur doit rendre le même verdict
+    // compatible que celui posé ci-dessous. Une restauration à 404 peut encore
+    // répondre à une lecture en vol et invalider le scénario suivant.
+    m_serveur->route("GET", kP + QStringLiteral("/meta"), [](const RequeteRecue &) {
+        return ReponseFaux::json(200, fixture(QStringLiteral("meta.json")));
+    });
     m_serveur->methodes.insert(QStringLiteral("session.list"), [](const QJsonObject &) {
         return QJsonObject{{QStringLiteral("sessions"), QJsonArray{QJsonObject{
             {QStringLiteral("id"), QStringLiteral("s1")}, {QStringLiteral("title"), QStringLiteral("Plan du site")},
@@ -746,9 +754,9 @@ void TestPagesInteractions::greffonSansEtapeP7NiAccueilNiGestes()
     m_projets->afficherListe();
     pageProjets.reset();
     QTRY_VERIFY(!m_projets->actif());
-    // Comme avant ce test pour la suite (aucune route /v1/meta servie).
+    // Rétablir le greffon compatible de la fixture pour les scénarios suivants.
     m_serveur->route("GET", kP + QStringLiteral("/meta"), [](const RequeteRecue &) {
-        return ReponseFaux::json(404, QJsonObject{{QStringLiteral("detail"), QStringLiteral("Not Found")}});
+        return ReponseFaux::json(200, fixture(QStringLiteral("meta.json")));
     });
 }
 
@@ -782,6 +790,8 @@ void TestPagesInteractions::discussionEnAttenteOuverteParLeBouton()
     QVERIFY(page);
     auto *racine = qobject_cast<QQuickItem *>(page.get());
     QTRY_VERIFY_WITH_TIMEOUT(m_questions->discussions().value(QStringLiteral("connues")).toBool(), 5000);
+    // La section dépend aussi de la lecture HTTP, distincte des discussions RPC.
+    QTRY_VERIFY_WITH_TIMEOUT(m_questions->lue(), 5000);
     QTest::qWait(100);
     // Seule la discussion en attente est listée, et le total la compte.
     QVERIFY(parNom(racine, QStringLiteral("questions-discussion-s1")));
@@ -920,6 +930,163 @@ void TestPagesInteractions::messageEnvoyeParLeBoutonDeLaDiscussion()
     page.reset();
     discussion->quitter();
     passerelle->fermer();
+}
+
+void TestPagesInteractions::discussionRechercheRenommageEtCopieMarkdown()
+{
+    auto *passerelle = m_application->findChild<GatewayClient *>();
+    auto *discussion = m_application->findChild<DiscussionViewModel *>();
+    QVERIFY(passerelle && discussion);
+    const auto methodes = m_serveur->methodes;
+    const QString presseAvant = QGuiApplication::clipboard()->text();
+    const auto restaurer = qScopeGuard([&] {
+        passerelle->fermer();
+        discussion->oublier();
+        m_serveur->methodes = methodes;
+        QGuiApplication::clipboard()->setText(presseAvant);
+    });
+    passerelle->fermer();
+    discussion->oublier();
+    const QString markdown = QStringLiteral("# Titre utile\n\nUn **résultat** lisible.\n\n```cpp\nconst int valeur = 7;\n```\n");
+    QString titre = QStringLiteral("Recette du site");
+    m_serveur->methodes.insert(QStringLiteral("session.list"), [&titre](const QJsonObject &) {
+        return QJsonObject{{QStringLiteral("sessions"), QJsonArray{
+            QJsonObject{{QStringLiteral("id"), QStringLiteral("s1")}, {QStringLiteral("title"), QStringLiteral("Autre discussion")}},
+            QJsonObject{{QStringLiteral("id"), QStringLiteral("s2")}, {QStringLiteral("title"), titre},
+                {QStringLiteral("preview"), QStringLiteral("Recette à vérifier")}}}}};
+    });
+    m_serveur->methodes.insert(QStringLiteral("session.resume"), [&markdown, &titre](const QJsonObject &params) {
+        return QJsonObject{{QStringLiteral("session_id"), QStringLiteral("rt-") + params.value(QStringLiteral("session_id")).toString()},
+            {QStringLiteral("messages"), QJsonArray{QJsonObject{{QStringLiteral("role"), QStringLiteral("assistant")},
+                {QStringLiteral("text"), markdown}}}}, {QStringLiteral("info"), QJsonObject{{QStringLiteral("title"), titre}}},
+            {QStringLiteral("running"), false}};
+    });
+    m_serveur->methodes.insert(QStringLiteral("session.title"), [&titre](const QJsonObject &params) {
+        titre = params.value(QStringLiteral("title")).toString();
+        return QJsonObject{{QStringLiteral("title"), titre}, {QStringLiteral("pending"), false}};
+    });
+    passerelle->ouvrir();
+    QTRY_COMPARE_WITH_TIMEOUT(passerelle->etat(), GatewayClient::Etat::Pret, 10000);
+    auto page = charger(QStringLiteral("DiscussionPage"));
+    QVERIFY(page);
+    auto *racine = qobject_cast<QQuickItem *>(page.get());
+    QTRY_COMPARE(discussion->sessions()->count(), 2);
+    QQuickItem *recherche = parNom(racine, QStringLiteral("discussion-recherche"));
+    QVERIFY(recherche);
+    QVERIFY(taper(recherche, QStringLiteral("recette")));
+    QTRY_COMPARE(discussion->sessions()->count(), 1);
+    QCOMPARE(discussion->sessionsChargees(), 2);
+    QTRY_VERIFY(parNom(racine, QStringLiteral("discussion-session-s2")));
+    QVERIFY(cliquer(parNom(racine, QStringLiteral("discussion-session-s2"))));
+    QTRY_COMPARE(discussion->sessionVivante(), QStringLiteral("rt-s2"));
+    QTRY_VERIFY(parNom(racine, QStringLiteral("bulle-code")));
+    QQuickItem *code = parNom(racine, QStringLiteral("bulle-code"));
+    QCOMPARE(code->property("text").toString(), QStringLiteral("const int valeur = 7;\n"));
+    QQuickItem *prose = parNom(racine, QStringLiteral("bulle-markdown"));
+    QVERIFY(prose);
+    QVERIFY(prose->property("text").toString().contains(QStringLiteral("Titre utile")));
+    QVERIFY(!prose->property("text").toString().contains(QStringLiteral("# Titre utile")));
+    QVERIFY(cliquer(parNom(racine, QStringLiteral("bulle-copier-code"))));
+    QTRY_COMPARE(QGuiApplication::clipboard()->text(), QStringLiteral("const int valeur = 7;\n"));
+    QVERIFY(cliquer(parNom(racine, QStringLiteral("bulle-copier"))));
+    QTRY_COMPARE(QGuiApplication::clipboard()->text(), markdown);
+
+    QVERIFY(taper(parNom(racine, QStringLiteral("discussion-saisie")), QStringLiteral("Brouillon preserve")));
+    QVERIFY(cliquer(parNom(racine, QStringLiteral("discussion-renommer"))));
+    QTRY_VERIFY(parNom(m_fenetre->contentItem(), QStringLiteral("discussion-nouveau-titre")));
+    auto *nom = parNom(m_fenetre->contentItem(), QStringLiteral("discussion-nouveau-titre"));
+    QVERIFY(cliquer(nom));
+    QTest::keyClick(m_fenetre.get(), Qt::Key_A, Qt::ControlModifier);
+    QTest::keyClick(m_fenetre.get(), Qt::Key_Backspace);
+    QVERIFY(taper(nom, QStringLiteral("Nouveau titre")));
+    auto *confirmer = parNom(m_fenetre->contentItem(), QStringLiteral("discussion-confirmer-titre"));
+    QVERIFY(confirmer);
+    for (int i = 0; i < 8 && !confirmer->hasActiveFocus(); ++i) QTest::keyClick(m_fenetre.get(), Qt::Key_Tab);
+    QVERIFY2(confirmer->hasActiveFocus(), "le bouton de renommage doit être atteignable au clavier");
+    QTest::keyClick(m_fenetre.get(), Qt::Key_Return);
+    QTRY_COMPARE(discussion->titreSession(), QStringLiteral("Nouveau titre"));
+    QCOMPARE(m_serveur->tramesDeMethode(QStringLiteral("session.title")).last().value(QStringLiteral("params")).toObject(),
+        (QJsonObject{{QStringLiteral("session_id"), QStringLiteral("rt-s2")}, {QStringLiteral("title"), QStringLiteral("Nouveau titre")}}));
+    QCOMPARE(discussion->brouillon(), QStringLiteral("Brouillon preserve"));
+    QCOMPARE(discussion->sessionsChargees(), 2);
+    QCOMPARE(discussion->sessions()->count(), 1); // le filtre conserve aussi l'aperçu de la session renommée
+    QVERIFY2(m_avertissements.isEmpty(), qPrintable(m_avertissements.join(QLatin1Char('\n'))));
+}
+
+void TestPagesInteractions::discussionModeleFiltreEtConfirmeAuClavier()
+{
+    auto *passerelle = m_application->findChild<GatewayClient *>();
+    auto *discussion = m_application->findChild<DiscussionViewModel *>();
+    QVERIFY(passerelle && discussion);
+    const auto methodes = m_serveur->methodes;
+    const auto restaurer = qScopeGuard([&] {
+        passerelle->fermer();
+        discussion->oublier();
+        m_serveur->methodes = methodes;
+    });
+    passerelle->fermer();
+    discussion->oublier();
+    m_serveur->methodes.insert(QStringLiteral("session.resume"), [](const QJsonObject &) {
+        return QJsonObject{{QStringLiteral("session_id"), QStringLiteral("rt-s1")}, {QStringLiteral("messages"), QJsonArray{}},
+            {QStringLiteral("info"), QJsonObject{{QStringLiteral("title"), QStringLiteral("Plan du site")},
+                {QStringLiteral("model"), QStringLiteral("modele-en-cours")}, {QStringLiteral("provider"), QStringLiteral("test")},
+                {QStringLiteral("usage"), QJsonObject{{QStringLiteral("context_percent"), 25}, {QStringLiteral("context_estimated"), true}}}}}};
+    });
+    m_serveur->methodes.insert(QStringLiteral("model.options"), [](const QJsonObject &) {
+        QJsonArray modeles;
+        for (int i = 0; i < 40; ++i) modeles.append(QStringLiteral("autre-%1").arg(i));
+        modeles.append(QStringLiteral("modele-cible"));
+        return QJsonObject{{QStringLiteral("providers"), QJsonArray{QJsonObject{
+            {QStringLiteral("slug"), QStringLiteral("test")}, {QStringLiteral("name"), QStringLiteral("Fournisseur de test")},
+            {QStringLiteral("models"), modeles}, {QStringLiteral("authenticated"), true}}}}};
+    });
+    m_serveur->methodes.insert(QStringLiteral("config.set"), [](const QJsonObject &params) {
+        const bool confirme = params.value(QStringLiteral("confirm_expensive_model")).toBool();
+        return QJsonObject{{QStringLiteral("key"), QStringLiteral("model")}, {QStringLiteral("value"), QStringLiteral("modele-cible")},
+            {QStringLiteral("confirm_required"), !confirme}, {QStringLiteral("confirm_message"), QStringLiteral("Ce modèle a un coût élevé.")},
+            {QStringLiteral("deferred"), confirme}};
+    });
+    passerelle->ouvrir();
+    QTRY_COMPARE_WITH_TIMEOUT(passerelle->etat(), GatewayClient::Etat::Pret, 10000);
+    auto page = charger(QStringLiteral("DiscussionPage"));
+    QVERIFY(page);
+    auto *racine = qobject_cast<QQuickItem *>(page.get());
+    QTRY_VERIFY(parNom(racine, QStringLiteral("discussion-session-s1")));
+    QVERIFY(cliquer(parNom(racine, QStringLiteral("discussion-session-s1"))));
+    QTRY_COMPARE(discussion->sessionVivante(), QStringLiteral("rt-s1"));
+    QVERIFY(taper(parNom(racine, QStringLiteral("discussion-saisie")), QStringLiteral("Mon brouillon")));
+    QVERIFY(cliquer(parNom(racine, QStringLiteral("discussion-choisir-modele"))));
+    QTRY_VERIFY(discussion->modelesCharges());
+    auto *filtre = parNom(m_fenetre->contentItem(), QStringLiteral("discussion-recherche-modele"));
+    QVERIFY(filtre);
+    QVERIFY(taper(filtre, QStringLiteral("modele-cible")));
+    QTRY_VERIFY(parNom(m_fenetre->contentItem(), QStringLiteral("discussion-modele-test-modele-cible")));
+    auto *choix = parNom(m_fenetre->contentItem(), QStringLiteral("discussion-modele-test-modele-cible"));
+    QTRY_VERIFY(choix->isVisible());
+    // Un résultat filtré en fin d'inventaire doit être visible sans traverser quarante lignes vides.
+    const QPointF centre = choix->mapToScene(QPointF(choix->width() / 2, choix->height() / 2));
+    QVERIFY(QRectF(QPointF(0, 0), m_fenetre->size()).contains(centre));
+    const auto demandesAvant = m_serveur->tramesDeMethode(QStringLiteral("config.set")).size();
+    QVERIFY(cliquer(choix));
+    QTRY_VERIFY(!discussion->confirmationModele().isEmpty());
+    QCOMPARE(m_serveur->tramesDeMethode(QStringLiteral("config.set")).size(), demandesAvant + 1);
+    QCOMPARE(m_serveur->tramesDeMethode(QStringLiteral("config.set")).last().value(QStringLiteral("params")).toObject(),
+        (QJsonObject{{QStringLiteral("session_id"), QStringLiteral("rt-s1")}, {QStringLiteral("key"), QStringLiteral("model")},
+            {QStringLiteral("value"), QStringLiteral("modele-cible --provider test --session")},
+            {QStringLiteral("confirm_expensive_model"), false}}));
+    QTRY_VERIFY(parNom(m_fenetre->contentItem(), QStringLiteral("discussion-confirmer-modele")));
+    auto *confirmer = parNom(m_fenetre->contentItem(), QStringLiteral("discussion-confirmer-modele"));
+    for (int i = 0; i < 10 && !confirmer->hasActiveFocus(); ++i) QTest::keyClick(m_fenetre.get(), Qt::Key_Tab);
+    QVERIFY2(confirmer->hasActiveFocus(), "la confirmation de coût doit être atteignable au clavier");
+    QTest::keyClick(m_fenetre.get(), Qt::Key_Return);
+    QTRY_COMPARE(m_serveur->tramesDeMethode(QStringLiteral("config.set")).size(), demandesAvant + 2);
+    QTRY_VERIFY(!discussion->gesteEnCours());
+    QVERIFY(m_serveur->tramesDeMethode(QStringLiteral("config.set")).last().value(QStringLiteral("params")).toObject()
+        .value(QStringLiteral("confirm_expensive_model")).toBool());
+    QVERIFY(discussion->confirmationModele().isEmpty());
+    QCOMPARE(racine->property("modeleEffectif").toString(), QStringLiteral("modele-en-cours")); // effet différé, pas de faux état actif
+    QCOMPARE(discussion->brouillon(), QStringLiteral("Mon brouillon"));
+    QVERIFY2(m_avertissements.isEmpty(), qPrintable(m_avertissements.join(QLatin1Char('\n'))));
 }
 
 // Le choix de lire plus haut appartient à une discussion. Ouvrir une autre
@@ -1083,7 +1250,7 @@ void TestPagesInteractions::preparationProposeConnexionPuisAnnuleParLesBoutons()
     m_fenetre->setColor(fondAvant);
     m_fenetre->resize(1280, 850);
     m_serveur->route("GET", kP + QStringLiteral("/meta"), [](const RequeteRecue &) {
-        return ReponseFaux::json(404, QJsonObject{{QStringLiteral("detail"), QStringLiteral("Not Found")}});
+        return ReponseFaux::json(200, fixture(QStringLiteral("meta.json")));
     });
 }
 
@@ -1148,7 +1315,7 @@ void TestPagesInteractions::workspaceConserveBrouillonEtSuspendPagesMasquees()
     passerelle->fermer();
     navigation->setCurrentRoute(QStringLiteral("home"));
     m_serveur->route("GET", kP + QStringLiteral("/meta"), [](const RequeteRecue &) {
-        return ReponseFaux::json(404, QJsonObject{{QStringLiteral("detail"), QStringLiteral("Not Found")}});
+        return ReponseFaux::json(200, fixture(QStringLiteral("meta.json")));
     });
 }
 

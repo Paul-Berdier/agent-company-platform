@@ -31,6 +31,8 @@ MOTIFS = {
     "jeton JWT": re.compile(r"\beyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}"),
     "jeton machine ACP": re.compile(r"\bacpm_[A-Za-z0-9_-]{40,}"),
     "code d'enrôlement ACP": re.compile(r"\bacpe_[A-Za-z0-9_-]{40,}"),
+    "jeton coffre ACP": re.compile(r"\bacpct_[A-Za-z0-9_-]{40,}"),
+    "code d'enrôlement coffre ACP": re.compile(r"\bacpce_[A-Za-z0-9_-]{40,}"),
 }
 
 

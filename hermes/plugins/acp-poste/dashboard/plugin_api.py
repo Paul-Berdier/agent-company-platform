@@ -1289,3 +1289,7 @@ async def flux_d_invalidation(request: Request) -> Response:
             diffuseur.desabonner(abonne)
 
     return StreamingResponse(trames(), media_type="text/event-stream", headers=ENTETES_FLUX)
+
+
+# Bridge de notes distinct : routes propriétaire et identité dédiée, aucun outil du chef.
+router.include_router(_charger("coffre_api").creer_router(_n, _session, _origine_publique))
