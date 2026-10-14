@@ -106,7 +106,7 @@ def login(mode):
     else:
         params.update(stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                       start_new_session=True)
-    p = subprocess.Popen([*prefixe, CLAUDE, 'auth', 'login'], **params)
+    p = subprocess.Popen([*prefixe, CLAUDE, 'auth', 'login', '--claudeai'], **params)
     if esclave is not None:
         os.close(esclave)
     fd = maitre if maitre is not None else p.stdout.fileno()
@@ -176,8 +176,8 @@ def login(mode):
             u = urlsplit(brut)
             # Liste de divulgation minimale, pas un contrat inventé pour accepter un défi OAuth : tout
             # autre hôte/chemin observé reste masqué, même si le binaire décide de changer sa route.
-            chemin_attendu = (u.scheme == 'https' and u.hostname == 'claude.ai'
-                              and u.path == '/oauth/authorize' and u.port in (None, 443)
+            chemin_attendu = (u.scheme == 'https' and u.hostname == 'claude.com'
+                              and u.path == '/cai/oauth/authorize' and u.port in (None, 443)
                               and u.username is None and u.password is None)
             url = {'schema': u.scheme, 'hote': u.hostname,
                    'parametres': sorted({cle for cle, _ in parse_qsl(u.query)})}
@@ -208,7 +208,7 @@ try:
             texte = sortie + erreur
             assert code == 0 and 'Usage:' in texte, 'aide auth absente'
             assert sous_commande in texte, 'aide de la mauvaise sous-commande'
-            attendues = {'login': ('--email', '--sso', '--console'), 'status': ('--text',), 'logout': ()}
+            attendues = {'login': ('--claudeai', '--email', '--sso', '--console'), 'status': ('--text',), 'logout': ()}
             assert all(n in texte for n in attendues[sous_commande]), 'option officielle absente'
             rapport[sous_commande] = {'code': code, 'options': sorted(set(re.findall(r'--[a-z][a-z-]*', texte)))}
     elif action == 'etat':
@@ -259,3 +259,9 @@ def test_claude_auth_login_hors_ligne_borne_et_arrete(image, ressources, transpo
     resultat = _mesurer(image, ressources, transport)
     assert resultat['avant'] == resultat['apres']
     assert resultat['login']['aucun_processus_restant'] is True
+    assert resultat['login']['interruption_demandee'] is True
+    assert resultat['login']['invite_code_observee'] is True
+    # Le candidat exact n'est admis qu'une fois mesuré sur le binaire épinglé ; aucune valeur query publiée.
+    assert any(u.get('schema') == 'https' and u.get('hote') == 'claude.com'
+               and u.get('chemin') == '/cai/oauth/authorize'
+               for u in resultat['login']['url_sans_valeurs'])
