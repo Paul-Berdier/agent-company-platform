@@ -14,6 +14,8 @@ interfaces que nomme la section 1.0.0 (D130), et une rupture de l'une d'elles ap
 - Journal public d'exécution paginé, sessions natives, état des outils et modèle
   effectivement rapporté ; événements conservés avant envoi et dédupliqués dans Hermes.
 - Vue Comptes séparant accès ACP, moteurs et coordinateur Hermes.
+- Déclaration explicite d’un VPS distant dans la politique Linux protégée ;
+  gardes d’isolation inchangées, sans installateur ni serveur acheté.
 
 ### Modifié
 
@@ -27,6 +29,10 @@ interfaces que nomme la section 1.0.0 (D130), et une rupture de l'une d'elles ap
 - Une perte de réponse de connexion n'entraîne pas un deuxième login.
 - Une réponse d'une ancienne session Qt ne remplace pas l'état de la nouvelle.
 - Un refus d'événement persistant ne peut pas être masqué par une fin de tâche réussie.
+- L’état du compte lit les relevés réellement persistés ; une déconnexion observée
+  remplace un ancien succès de connexion.
+- Les résultats ne proposent plus de commandes Railway/SSH/Git sur le PC ;
+  références conservées et livraison explicitement indisponible.
 
 ### Sécurité
 
@@ -39,8 +45,8 @@ interfaces que nomme la section 1.0.0 (D130), et une rupture de l'une d'elles ap
 
 ### Vérifié localement
 
-- Suite Python : 1 473 tests et 464 sous-tests réussis, 108 tests ignorés
-  explicitement ; derniers correctifs revalidés dans leurs suites ciblées.
+- Suite Python : 1 523 tests et 464 sous-tests réussis, 109 tests ignorés
+  explicitement ; correction finale des comptes revalidée dans 309 tests ciblés.
 - Qt 6.8.3 : compilation, 43 suites natives et captures de quatre thèmes
   sur deux tailles, avec données simulées signalées.
 - Contrôles de versions, thèmes générés, catalogue et moteur Pixel Office gelé.
@@ -52,6 +58,8 @@ interfaces que nomme la section 1.0.0 (D130), et une rupture de l'une d'elles ap
 ### Limites connues
 
 - Aucun compte fournisseur personnel connecté ni inférence réelle prouvée dans ce lot.
+- Railway reste en régime B ; Codex y est fermé en écriture. La déclaration VPS
+  ne prouve pas l’isolation : un serveur compatible reste à configurer et éprouver.
 - Connexions graphiques Claude/Vibe et déconnexion Codex encore absentes.
 - Création distante des dépôts, fichiers/diff/artefacts téléchargeables,
   publication GitHub et workspace complet restent à compléter.
