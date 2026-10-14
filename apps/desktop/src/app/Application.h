@@ -25,6 +25,8 @@ class DemandesAgent;
 class DiagnosticsViewModel;
 class DiscussionViewModel;
 class CatalogueViewModel;
+class ComptesViewModel;
+class JournalExecutionViewModel;
 class ObsidianViewModel;
 class TexteDiscussion;
 class EventStreamService;
@@ -109,6 +111,8 @@ private:
     DemandesAgent *m_demandes = nullptr;
     DiscussionViewModel *m_discussion = nullptr;
     CatalogueViewModel *m_catalogue = nullptr;
+    ComptesViewModel *m_comptes = nullptr;
+    JournalExecutionViewModel *m_journalExecution = nullptr;
     ObsidianViewModel *m_coffreObsidian = nullptr;
     TexteDiscussion *m_texteDiscussion = nullptr;
     UpdateService *m_updates = nullptr;

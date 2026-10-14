@@ -20,6 +20,16 @@ if(NOT EXISTS "${ACP_FIXTURES_PARTAGEES_DIR}/fixtures_accueil/accueil.json")
                         "configurée depuis le dépôt complet.")
 endif()
 
+# Le plugin offscreen Windows utilise FreeType, pas la base de fontes native.
+# Sans ce répertoire, les assertions texte passent mais les captures montrent des carrés.
+set(ACP_TEST_ENV "QT_QPA_PLATFORM=offscreen;QT_FORCE_STDERR_LOGGING=1")
+if(WIN32)
+    file(TO_CMAKE_PATH "$ENV{SystemRoot}/Fonts" ACP_TEST_FONT_DIR)
+    if(IS_DIRECTORY "${ACP_TEST_FONT_DIR}")
+        list(APPEND ACP_TEST_ENV "QT_QPA_FONTDIR=${ACP_TEST_FONT_DIR}")
+    endif()
+endif()
+
 function(acp_add_cpp_test name)
     qt_add_executable(${name} cpp/${name}.cpp ${ARGN})
     target_link_libraries(${name} PRIVATE acp_core Qt6::Test)
@@ -32,7 +42,7 @@ function(acp_add_cpp_test name)
     # sans session graphique ne les fasse échouer pour une mauvaise raison.
     # Sans console attachée, Qt Test peut écrire dans OutputDebugString au lieu
     # du flux capturé par CTest. Garder les diagnostics visibles sur le runner.
-    set_tests_properties(${name} PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_FORCE_STDERR_LOGGING=1")
+    set_tests_properties(${name} PROPERTIES ENVIRONMENT "${ACP_TEST_ENV}")
 endfunction()
 
 acp_add_cpp_test(tst_sse_parser)
@@ -76,6 +86,8 @@ target_compile_definitions(tst_accueil PRIVATE ACP_TEST_FIXTURE_DIR="${CMAKE_CUR
 acp_add_cpp_test(tst_projets cpp/support/FauxHermes.cpp cpp/support/FauxHermes.h cpp/support/Fixtures.h)
 target_compile_definitions(tst_projets PRIVATE ACP_TEST_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures")
 acp_add_cpp_test(tst_texte_discussion)
+acp_add_cpp_test(tst_comptes cpp/support/FauxHermes.cpp cpp/support/FauxHermes.h)
+acp_add_cpp_test(tst_journal_execution cpp/support/FauxHermes.cpp cpp/support/FauxHermes.h)
 acp_add_cpp_test(tst_catalogue cpp/support/FauxHermes.cpp cpp/support/FauxHermes.h)
 acp_add_cpp_test(tst_obsidian cpp/support/FauxHermes.cpp cpp/support/FauxHermes.h)
 acp_add_cpp_test(tst_coffre_interactions cpp/support/FauxHermes.cpp cpp/support/FauxHermes.h cpp/support/FauxCoffre.h cpp/support/Fixtures.h)
@@ -144,4 +156,4 @@ target_link_libraries(tst_qml_shell PRIVATE
 )
 set_target_properties(tst_qml_shell PROPERTIES WIN32_EXECUTABLE FALSE)
 add_test(NAME tst_qml_shell COMMAND tst_qml_shell)
-set_tests_properties(tst_qml_shell PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_FORCE_STDERR_LOGGING=1")
+set_tests_properties(tst_qml_shell PROPERTIES ENVIRONMENT "${ACP_TEST_ENV}")

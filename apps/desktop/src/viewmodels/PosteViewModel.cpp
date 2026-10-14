@@ -36,7 +36,7 @@ QJsonObject machineDe(const QJsonObject &vue)
     return vue.value(QStringLiteral("machine")).toObject().value(QStringLiteral("machine")).toObject();
 }
 
-//! Liste de voies lisible (« Poste (Codex), Hermes »), sinon « Inconnu » : jamais devinée.
+//! Liste de voies lisible (« Codex, Hermes »), sinon « Inconnu » : jamais devinée.
 QString listeDeVoies(const QJsonValue &valeur)
 {
     if (!valeur.isArray()) {
@@ -55,7 +55,7 @@ QString listeDeVoies(const QJsonValue &valeur)
 
 /*!
     Voies fermées telles que le greffon les SERT : objet {voie: raison} (routage.voies_fermees), lu
-    « Poste (Codex) : raison ; … » ; objet vide : « Aucune » ; toute autre forme ou une raison
+    « Codex : raison ; … » ; objet vide : « Aucune » ; toute autre forme ou une raison
     illisible : « Inconnu » (relecture finale de P7, constat desktop-3 : la station lisait un tableau,
     forme jamais servie, et disait toujours « Inconnu »).
 */

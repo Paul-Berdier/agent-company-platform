@@ -27,11 +27,11 @@ NavigationModel::NavigationModel(QObject *parent)
     // visible, jamais navigable, jamais simulée. Depuis l'étape P8, toutes les pages de
     // pilotage sont livrées ; seule « office » reste hors périmètre.
     m_destinations = {
-        {QStringLiteral("home"), QStringLiteral("Accueil"), QStringLiteral("home"),
+        {QStringLiteral("home"), QStringLiteral("Activité"), QStringLiteral("home"),
          Readiness::Ready, QString()},
         {QStringLiteral("projects"), QStringLiteral("Projets"), QStringLiteral("folder"),
          Readiness::Ready, QString()},
-        {QStringLiteral("questions"), QStringLiteral("Questions"), QStringLiteral("hand-raised"),
+        {QStringLiteral("questions"), QStringLiteral("À valider"), QStringLiteral("hand-raised"),
          Readiness::Ready, QString()},
         {QStringLiteral("chat"), QStringLiteral("Discussion"), QStringLiteral("message"),
          Readiness::Ready, QString()},
@@ -39,7 +39,9 @@ NavigationModel::NavigationModel(QObject *parent)
          Readiness::Ready, QString()},
         {QStringLiteral("vault"), QStringLiteral("Coffre ACP"), QStringLiteral("folder"),
          Readiness::Ready, QString()},
-        {QStringLiteral("station"), QStringLiteral("Poste"), QStringLiteral("building"),
+        {QStringLiteral("accounts"), QStringLiteral("Comptes et modèles"), QStringLiteral("users"),
+         Readiness::Ready, QString()},
+        {QStringLiteral("station"), QStringLiteral("Serveur d’exécution"), QStringLiteral("building"),
          Readiness::Ready, QString()},
         {QStringLiteral("quotas"), QStringLiteral("Quotas"), QStringLiteral("gauge"),
          Readiness::Ready, QString()},
@@ -49,7 +51,7 @@ NavigationModel::NavigationModel(QObject *parent)
          QStringLiteral("stethoscope"), Readiness::Ready, QString()},
         {QStringLiteral("backup"), QStringLiteral("Sauvegarde"), QStringLiteral("archive"),
          Readiness::Ready, QString()},
-        {QStringLiteral("settings"), QStringLiteral("Réglages"),
+        {QStringLiteral("settings"), QStringLiteral("Paramètres"),
          QStringLiteral("settings"), Readiness::Ready, QString()},
         {QStringLiteral("office"), QStringLiteral("Bureau de département"),
          QStringLiteral("building"), Readiness::OutOfScope,
@@ -57,7 +59,7 @@ NavigationModel::NavigationModel(QObject *parent)
                         "redistribuables, et le moteur existant n'a aucun équivalent natif "
                         "direct. Cette destination ne sera pas ouverte par ce chantier.")},
     };
-    m_currentRoute = QStringLiteral("home");
+    m_currentRoute = QStringLiteral("projects");
     m_history.append(m_currentRoute);
 }
 
@@ -171,8 +173,8 @@ void NavigationModel::goForward()
 
 void NavigationModel::resetHistory()
 {
-    const bool changed = m_currentRoute != QLatin1String("home");
-    m_currentRoute = QStringLiteral("home");
+    const bool changed = m_currentRoute != QLatin1String("projects");
+    m_currentRoute = QStringLiteral("projects");
     m_history = {m_currentRoute};
     m_historyIndex = 0;
     emit historyChanged();

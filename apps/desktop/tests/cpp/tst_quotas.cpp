@@ -77,7 +77,7 @@ void TestQuotas::voiesLibellees()
 {
     const QJsonObject vue = fixture(QStringLiteral("quotas.json"));
     const QJsonObject codex = QuotasViewModel::construireVoie(QStringLiteral("poste-codex"), vue.value(QStringLiteral("poste-codex")).toObject());
-    QCOMPARE(codex.value(QStringLiteral("titre")).toString(), QStringLiteral("Poste (Codex)"));
+    QCOMPARE(codex.value(QStringLiteral("titre")).toString(), QStringLiteral("Codex"));
     QCOMPARE(codex.value(QStringLiteral("etatLibelle")).toString(), QStringLiteral("Relevé"));
     QCOMPARE(codex.value(QStringLiteral("etatCle")).toString(), QStringLiteral("succeeded"));
     QCOMPARE(codex.value(QStringLiteral("seuil")).toString(), QStringLiteral("90") + kNbsp + QStringLiteral("%"));

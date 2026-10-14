@@ -84,6 +84,20 @@ ApiCall *ClientGreffonPoste::ecrire(const QString &relatif, const QJsonObject &c
     return m_client->send(requete);
 }
 
+ApiCall *ClientGreffonPoste::comptes() { return lire(QStringLiteral("/v1/comptes")); }
+ApiCall *ClientGreffonPoste::connecterCompteCodex(const QString &cle) {
+    if (!identifiantValide(cle)) return refuserIdentifiant(QStringLiteral("connexion"));
+    return ecrire(QStringLiteral("/v1/comptes/codex/connexions"), {{QStringLiteral("idempotency_key"),cle}});
+}
+ApiCall *ClientGreffonPoste::connexionCompte(const QString &id) {
+    if (!identifiantValide(id)) return refuserIdentifiant(QStringLiteral("connexion"));
+    return lire(QStringLiteral("/v1/comptes/connexions/%1").arg(id));
+}
+ApiCall *ClientGreffonPoste::annulerConnexionCompte(const QString &id) {
+    if (!identifiantValide(id)) return refuserIdentifiant(QStringLiteral("connexion"));
+    return ecrire(QStringLiteral("/v1/comptes/connexions/%1/annuler").arg(id), {});
+}
+
 ApiCall *ClientGreffonPoste::meta()
 {
     // Jamais bloquée : c'est par elle qu'un verdict incompatible peut être levé.
@@ -186,6 +200,19 @@ ApiCall *ClientGreffonPoste::questions() { return lire(QStringLiteral("/v1/quest
 ApiCall *ClientGreffonPoste::poste() { return lire(QStringLiteral("/v1/poste")); }
 ApiCall *ClientGreffonPoste::routage() { return lire(QStringLiteral("/v1/routage")); }
 ApiCall *ClientGreffonPoste::quotas() { return lire(QStringLiteral("/v1/quotas")); }
+
+ApiCall *ClientGreffonPoste::evenementsProjet(const QString &identifiant, qint64 apres, int limite)
+{
+    if (bloque()) return m_client->reject(ApiError(ApiFailure::Incompatible, m_blocage));
+    if (!identifiantValide(identifiant)) return refuserIdentifiant(QStringLiteral("projet"));
+    if (apres < 0 || limite < 1 || limite > 200)
+        return m_client->reject(ApiError::refusal(QStringLiteral("Pagination du journal illisible.")));
+    ApiRequest requete;
+    requete.path = chemin(QStringLiteral("/v1/projets/%1/evenements").arg(identifiant));
+    requete.query.addQueryItem(QStringLiteral("apres"), QString::number(apres));
+    requete.query.addQueryItem(QStringLiteral("limite"), QString::number(limite));
+    return m_client->send(requete);
+}
 
 ApiCall *ClientGreffonPoste::projet(const QString &identifiant)
 {

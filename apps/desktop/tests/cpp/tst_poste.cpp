@@ -617,14 +617,14 @@ void TestPoste::executantSeulementSiPublie()
     QCOMPARE(executant.value(QStringLiteral("present")).toBool(), true);
     QCOMPARE(executant.value(QStringLiteral("plateforme")).toString(), QStringLiteral("linux"));
     QCOMPARE(executant.value(QStringLiteral("peutExecuter")).toString(), QStringLiteral("Oui"));
-    QCOMPARE(executant.value(QStringLiteral("voiesDisponibles")).toString(), QStringLiteral("Poste (Codex), Poste (Claude)"));
+    QCOMPARE(executant.value(QStringLiteral("voiesDisponibles")).toString(), QStringLiteral("Codex, Claude Code"));
     QCOMPARE(executant.value(QStringLiteral("voiesFermees")).toString(), QStringLiteral("Aucune"));
     const QVariantMap regimeB = PosteViewModel::construireExecutant(QStringLiteral("annonce"), QJsonObject{
         {QStringLiteral("voies_fermees"), QJsonObject{
             {QStringLiteral("poste-codex"), QStringLiteral("isolement de l'exécutant (régime B) : Bac à sable Linux "
                                                            "refusé par la plateforme (régime B)")}}}});
     QCOMPARE(regimeB.value(QStringLiteral("voiesFermees")).toString(),
-             QStringLiteral("Poste (Codex) : isolement de l'exécutant (régime B) : Bac à sable Linux refusé par la "
+             QStringLiteral("Codex : isolement de l'exécutant (régime B) : Bac à sable Linux refusé par la "
                             "plateforme (régime B)"));
     // Forme jamais servie (tableau) ou raison illisible : « Inconnu », jamais une liste devinée.
     QCOMPARE(PosteViewModel::construireExecutant(QStringLiteral("annonce"), QJsonObject{
@@ -672,12 +672,12 @@ void TestPoste::depotsMesuresParLExecutant()
                                .value(QStringLiteral("poste-codex")).toString();
     QVERIFY(raison.contains(QStringLiteral("non prouvé privé")));
     QCOMPARE(demo.value(QStringLiteral("voies")).toString(),
-             QStringLiteral("Poste (Codex) : Fermée — %1\nPoste (Claude) : Ouverte").arg(raison));
+             QStringLiteral("Codex : Fermée — %1\nClaude Code : Ouverte").arg(raison));
     const QVariantMap jetable = depots.at(1).toMap();
     QCOMPARE(jetable.value(QStringLiteral("alias")).toString(), QStringLiteral("jetable"));
     QCOMPARE(jetable.value(QStringLiteral("visibilite")).toString(), QStringLiteral("Privé"));
     QCOMPARE(jetable.value(QStringLiteral("visibiliteCle")).toString(), QStringLiteral("succeeded"));
-    QCOMPARE(jetable.value(QStringLiteral("voies")).toString(), QStringLiteral("Poste (Codex) : Ouverte\nPoste (Claude) : Ouverte"));
+    QCOMPARE(jetable.value(QStringLiteral("voies")).toString(), QStringLiteral("Codex : Ouverte\nClaude Code : Ouverte"));
 
     // Jamais mesurée (null partout) : dit tel quel, jamais « Privé » deviné ; codes inconnus montrés bruts.
     const QVariantList autres = PosteViewModel::construireDepots(QJsonObject{{QStringLiteral("executant"), QJsonObject{
@@ -697,13 +697,13 @@ void TestPoste::depotsMesuresParLExecutant()
     QCOMPARE(neuf.value(QStringLiteral("visibiliteCle")).toString(), QStringLiteral("degraded"));
     QCOMPARE(neuf.value(QStringLiteral("lecture")).toString(), QStringLiteral("Inconnu"));
     QCOMPARE(neuf.value(QStringLiteral("verifieLe")).toString(), QStringLiteral("Inconnu"));
-    QCOMPARE(neuf.value(QStringLiteral("voies")).toString(), QStringLiteral("Poste (Codex) : Fermée — non mesuré\nPoste (Claude) : Ouverte"));
+    QCOMPARE(neuf.value(QStringLiteral("voies")).toString(), QStringLiteral("Codex : Fermée — non mesuré\nClaude Code : Ouverte"));
     const QVariantMap bizarre = autres.at(1).toMap();
     QCOMPARE(bizarre.value(QStringLiteral("visibilite")).toString(), QStringLiteral("pigeon"));
     QCOMPARE(bizarre.value(QStringLiteral("visibiliteCle")).toString(), QStringLiteral("unknown"));
     QCOMPARE(bizarre.value(QStringLiteral("lecture")).toString(), QStringLiteral("Refusée"));
     // Raison illisible : la voie reste dite fermée, la raison « Inconnu ».
-    QCOMPARE(bizarre.value(QStringLiteral("voies")).toString(), QStringLiteral("Poste (Codex) : Fermée — Inconnu\nPoste (Claude) : Ouverte"));
+    QCOMPARE(bizarre.value(QStringLiteral("voies")).toString(), QStringLiteral("Codex : Fermée — Inconnu\nClaude Code : Ouverte"));
     const QVariantMap inconnu = autres.at(2).toMap();
     QCOMPARE(inconnu.value(QStringLiteral("visibilite")).toString(), QStringLiteral("Inconnue (Codex fermé)"));
     QCOMPARE(inconnu.value(QStringLiteral("lecture")).toString(), QStringLiteral("Inconnue"));

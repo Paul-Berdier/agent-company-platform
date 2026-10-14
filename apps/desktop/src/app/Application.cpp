@@ -25,6 +25,8 @@
 #include "viewmodels/DiagnosticsViewModel.h"
 #include "viewmodels/DiscussionViewModel.h"
 #include "viewmodels/CatalogueViewModel.h"
+#include "viewmodels/ComptesViewModel.h"
+#include "viewmodels/JournalExecutionViewModel.h"
 #include "viewmodels/ObsidianViewModel.h"
 #include "services/TexteDiscussion.h"
 #include "viewmodels/PosteViewModel.h"
@@ -127,6 +129,8 @@ Application::Application(QObject *parent, const QString &nomCoffre)
     // Demandes de l'agent (approval, clarify) et discussion : sur la passerelle JSON-RPC.
     m_demandes = new DemandesAgent(m_passerelle, this);
     m_discussion = new DiscussionViewModel(m_passerelle, m_flux, this);
+    m_comptes = new ComptesViewModel(m_greffon.get(), m_flux, this);
+    m_journalExecution = new JournalExecutionViewModel(m_greffon.get(), m_flux, this);
     m_catalogue = new CatalogueViewModel(m_greffon.get(), m_flux, this);
     m_coffreObsidian = new ObsidianViewModel(m_greffon.get(), m_flux, this);
     m_texteDiscussion = new TexteDiscussion(this);
@@ -149,7 +153,7 @@ Application::Application(QObject *parent, const QString &nomCoffre)
     // lecture ne repart avant l'oubli.
     const auto oublierLesPages = [this] {
         for (PageViewModel *page : std::initializer_list<PageViewModel *>{
-                 m_accueil, m_projets, m_questions, m_poste, m_quotas, m_routage, m_sauvegarde, m_discussion, m_catalogue, m_coffreObsidian}) {
+                 m_accueil, m_projets, m_questions, m_poste, m_quotas, m_routage, m_sauvegarde, m_discussion, m_catalogue, m_comptes, m_journalExecution, m_coffreObsidian}) {
             page->oublier();
         }
     };
@@ -175,7 +179,7 @@ Application::Application(QObject *parent, const QString &nomCoffre)
         }
         m_flux->oublierResume();
         for (PageViewModel *page : std::initializer_list<PageViewModel *>{
-                 m_accueil, m_projets, m_questions, m_poste, m_quotas, m_routage, m_catalogue, m_coffreObsidian}) {
+                 m_accueil, m_projets, m_questions, m_poste, m_quotas, m_routage, m_catalogue, m_comptes, m_journalExecution, m_coffreObsidian}) {
             page->oublier();
         }
     });
@@ -271,6 +275,8 @@ void Application::registerQmlTypes()
     qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Demandes", m_demandes);
     qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Discussion", m_discussion);
     qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Catalogue", m_catalogue);
+    qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Comptes", m_comptes);
+    qmlRegisterSingletonInstance(kQmlUri, 1, 0, "JournalExecution", m_journalExecution);
     qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Coffre", m_coffreObsidian);
     qmlRegisterSingletonInstance(kQmlUri, 1, 0, "TexteDiscussion", m_texteDiscussion);
     qmlRegisterSingletonInstance(kQmlUri, 1, 0, "Navigation", m_navigation);
@@ -362,7 +368,7 @@ void Application::registerBuiltinCommands()
         }});
 
     m_commands->registerCommand(Command{
-        QStringLiteral("navigation.home"), QStringLiteral("Aller à l'accueil"),
+        QStringLiteral("navigation.home"), QStringLiteral("Ouvrir l’activité"),
         QStringLiteral("Navigation"), {QStringLiteral("accueil")}, QStringLiteral("Ctrl+1"),
         alwaysAvailable,
         [this](const CommandContext &) {
@@ -389,7 +395,12 @@ void Application::registerBuiltinCommands()
         }});
 
     m_commands->registerCommand(Command{
-        QStringLiteral("navigation.station"), QStringLiteral("Voir l'état du poste Windows"),
+        QStringLiteral("navigation.accounts"), QStringLiteral("Ouvrir les comptes et modèles"),
+        QStringLiteral("Navigation"), {QStringLiteral("connexion"), QStringLiteral("codex"), QStringLiteral("comptes")}, QString(), alwaysAvailable,
+        [this](const CommandContext &) { m_navigation->setCurrentRoute(QStringLiteral("accounts")); return CommandResult::accept(); }});
+
+    m_commands->registerCommand(Command{
+        QStringLiteral("navigation.station"), QStringLiteral("Voir le serveur d’exécution"),
         QStringLiteral("Navigation"), {QStringLiteral("poste"), QStringLiteral("enrôlement"), QStringLiteral("inventaire")},
         QStringLiteral("Ctrl+6"), alwaysAvailable,
         [this](const CommandContext &) {

@@ -64,19 +64,19 @@ Item {
                     Layout.fillWidth: true; spacing: Space.space5
                     Text { textFormat: Text.PlainText; text: qsTr("VOTRE ESPACE DE TRAVAIL"); color: Colors.accentPrimary; font.family: Type.metadata.family; font.pixelSize: 11; font.letterSpacing: 1.8 }
                     Text { textFormat: Text.PlainText;
-                        Layout.fillWidth: true; text: qsTr("Qu'allons-nous construire ?")
+                        Layout.fillWidth: true; text: qsTr("Activité de vos projets")
                         wrapMode: Text.WordWrap; color: Colors.textPrimary
                         font.family: Type.pageTitle.family; font.pixelSize: 32; font.weight: Font.DemiBold; font.letterSpacing: -0.8
                     }
                     Text { textFormat: Text.PlainText;
-                        Layout.fillWidth: true; text: qsTr("Un projet à retrouver. Une idée à faire avancer.\nVotre travail reprend ici.")
+                        Layout.fillWidth: true; text: qsTr("Suivez le travail de Hermes et retrouvez les décisions qui vous attendent.")
                         wrapMode: Text.WordWrap; color: Colors.textSecondary
                         font.family: Type.prose.family; font.pixelSize: 15; lineHeight: 1.5
                     }
                     RowLayout {
                         Layout.topMargin: Space.space3; spacing: Space.space3
                         AcpButton { objectName: "accueil-nouveau-projet"; label: qsTr("Nouveau projet"); iconName: "plus"; primary: true; onTriggered: { Projets.afficherNouveau(); Navigation.setCurrentRoute("projects"); } }
-                        AcpButton { label: qsTr("Parler à Hermes"); iconName: "chat"; onTriggered: Navigation.setCurrentRoute("chat") }
+                        AcpButton { objectName: "navigation-chat"; label: qsTr("Parler à Hermes"); iconName: "chat"; onTriggered: Navigation.setCurrentRoute("chat") }
                     }
                 }
                 AtelierScene { visible: page.width > 850 && Appearance.themeFamily === "pixel"; Layout.preferredWidth: 360; Layout.preferredHeight: 240 }
@@ -123,17 +123,9 @@ Item {
                     erreurLecture: Poste.erreur
                     AcpButton {
                         objectName: "accueil-preparer-assistants"
-                        label: Poste.preparation.actionLibelle || qsTr("Voir les connexions")
+                        label: qsTr("Gérer les comptes distants")
                         iconName: "chevronRight"
-                        onTriggered: {
-                            if (Poste.preparation.action === "routage") {
-                                Navigation.setCurrentRoute("routing");
-                            } else {
-                                Navigation.setCurrentRoute("station");
-                                if (Poste.preparation.action === "configurer" && Poste.preparation.fournisseur)
-                                    Qt.callLater(function() { Poste.ouvrirGuide(Poste.preparation.fournisseur); });
-                            }
-                        }
+                        onTriggered: Navigation.setCurrentRoute("accounts")
                     }
                 }
             }
@@ -398,8 +390,8 @@ Item {
                         }
                     }
                     AcpButton {
-                        label: qsTr("Ouvrir la page Poste")
-                        commandId: "navigation.station"
+                        label: qsTr("Ouvrir les paramètres")
+                        commandId: "navigation.settings"
                     }
                 }
 

@@ -15,6 +15,8 @@
 #include "navigation/NavigationModel.h"
 #include "services/CompatibiliteHermes.h"
 #include "support/FauxHermes.h"
+#include "support/FauxComptes.h"
+#include "viewmodels/ComptesViewModel.h"
 #include "support/Fixtures.h"
 #include "gateway/DiscussionsEnAttente.h"
 #include "viewmodels/AccueilViewModel.h"
@@ -110,6 +112,7 @@ private slots:
     void pastilleDesQuestionsDitCeQuElleCompte();
     void greffonSansEtapeP7NiAccueilNiGestes();
     // En dernier : charge la fenêtre racine (App.qml).
+    void comptesDistantsParLesVraisBoutons();
     void chaqueRaccourciDeLaPaletteAgit();
 
 private:
@@ -542,7 +545,7 @@ void TestPagesInteractions::executantFermeGriseDansLeFormulaire()
     QPointer<QQuickItem> codex;
     QTRY_VERIFY((codex = parNom(m_fenetre->contentItem(), QStringLiteral("projets-voie-option-poste-codex"))) && codex->isVisible());
     QCOMPARE(codex->isEnabled(), false);
-    QCOMPARE(codex->property("text").toString(), QStringLiteral("Poste (Codex) — fermé pour ce dépôt"));
+    QCOMPARE(codex->property("text").toString(), QStringLiteral("Codex — fermé pour ce dépôt"));
     QQuickItem *claude = parNom(m_fenetre->contentItem(), QStringLiteral("projets-voie-option-poste-claude"));
     QVERIFY(claude && claude->isEnabled());
     QTest::mouseClick(m_fenetre.get(), Qt::LeftButton, Qt::NoModifier,
@@ -681,10 +684,10 @@ void TestPagesInteractions::pastilleDesQuestionsDitCeQuElleCompte()
     QVERIFY(entree);
     const auto nom = [entree] { return QQmlProperty(entree, QStringLiteral("Accessible.name"), qmlContext(entree)).read().toString(); };
     // Discussions lues : le total les compte, le nom ne dit plus le contraire.
-    QTRY_COMPARE(nom(), QStringLiteral("À traiter (%1 demandes à traiter par vous)").arg(m_flux->aTraiter()));
+    QTRY_COMPARE(nom(), QStringLiteral("À valider (%1 demandes à traiter par vous)").arg(m_flux->aTraiter()));
     // Discussions inconnues (passerelle indisponible, refus) : le nom le dit.
     m_flux->discussions()->oublier();
-    QTRY_COMPARE(nom(), QStringLiteral("À traiter (%1 demandes à traiter par vous (discussions non comptées))")
+    QTRY_COMPARE(nom(), QStringLiteral("À valider (%1 demandes à traiter par vous (discussions non comptées))")
                             .arg(m_flux->aTraiter()));
     QVERIFY2(m_avertissements.isEmpty(), qPrintable(m_avertissements.join(QLatin1Char('\n'))));
 }
@@ -1242,7 +1245,7 @@ void TestPagesInteractions::preparationProposeConnexionPuisAnnuleParLesBoutons()
     QVERIFY(preparation->codeAppareil().isEmpty());
     QVERIFY(!code->isVisible());
     QVERIFY(cliquer(parNom(racine, QStringLiteral("accueil-preparer-assistants"))));
-    QCOMPARE(navigation->currentRoute(), QStringLiteral("station"));
+    QCOMPARE(navigation->currentRoute(), QStringLiteral("accounts"));
     QVERIFY2(m_avertissements.isEmpty(), qPrintable(m_avertissements.join(QLatin1Char('\n'))));
     page.reset();
     QTRY_VERIFY(!poste->resumeVisible());
@@ -1299,6 +1302,8 @@ void TestPagesInteractions::workspaceConserveBrouillonEtSuspendPagesMasquees()
     QVERIFY(cliquer(parNom(racine, QStringLiteral("navigation-projects"))));
     QTRY_VERIFY(m_projets->actif());
     QTRY_VERIFY(!accueil->actif());
+    QVERIFY(cliquer(parNom(racine, QStringLiteral("navigation-home"))));
+    QTRY_VERIFY(accueil->actif());
     QVERIFY(cliquer(parNom(racine, QStringLiteral("navigation-chat"))));
     QTRY_VERIFY(discussion->actif());
     QTRY_VERIFY(!m_projets->actif());
@@ -1426,6 +1431,29 @@ void TestPagesInteractions::chaqueRaccourciDeLaPaletteAgit()
     }
     QVERIFY2(m_avertissements.isEmpty(), qPrintable(m_avertissements.join(QLatin1Char('\n'))));
     racine->close();
+}
+
+
+void TestPagesInteractions::comptesDistantsParLesVraisBoutons()
+{
+    auto *comptes=m_application->findChild<ComptesViewModel *>(); QVERIFY(comptes);
+    comptes->oublier(); comptes->setIntervalleTest(50);
+    auto courant=std::make_shared<QJsonObject>();
+    const QString route=kP+QStringLiteral("/comptes");
+    m_serveur->route("GET",route,[courant](const RequeteRecue &){return ReponseFaux::json(200,comptesTest(*courant));});
+    m_serveur->route("GET",route+QStringLiteral("/connexions/")+connexionTestId(),[courant](const RequeteRecue &){return ReponseFaux::json(200,*courant);});
+    m_serveur->route("POST",route+QStringLiteral("/codex/connexions"),[courant](const RequeteRecue &){*courant=connexionTest();return ReponseFaux::json(202,*courant);});
+    m_serveur->route("POST",route+QStringLiteral("/connexions/")+connexionTestId()+QStringLiteral("/annuler"),[courant](const RequeteRecue &){*courant=connexionTest(QStringLiteral("annulee"));return ReponseFaux::json(200,*courant);});
+    QUrl ouverte; comptes->setOuvreur([&ouverte](const QUrl &url){ouverte=url;return true;});
+    auto page=charger(QStringLiteral("ComptesPage")); QVERIFY(page); auto *racine=qobject_cast<QQuickItem *>(page.get());
+    QTRY_VERIFY(comptes->peutConnecter()); QTest::qWait(80);
+    QVERIFY(cliquer(parNom(racine,QStringLiteral("comptes-connecter-codex")))); QTRY_VERIFY(comptes->attente()); QTest::qWait(80);
+    auto *code=parNom(racine,QStringLiteral("comptes-code")); QVERIFY(code); QVERIFY(code->isVisible()); QCOMPARE(code->property("text").toString(),QStringLiteral("TEST-ACP"));
+    QVERIFY(cliquer(parNom(racine,QStringLiteral("comptes-ouvrir-autorisation")))); QCOMPARE(ouverte,QUrl(QStringLiteral("https://auth.openai.com/codex/device")));
+    QVERIFY(cliquer(parNom(racine,QStringLiteral("comptes-annuler")))); QTRY_VERIFY(!comptes->attente()); QVERIFY(!code->isVisible());
+    QCOMPARE(m_serveur->compter("POST",route+QStringLiteral("/codex/connexions")),1);
+    QVERIFY2(m_avertissements.isEmpty(),qPrintable(m_avertissements.join(QLatin1Char('\n'))));
+    page.reset(); comptes->setOuvreur([](const QUrl &){return false;}); comptes->setIntervalleTest(0); comptes->oublier();
 }
 
 QTEST_MAIN(TestPagesInteractions)

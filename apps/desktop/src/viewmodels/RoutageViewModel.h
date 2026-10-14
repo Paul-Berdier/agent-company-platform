@@ -91,7 +91,7 @@ public:
 
     // --- Fonctions pures (tests) ------------------------------------------------------------
     [[nodiscard]] static QJsonObject construireListe(const QString &voie, const QJsonObject &catalogue);
-    /*! « Poste (Codex) · gpt-x · effort medium · palier Standard » ; valeurs absentes omises. */
+    /*! « Codex · gpt-x · effort medium · palier Standard » ; valeurs absentes omises. */
     [[nodiscard]] static QString texteEntree(const QJsonObject &entree);
     /*! Entrée réduite aux quatre champs du contrat : voie, modele, effort, palier (nul si absent). */
     [[nodiscard]] static QJsonObject entreePropre(const QJsonObject &entree);

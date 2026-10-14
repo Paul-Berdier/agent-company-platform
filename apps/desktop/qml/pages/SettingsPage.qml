@@ -8,23 +8,34 @@ import Acp.Components
 
 ScrollView {
     id: page
+    property bool avance: false
     clip: true
     ColumnLayout {
         width: page.availableWidth - 2 * Space.space6
         x: Space.space6
         y: Space.space6
         spacing: Space.space5
-        Label { textFormat: Text.PlainText; text: qsTr("Réglages"); color: Colors.textPrimary; font.pixelSize: Type.pageTitle.pixelSize }
+        Label { textFormat: Text.PlainText; text: qsTr("Paramètres"); color: Colors.textPrimary; font.pixelSize: Type.pageTitle.pixelSize }
         Flow {
             Layout.fillWidth: true; spacing: Space.space3
+            AcpButton { label: qsTr("Comptes et modèles"); onTriggered: Navigation.setCurrentRoute("accounts") }
+            AcpButton { objectName: "navigation-tools"; label: qsTr("Outils et compétences"); onTriggered: Navigation.setCurrentRoute("tools") }
+            AcpButton { objectName: "navigation-vault"; label: qsTr("Coffre ACP"); onTriggered: Navigation.setCurrentRoute("vault") }
+        }
+        AcpButton {
+            objectName: "reglages-avances"; label: page.avance ? qsTr("Masquer les paramètres avancés") : qsTr("Paramètres avancés")
+            onTriggered: page.avance = !page.avance
+        }
+        Flow {
+            visible: page.avance; Layout.fillWidth: true; spacing: Space.space3
             Repeater {
-                model: [{title: qsTr("Exécutants et comptes"), route: "station"}, {title: qsTr("Modèles et budgets"), route: "quotas"}, {title: qsTr("Routage"), route: "routing"}, {title: qsTr("Sauvegarde"), route: "backup"}, {title: qsTr("Diagnostics"), route: "diagnostics"}]
+                model: [{title: qsTr("Serveur d’exécution"), route: "station"}, {title: qsTr("Sauvegarde"), route: "backup"}, {title: qsTr("Diagnostics"), route: "diagnostics"}]
                 delegate: AcpButton { required property var modelData; objectName: "reglages-ouvrir-" + modelData.route; label: modelData.title; onTriggered: Navigation.setCurrentRoute(modelData.route) }
             }
         }
         Label { textFormat: Text.PlainText; text: qsTr("Serveur"); color: Colors.textPrimary; font.bold: true }
         AcpTextField { id: server; Layout.fillWidth: true; text: Shell.serverUrl; placeholder: qsTr("Adresse HTTPS de Hermes") }
-        CheckBox { id: loopback; text: qsTr("Autoriser HTTP uniquement sur cette machine (développement)"); checked: Shell.allowsInsecureLoopback }
+        CheckBox { id: loopback; visible: page.avance; text: qsTr("Autoriser HTTP uniquement sur cette machine (développement)"); checked: Shell.allowsInsecureLoopback }
         AcpButton { objectName: "reglages-changer-serveur"; label: qsTr("Changer de serveur"); onTriggered: changeServer.open() }
         Label { id: serverError; textFormat: Text.PlainText; Layout.fillWidth: true; wrapMode: Text.WordWrap; color: Status.statusFailedForeground }
         Label { textFormat: Text.PlainText; text: qsTr("Session"); color: Colors.textPrimary; font.bold: true }

@@ -132,40 +132,28 @@ Rectangle {
         }
         Rectangle { Layout.fillWidth: true; Layout.margins: Space.space4; implicitHeight: 1; color: Colors.borderSubtle }
         NavEntry {
+            Layout.fillWidth: true; objectName: "navigation-projects"
+            label: qsTr("Projets"); iconName: "folder"
+            selected: Navigation.currentRoute === "projects" && Projets.vue !== "detail"
+            onActivated: { Projets.afficherListe(); Navigation.setCurrentRoute("projects"); }
+        }
+        NavEntry {
             Layout.fillWidth: true; objectName: "navigation-home"
-            label: qsTr("Mon atelier"); iconName: "grid"; selected: Navigation.currentRoute === "home"
+            label: qsTr("Activité"); iconName: "activity"; selected: Navigation.currentRoute === "home"
             onActivated: Navigation.setCurrentRoute("home")
         }
         NavEntry {
             Layout.fillWidth: true; objectName: "navigation-questions"
-            label: qsTr("À traiter"); iconName: "activity"; selected: Navigation.currentRoute === "questions"
+            label: qsTr("À valider"); iconName: "hand-raised"; selected: Navigation.currentRoute === "questions"
             compteur: Streams.aTraiter; compteurDescription: Streams.descriptionATraiter
             onActivated: Navigation.setCurrentRoute("questions")
         }
         NavEntry {
-            Layout.fillWidth: true; objectName: "navigation-chat"
-            label: qsTr("Discussions"); iconName: "chat"; selected: Navigation.currentRoute === "chat"
-            onActivated: Navigation.setCurrentRoute("chat")
+            Layout.fillWidth: true; objectName: "navigation-accounts"
+            label: qsTr("Comptes et modèles"); iconName: "users"; selected: ["accounts", "quotas", "routing"].indexOf(Navigation.currentRoute) >= 0
+            onActivated: Navigation.setCurrentRoute("accounts")
         }
-        NavEntry {
-            Layout.fillWidth: true; objectName: "navigation-tools"
-            label: qsTr("Outils et compétences"); iconName: "command"
-            selected: Navigation.currentRoute === "tools"
-            onActivated: Navigation.setCurrentRoute("tools")
-        }
-        NavEntry {
-            Layout.fillWidth: true; objectName: "navigation-vault"
-            label: qsTr("Coffre ACP"); iconName: "folder"
-            selected: Navigation.currentRoute === "vault"
-            onActivated: Navigation.setCurrentRoute("vault")
-        }
-        SectionLabel { Layout.fillWidth: true; text: qsTr("PROJETS") }
-        NavEntry {
-            Layout.fillWidth: true; objectName: "navigation-projects"
-            label: qsTr("Tous les projets"); iconName: "folder"
-            selected: Navigation.currentRoute === "projects" && Projets.vue === "liste"
-            onActivated: { Projets.afficherListe(); Navigation.setCurrentRoute("projects"); }
-        }
+        SectionLabel { Layout.fillWidth: true; text: qsTr("VOS PROJETS") }
         ListView {
             id: projectList
             Layout.fillWidth: true; Layout.fillHeight: true; clip: true
@@ -187,8 +175,8 @@ Rectangle {
         Rectangle { Layout.fillWidth: true; Layout.leftMargin: Space.space5; Layout.rightMargin: Space.space5; implicitHeight: 1; color: Colors.borderSubtle }
         NavEntry {
             Layout.fillWidth: true; objectName: "navigation-settings"
-            label: qsTr("Réglages"); iconName: "settings"
-            selected: ["settings", "station", "quotas", "routing", "backup", "diagnostics"].indexOf(Navigation.currentRoute) >= 0
+            label: qsTr("Paramètres"); iconName: "settings"
+            selected: ["settings", "station", "tools", "vault", "backup", "diagnostics"].indexOf(Navigation.currentRoute) >= 0
             onActivated: Navigation.setCurrentRoute("settings")
         }
         Text {

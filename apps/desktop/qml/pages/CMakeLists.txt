@@ -11,8 +11,10 @@ acp_add_qml_module(
         HomePage.qml
         OutilsPage.qml
         CoffrePage.qml
+        ComptesPage.qml
         PostePage.qml
         ProjectsPage.qml
+        JournalProjet.qml
         QuestionsPage.qml
         QuotasPage.qml
         RoutagePage.qml

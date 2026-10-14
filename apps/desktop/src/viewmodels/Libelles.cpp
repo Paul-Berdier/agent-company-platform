@@ -237,8 +237,8 @@ QString voie(const QJsonValue &valeur)
 {
     static const QHash<QString, QString> table = {
         {QStringLiteral("hermes"), QStringLiteral("Hermes")},
-        {QStringLiteral("poste-codex"), QStringLiteral("Poste (Codex)")},
-        {QStringLiteral("poste-claude"), QStringLiteral("Poste (Claude)")},
+        {QStringLiteral("poste-codex"), QStringLiteral("Codex")},
+        {QStringLiteral("poste-claude"), QStringLiteral("Claude Code")},
     };
     return depuisTable(table, valeur);
 }

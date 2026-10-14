@@ -286,7 +286,7 @@ void TestProjets::cartesRangeesDansLOrdreDuGraphe()
     const QJsonObject exploration = lignes.at(0).toObject();
     QCOMPARE(exploration.value(QStringLiteral("groupe")).toString(), QStringLiteral("Exploration du dépôt"));
     QCOMPARE(exploration.value(QStringLiteral("statutLibelle")).toString(), QStringLiteral("Suspendue"));
-    QCOMPARE(exploration.value(QStringLiteral("voie")).toString(), QStringLiteral("Poste (Claude)"));
+    QCOMPARE(exploration.value(QStringLiteral("voie")).toString(), QStringLiteral("Claude Code"));
     QCOMPARE(exploration.value(QStringLiteral("palier")).toString(), QStringLiteral("Standard"));
     QCOMPARE(exploration.value(QStringLiteral("mention")).toString(), QStringLiteral("quota inconnu"));
     QCOMPARE(exploration.value(QStringLiteral("modeleServi")).toString(), QStringLiteral("Non observé"));
@@ -954,9 +954,9 @@ void TestProjets::executantFermePourLeDepotJamaisRetenu()
     QCOMPARE(liste.at(0).toMap().value(QStringLiteral("fermee")).toBool(), false);
     QCOMPARE(liste.at(1).toMap().value(QStringLiteral("valeur")).toString(), QStringLiteral("poste-codex"));
     QCOMPARE(liste.at(1).toMap().value(QStringLiteral("fermee")).toBool(), true);
-    QCOMPARE(liste.at(1).toMap().value(QStringLiteral("libelle")).toString(), QStringLiteral("Poste (Codex) — fermé pour ce dépôt"));
+    QCOMPARE(liste.at(1).toMap().value(QStringLiteral("libelle")).toString(), QStringLiteral("Codex — fermé pour ce dépôt"));
     QCOMPARE(f.value(QStringLiteral("voiesFermees")).toStringList(),
-             QStringList{QStringLiteral("Poste (Codex) : Fermé pour ce dépôt (grisé dans la liste) — %1").arg(raison)});
+             QStringList{QStringLiteral("Codex : Fermé pour ce dépôt (grisé dans la liste) — %1").arg(raison)});
 
     // Le choisir quand même (clavier) : refusé en français, rien ne change, rien n'est émis.
     banc.projets.choisirVoie(QStringLiteral("poste-codex"));
